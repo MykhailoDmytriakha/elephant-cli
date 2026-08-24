@@ -266,9 +266,13 @@ def cmd_plan(args):
     if verb in ("new", "add"):
         return plan_new(root, task, tdir, words[1:], getattr(args, "force", False))
     if verb == "set":
+        if getattr(args, "file", None):
+            return plan_populate(root, task, tdir, words[1:], args.file)
         return plan_set(root, task, tdir, words[1:], getattr(args, "replace", False))
     if verb in ("rm", "drop"):
         return plan_rm(root, task, tdir, words[1:])
+    if verb == "reopen":
+        return plan_reopen(root, task, tdir, words[1:], getattr(args, "why", None))
     if verb == "done":
         return plan_done(root, task, tdir, words[1:], getattr(args, "force", False))
     if verb == "start":
@@ -305,17 +309,43 @@ PROJECTION_MARK = "_Проекция дерева узлов"
 ID_RE = re.compile(r"\b[Ss]\d+(?:\.[Ww][Pp]\d+)*\b")
 
 
+AFTER_WORDS = ("after", "после", "depends", "зависит", "requires", "нужен", "нужны", "следом за")
+BEFORE_WORDS = ("before", "до ", "перед", "раньше", "prior to", "затем", "потом", "then ", "gates", "открывает")
+
+
+def deps_parse(text, own=""):
+    """The `deps` field read as ORDER, not as a bag of ids (feedback 2026-08-24: «After S1.WP1;
+    before S1.WP3 and S1.WP4» made a cycle, because every id named was taken as a
+    prerequisite). Clauses split at «;» and line breaks; inside a clause the ids before a
+    «before/до/перед» word are prerequisites, the ids after it are SUCCESSORS — nodes that
+    wait for this one. Returns (prereqs, successors), own id dropped, order kept."""
+    pre, suc = [], []
+    if not text or text.strip() == "_пусто_":
+        return pre, suc
+    for clause in re.split(r"[;\n]+", text):
+        low = clause.lower()
+        cut = None
+        for w in BEFORE_WORDS:
+            i = low.find(w)
+            if i >= 0 and (cut is None or i < cut):
+                cut = i
+        head, tail = (clause, "") if cut is None else (clause[:cut], clause[cut:])
+        for part, bucket in ((head, pre), (tail, suc)):
+            for m in ID_RE.finditer(part):
+                d = m.group(0).upper()
+                if d != own and d not in bucket:
+                    bucket.append(d)
+    return pre, suc
+
+
 def deps_of(node):
-    """Node ids named in the `deps` field — «после S1, S2.WP1» → {S1, S2.WP1}; own id dropped."""
-    raw = (node.get("_fields", {}) or {}).get("deps") or ""
-    if raw.strip() == "_пусто_":
-        return []
-    out = []
-    for m in ID_RE.finditer(raw):
-        d = m.group(0).upper()
-        if d != node["id"] and d not in out:
-            out.append(d)
-    return out
+    """Prerequisites named in the node's `deps` — the ids it waits for."""
+    return deps_parse((node.get("_fields", {}) or {}).get("deps") or "", node["id"])[0]
+
+
+def successors_of(node):
+    """Ids the node's `deps` says come AFTER it («before S1.WP3») — reverse edges."""
+    return deps_parse((node.get("_fields", {}) or {}).get("deps") or "", node["id"])[1]
 
 
 def plan_waves(tdir):
@@ -330,11 +360,19 @@ def plan_waves(tdir):
     ids = {n["id"] for n in nodes}
     by_id = {n["id"]: n for n in nodes}
     deps, missing = {}, {}
+    # reverse edges: «S1.WP1 … before S1.WP3» ⇒ S1.WP3 waits for S1.WP1
+    reverse = {}
     for n in nodes:
-        own = deps_of(n)
+        for s in successors_of(n):
+            if s in ids:
+                reverse.setdefault(s, []).append(n["id"])
+            else:
+                missing.setdefault(n["id"], []).append(s)
+    for n in nodes:
+        own = deps_of(n) + [x for x in reverse.get(n["id"], []) if x not in deps_of(n)]
         miss = [d for d in own if d not in ids]
         if miss:
-            missing[n["id"]] = miss
+            missing[n["id"]] = [x for x in missing.get(n["id"], []) if x not in miss] + miss
         eff = [d for d in own if d in ids]
         p = n.get("parent")
         while p and p in by_id:
@@ -445,11 +483,17 @@ def drift_lines(tdir, indent="           "):
     out = []
     for nid, miss in d["missing"].items():
         first = miss[0].lower().replace(".", " ")
-        out.append(f"{indent}РАСХОЖДЕНИЕ  {nid} зависит от {', '.join(miss)} — таких узлов нет: "
-                   f'el plan new {first} "<имя>" · либо поправь: el plan set {nid.lower()} deps "…"')
+        out.append(f"{indent}РАСХОЖДЕНИЕ  deps узла {nid} называет {', '.join(miss)} — таких узлов нет: "
+                   f'el plan new {first} "<имя>" · либо поправь: el plan set {nid.lower()} deps "…" --replace')
     if d["cycle"]:
-        out.append(f"{indent}ЦИКЛ  зависимости ходят по кругу: {', '.join(d['cycle'])} — "
-                   "разорви в поле deps")
+        _w, _m, _c, deps = plan_waves(tdir)
+        cyc = set(d["cycle"])
+        edges = [f"{nid} ← {', '.join(x for x in deps[nid] if x in cyc)}"
+                 for nid in d["cycle"] if any(x in cyc for x in deps[nid])]
+        out.append(f"{indent}ЦИКЛ  зависимости ходят по кругу: {' · '.join(edges)} — "
+                   "разорви в поле deps того узла, чья стрелка лишняя")
+        out.append(f"{indent}      deps читается как порядок: «после S1» — S1 раньше; "
+                   "«перед S3» / «before S3» — S3 позже (не предпосылка)")
     return out
 
 
@@ -609,6 +653,15 @@ def plan_new(root, task, tdir, words, force=False):
         if not par:
             print(f"нет родителя {parent} — заведи его первым", file=sys.stderr)
             return 1
+        # SCOPE GROWS UNDER A CLOSED PARENT (feedback 2026-08-24): a child born under a done
+        # node silently makes «closed parent, open children». The parent is reopened first,
+        # with a reason — that is the audit trail of the expansion.
+        if node_status(par) in TERMINAL:
+            print(f"родитель {parent} {STATUS_RU[node_status(par)]} — под закрытым узлом "
+                  "новых работ не заводят молча.", file=sys.stderr)
+            print(f'  расширение объёма: el plan reopen {parent.lower()} --why "<что прибавилось>" '
+                  f"— потом el plan new {nid.lower().replace('.', ' ')} …", file=sys.stderr)
+            return 1
         gaps = node_gaps(par, task_mode(tdir))
         if gaps:
             print(f"родитель {parent} ещё не заполнен: {', '.join(gaps)}", file=sys.stderr)
@@ -641,6 +694,110 @@ def plan_new(root, task, tdir, words, force=False):
     touch(root, task)
     print(f"узел {nid} · {meta['level']} · {meta['name']}")
     print(f"дальше   el plan {nid.lower().replace('.', ' ')} — какие из восьми полей пусты")
+    return 0
+
+
+def plan_reopen(root, task, tdir, words, why):
+    """A closed or parked node goes back to OPEN — not to work — with the reason written
+    (feedback 2026-08-24: «plan start --force смешивает reopening с execution»). Scope
+    expansion of a done node starts here; `el plan start` is a separate, later act."""
+    if not words:
+        print('el plan reopen s1 --why "<что прибавилось · почему открываем>"', file=sys.stderr)
+        return 1
+    nid = path_to_id(words)
+    node = node_read(tdir, nid)
+    if not node:
+        print(f"нет узла {nid}", file=sys.stderr)
+        return 1
+    st = node_status(node)
+    if st not in TERMINAL:
+        print(f"{nid} и так {STATUS_RU[st]} — reopen только для закрытого или отложенного",
+              file=sys.stderr)
+        return 1
+    why = (why or "").strip()
+    if not why:
+        print("скажи --why — переоткрытие без причины неотличимо от случайного", file=sys.stderr)
+        return 1
+    _set_status(root, task, tdir, node, "open",
+                {"reopened_at": now_iso(), "reopen_note": why, "park_note": None},
+                "node-reopen", why)
+    touch(root, task)
+    print(f"открыт заново  {nid} · {node.get('name', '')} — {why}")
+    print(f"дальше   расширить: el plan new {nid.lower().replace('.', ' ')} wpN \"<имя>\" · "
+          f"в работу: el plan start {nid.lower()} · критерии узла остаются, вердикты — тоже")
+    return 0
+
+
+def plan_populate(root, task, tdir, words, src):
+    """The whole contract in ONE command (feedback 2026-08-24: «восемь полей и пять строк
+    check — много однотипных shell-команд»). `--file <path>` or `--file -` (stdin): a
+    markdown with a section per field —
+
+        ## result
+        - подписанный договор
+        ## check
+        - подписан обеими сторонами
+        …
+
+    Section heads are `## <field>` or `<field>:` on its own line; unknown heads are refused
+    by name. Fields named in the file are REPLACED whole (this is a populate, not an append);
+    fields not named stay as they are. Ends with the digest: what was set, what is still empty."""
+    if not words:
+        print('el plan set s1 wp1 --file contract.md   ·   --file - читает stdin', file=sys.stderr)
+        return 1
+    nid = path_to_id(words)
+    node = node_read(tdir, nid)
+    if not node:
+        print(f"нет узла {nid}", file=sys.stderr)
+        return 1
+    try:
+        text = sys.stdin.read() if src == "-" else open(os.path.expanduser(src), encoding="utf-8").read()
+    except OSError:
+        print(f"не читается: {src}", file=sys.stderr)
+        return 1
+    sections, cur, bad = {}, None, []
+    for line in text.splitlines():
+        m = re.match(r"^\s*(?:##\s*|)([A-Za-z_]+)\s*:?\s*$", line)
+        if m and (line.lstrip().startswith("##") or line.rstrip().endswith(":")):
+            key = m.group(1).lower()
+            if key in PLAN_FIELD_SET:
+                cur = key
+                sections[cur] = []
+            else:
+                bad.append(key)
+                cur = None
+            continue
+        if cur:
+            sections[cur].append(line)
+    if bad:
+        print(f"неизвестные поля: {', '.join(bad)} — поля: {', '.join(NODE_KEYS)}", file=sys.stderr)
+        return 1
+    if not sections:
+        print("в файле нет ни одной секции «## <поле>» — поля: " + ", ".join(NODE_KEYS),
+              file=sys.stderr)
+        return 1
+    fields = dict(node["_fields"])
+    for key, lines in sections.items():
+        body = "\n".join(l.rstrip() for l in lines).strip()
+        if not body:
+            continue
+        rows = [l.strip() for l in body.splitlines() if l.strip()]
+        fields[key] = "\n".join(l if l.startswith("-") else f"- {l}" for l in rows)
+    node_write(tdir, nid, node, fields)
+    touch(root, task)
+    journal(root, task, "node-set", f"{nid}: {', '.join(sections)} (--file)", {"node": nid})
+    print(f"{nid} · записано полей: {len(sections)} — {', '.join(sections)}")
+    for key in sections:
+        n = len([l for l in fields.get(key, '').splitlines() if l.strip().startswith('-')])
+        print(f"  {key:<10} {n} строк(и)")
+    if "deps" in sections:
+        pre, suc = deps_parse(fields["deps"], nid)
+        print("порядок  " + (f"после {', '.join(pre)}" if pre else "предпосылок нет")
+              + (f" · перед {', '.join(suc)}" if suc else ""))
+    gaps = node_gaps(node_read(tdir, nid), task_mode(tdir))
+    print(f"пусто    {', '.join(gaps) if gaps else '— все поля контракта заполнены'}")
+    for l in drift_lines(tdir, indent="         "):
+        print(l)
     return 0
 
 
@@ -703,6 +860,13 @@ def plan_set(root, task, tdir, words, replace=False):
     touch(root, task)
     n = len([l for l in fields[key].splitlines() if l.strip().startswith("-")])
     print(f"{nid} · {key}: {n} строк(и)")
+    if key == "deps":
+        pre, suc = deps_parse(fields[key], nid)
+        print("порядок  " + (f"после {', '.join(pre)}" if pre else "предпосылок нет")
+              + (f" · перед {', '.join(suc)}" if suc else "")
+              + "  (так прочитан deps: «после X» — X раньше; «перед Y»/«before Y» — Y позже)")
+        for l in drift_lines(tdir, indent="         "):
+            print(l)
     if key == "check" and n < 5:
         print("         критериев меньше пяти — по спеке узел ещё не контракт")
     gaps = node_gaps(node_read(tdir, nid), task_mode(tdir))

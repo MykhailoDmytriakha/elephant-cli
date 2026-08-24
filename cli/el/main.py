@@ -221,6 +221,12 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     fields: expand only the level you stand on (§5). A sibling
 #                                     with the SAME name is refused too (a repeated hypothesis —
 #                                     search tasks): name how this one differs, or --force
+#   el plan set s1 wp1 --file c.md    THE WHOLE CONTRACT at once — a markdown with «## <field>»
+#                                     sections (or «field:» lines); named fields are replaced,
+#                                     others kept; «--file -» reads stdin · ends with a digest
+#   el plan reopen s1 --why "…"       a closed or parked node back to OPEN with the reason —
+#                                     scope grew; `plan new` under a closed parent is refused
+#                                     until this; work starts separately (el plan start)
 #   el plan set s1 wp1 check "..."    fill one field · result · check · resources · artifacts ·
 #                                     storage · inputs · deps · executor · sync. Appends, so
 #                                     criteria accumulate one at a time · --replace to start over
@@ -232,6 +238,9 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     → traces --node → wait at the stop → done
 #   el plan wait s1 wp1 "<shown>"     the baton goes to the owner: shown, waiting for his word —
 #                                     the agent does not drive on; his word: el accept --for node:…
+#                                     deps is read as ORDER: «после S1» / «after S1» — S1 is a
+#                                     prerequisite; «перед S3» / «before S3» — S3 waits for this
+#                                     node (not a prerequisite); a cycle names its edges
 #   el plan block s1 --why "…"        stuck on something named (--owe <n>: on the owner's debt)
 #                                     · el plan park s1 --why "…" sets a node aside ON PURPOSE
 #                                     (terminal for the gates, like done)
@@ -365,6 +374,14 @@ def cmd_help(args):
         return 0
     hits = [(first, rest) for _g, entries in blocks for first, rest in entries
             if re.match(rf"  el {re.escape(topic)}(\s|$)", first)]
+    # a SUB-VERB («cover», «unfold», «decide») or a bare word: any entry whose first line
+    # names it (feedback 2026-08-24: `el help cover` exited 1 while `el plan cover` worked)
+    if not hits:
+        hits = [(first, rest) for _g, entries in blocks for first, rest in entries
+                if re.search(rf"\bel \S+ {re.escape(topic)}(\s|$)", first)]
+    if not hits:
+        hits = [(first, rest) for _g, entries in blocks for first, rest in entries
+                if re.search(rf"\b{re.escape(topic)}\b", first)]
     if not hits:
         print(f"нет такой команды или группы «{topic}» · группы: {' · '.join(HELP_GROUPS)} · "
               "how — механика · все команды: el help", file=sys.stderr)
@@ -533,6 +550,7 @@ def main():
     pl.add_argument("--replace", action="store_true")
     pl.add_argument("--why")                       # el plan block / park
     pl.add_argument("--owe", type=int)             # el plan block — держит долг владельца #n
+    pl.add_argument("--file")                      # el plan set <узел> --file <контракт.md> | -
     pl.add_argument("--after")                     # el plan unfold — после чего раскроется
     pl.set_defaults(fn=cmd_plan)
 

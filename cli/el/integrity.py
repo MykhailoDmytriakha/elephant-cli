@@ -26,6 +26,7 @@ import os, re, sys
 from .protocol import CONTEXT_FILES
 from .state import journal, pick_task, require_root, task_mode, touch
 from .plan import node_read, node_write, nodes_all, path_to_id
+from .amend import acked
 
 
 GOAL_KINDS = {"ifr": ("чек-лист приёмки", "checklist"),
@@ -223,10 +224,17 @@ def cmd_integrity(root, task, tdir, quiet=False):
              for k, v in gaps(tdir).items() if v]
     if holes:
         for h in holes:
-            print(f"ДЫРА      {h}")
+            print(f"ДЫРА      {h}   ← держит ворота выхода из плана")
         print('закрыть   el plan cover <узел> ifr <N>  ·  завести узел: el plan new … · '
               'либо объявить незнание: el plan unfold <узел> "<что должно стать известно>"')
+    # ORPHANS ARE ADVISORY (feedback 2026-08-24: «различать hard gaps и advisory orphans,
+    # позволять пометить branch как out of scope»): they never hold the gate; a branch kept
+    # on purpose is acknowledged once — el ack orphan:S2 --why — and stops being named.
+    ack = acked(root, task)
+    orphans = [o for o in orphans if f"orphan:{o}" not in ack]
     if orphans:
-        print(f"ничьи     {', '.join(orphans)} — эти ветки не работают ни на один кусок цели: "
-              "либо привяжи (el plan cover), либо спроси, зачем они")
+        print(f"ничьи     {', '.join(orphans)} — совет, ворота не держит: эти ветки не работают "
+              "ни на один кусок цели")
+        print("          привяжи: el plan cover <узел> ifr <N> · осознанно вне цели: "
+              f'el ack orphan:{orphans[0]} --why "<зачем ветка>"')
     return 0 if not holes and not partial else 1

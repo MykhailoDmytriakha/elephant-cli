@@ -145,6 +145,13 @@ def pre_plan_md_drift(ws):
            "# Сетевой план\n\nS1 → S2 → S3 → S4; остановка после S2.\n")
 
 
+def pre_contract_file(ws):
+    """A whole contract in one markdown — for `el plan set … --file` (feedback 2026-08-24)."""
+    _write(os.path.join(ws["A"], "contract.md"),
+           "## result\nвиза юриста стоит на договоре\n## check\n- виза стоит\n- дата визы не позже подписания\n"
+           "resources:\nюрист, два дня\n## deps\nпосле S1; before S3\n")
+
+
 def pre_plan_md_B(ws):
     _write(os.path.join(_task_dir(ws, "share-songs"), "plan.md"),
            "# План B\n\nпока только набросок.\n")
@@ -1028,14 +1035,30 @@ def scenario(ws):
     add(S(["plan"], pre=pre_plan_md_drift, label="plan: hand-written plan.md → notes/, projection printed"))
     add(S(["plan", "set", "s3", "deps", "после S1 и S9"], label="deps naming a node that is not there"))
     add(S(["plan"], label="plan: РАСХОЖДЕНИЕ — S3 ← S9, no such node"))
-    add(S(["plan", "set", "s3", "deps", "после S1"]))
-    add(S(["plan", "set", "s1", "deps", "после S3"], label="a cycle: S1 ← S3 ← S1"))
-    add(S(["plan"], label="plan: ЦИКЛ"))
-    add(S(["plan", "set", "s1", "deps", "N/A — первый"]))
+    add(S(["plan", "set", "s3", "deps", "после S1", "--replace"]))
+    add(S(["plan", "set", "s1", "deps", "после S3", "--replace"], label="a cycle: S1 ← S3 ← S1"))
+    add(S(["plan"], label="plan: ЦИКЛ — edges named"))
+    add(S(["plan", "set", "s1", "deps", "N/A — первый", "--replace"]))
     add(S(["ctx", "--section", "plan"], label="ctx plan: the projection"))
+    # ── feedback 2026-08-24 (Copilot agent): deps as order · help sub-verb · reopen · --file · orphans ──
+    add(S(["plan", "set", "s2", "deps", "After S1; before S3", "--replace"],
+          label="deps: «before» is a successor, not a prerequisite — no cycle"))
+    add(S(["help", "cover"], label="help: a sub-verb is found"))
+    add(S(["help", "unfold"]))
+    add(S(["plan", "new", "s2", "wp1", "виза"], rc=1, label="plan new under a closed parent: refused"))
+    add(S(["plan", "reopen", "s2"], rc=1, label="reopen: --why required"))
+    add(S(["plan", "reopen", "s2", "--why", "объём вырос: нужна виза юриста"]))
+    add(S(["plan", "reopen", "s2", "--why", "x"], rc=1, label="reopen: already open"))
+    add(S(["plan", "new", "s2", "wp1", "виза"], label="plan new after reopen"))
+    add(S(["plan", "set", "s2", "wp1", "--file", "nope.md"], rc=1, label="--file: unreadable"))
+    add(S(["plan", "set", "s2", "wp1", "--file", "contract.md"], pre=pre_contract_file,
+          label="--file: the whole contract at once, with a digest"))
+    add(S(["plan", "s2", "wp1"], label="the populated node"))
     add(S(["plan", "integrity"], rc=1, label="integrity: nothing to count from → rc 1"))
     add(S(["context", "parts", "собрать стенд\nужать\nпринять"], label="parts only"))
     add(S(["plan", "integrity"], rc=1, label="integrity: parts only, no checklist → partial, rc 1"))
+    add(S(["ack", "orphan:S3", "--why", "стенд — вне цели, осознанно"]))
+    add(S(["plan", "integrity"], rc=1, label="integrity: orphan acknowledged, severity named"))
     add(S(["feedback", "мешало"], label="feedback: thin — taken, told it is thin"))
     add(S(["feedback", "наблюдал: el plan integrity → 0 при «считать не от чего» · ожидал: код 1 · обошёл: смотрел вывод глазами · помогло: el plan status показал недостающее",
            "--about", "plan integrity"], label="feedback: full shape"))
