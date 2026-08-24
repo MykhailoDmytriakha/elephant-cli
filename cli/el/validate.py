@@ -1,0 +1,424 @@
+"""Phase 5 — VALIDATE: the ledger. Criteria come from the plan's nodes (the `check`
+field) and can only be given a verdict here, one at a time; the text is never edited.
+"""
+import os, re, sys
+from .protocol import CONTEXT_FILES
+from .state import current_task, journal, pick_task, require_root, resolve_task, touch, write
+from .plan import STATUS_RU, node_open, node_status, nodes_all, path_to_id
+from .amend import word_given_on
+
+
+# ── Проверка по критериям плана ────────────────────────────────────────────────
+#
+# The criteria are written in PLAN, one node at a time, and until now nobody ever read them
+# back: `el forward` out of validate only asked that a file called validation.md exist, and an
+# agent writes that file itself. Five measurable criteria per node turned into decoration.
+#
+# Owner, 2026-08-20: "по el validate должен проверять что все этапы и внутренние задачи,
+# их валидации которые лежат там, все закрыты... и чтобы после execution можно было сверять".
+#
+# So the ledger is GENERATED from the nodes and can only be filled in one criterion at a time.
+# Text always comes from the plan, so a criterion cannot quietly drift into something easier to
+# pass; only the verdict and its proof are added here.
+
+VALIDATION_FILE = "validation.md"
+
+
+def criteria_of(node):
+    """The `check` field of a node, split into separate criteria."""
+    raw = (node.get("_fields", {}) or {}).get("check") or ""
+    out, cur = [], ""
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            if cur:
+                out.append(cur.strip())
+            cur = stripped[2:]
+        elif stripped and cur:
+            cur += " " + stripped
+    if cur:
+        out.append(cur.strip())
+    return out
+
+
+def checklist_node(tdir):
+    """The ACCEPTANCE CHECKLIST of the ideal result, as one pseudo-node of the ledger.
+
+    The owner's question (2026-08-21): «мы будем копировать validation checklist и по нему
+    проходить?» — yes, but not copy: READ, the way node criteria are read from the plan. Every
+    bullet of context/acceptance-checklist.md (amendments included) becomes a criterion under
+    the id IFR, so `el validate ifr 3 --met "его слова"` marks it, the gate counts it, and a
+    checklist changed by an amendment is re-read on the next `el validate` — the text always
+    comes from the source, only verdicts live here."""
+    path = os.path.join(tdir, CONTEXT_FILES["checklist"])
+    if not os.path.exists(path):
+        return []
+    items = []
+    for line in open(path, encoding="utf-8"):
+        s = line.strip()
+        m = re.match(r"^(?:[-*•]|\d+[.)])\s+(.+)$", s)
+        if m and not s.startswith("- основание:"):
+            items.append(m.group(1).strip())
+    if not items:
+        return []
+    return [{"id": "IFR", "name": "чек-лист приёмки (из ИФР)",
+             "_fields": {"check": "\n".join("- " + x for x in items)}}]
+
+
+def baseline_line(tdir):
+    """The before-measurement, so the comparison is in front of the eye, not in memory."""
+    path = os.path.join(tdir, "thinking", "baseline.md")
+    if not os.path.exists(path):
+        return ""
+    for line in open(path, encoding="utf-8"):
+        line = line.strip()
+        if line and not line.startswith("#") and not line.startswith("_"):
+            return line[:200]
+    return ""
+
+
+def validation_parse(tdir):
+    """Verdicts already recorded, keyed by (node id, criterion number)."""
+    path = os.path.join(tdir, VALIDATION_FILE)
+    if not os.path.exists(path):
+        return {}
+    out, node = {}, None
+    last = None
+    for line in open(path, encoding="utf-8"):
+        # `#{2,}`: since 2026-08-23 the heading depth follows the node's depth (## S1 ·
+        # ### S1.WP1 · #### S1.WP1.T1), so the ledger reads as a tree in a plain editor.
+        # The key is still the id, so flat files written before that parse unchanged.
+        head = re.match(r"^#{2,}\s+([A-Za-z0-9.]+)\s", line)
+        if head:
+            node = head.group(1).upper()
+            continue
+        item = re.match(r"^- \[([ xX!\-?])\]\s+(\d+)\.", line)
+        if item and node:
+            status = {"x": "met", "X": "met", "!": "failed",
+                      "-": "declined", "?": "unverified"}.get(item.group(1), "open")
+            last = (node, int(item.group(2)))
+            out[last] = [status, ""]
+            continue
+        proof = re.match(r"^\s+→\s*(.+)$", line.rstrip())
+        if proof and last:
+            out[last][1] = proof.group(1).strip()
+    return {k: tuple(v) for k, v in out.items()}
+
+
+def validation_render(tdir, nodes, verdicts):
+    """Rewrite the ledger from the plan plus the verdicts. Criteria text is never edited here."""
+    base = baseline_line(tdir)
+    lines = ["# Проверка: критерии плана и чек-лист приёмки", "",
+             "_Критерии узлов взяты из полей `check` плана, пункты IFR — из "
+             "context/acceptance-checklist.md; правьте их там, не здесь._",
+             "_Отметки ставит `el validate <узел|ifr> <номер> --met \"чем доказано\"`._", ""]
+    if base:
+        lines += [f"**Мерка «до»:** {base}", ""]
+    # Tree order — parent first, its children right under it (S1 · S1.WP1 · S1.WP1.T1),
+    # IFR last: the file reads as the matryoshka, not by accident of filename sorting.
+    nodes = (sorted((n for n in nodes if n["id"] != "IFR"),
+                    key=lambda n: tuple(n["id"].split("."))) +
+             [n for n in nodes if n["id"] == "IFR"])
+    for n in nodes:
+        crits = criteria_of(n)
+        if not crits:
+            continue
+        # Heading depth = node depth: the file itself is the matryoshka, not a flat list.
+        lines.append(f"{'#' * (2 + n['id'].count('.'))} {n['id']} · {n.get('name', '')}")
+        for i, c in enumerate(crits, 1):
+            status, proof = verdicts.get((n["id"], i), ("open", ""))
+            box = {"met": "x", "failed": "!", "declined": "-",
+                   "unverified": "?"}.get(status, " ")
+            lines.append(f"- [{box}] {i}. {c}")
+            if proof:
+                lines.append(f"      → {proof}")
+        lines.append("")
+    write(os.path.join(tdir, VALIDATION_FILE), "\n".join(lines).rstrip() + "\n")
+
+
+def validation_state(tdir):
+    """(nodes, verdicts, open, failed, declined, unverified) — the whole picture."""
+    # Nodes first — «работает ли» — then the checklist — «то ли это, чего он ждал».
+    nodes = [n for n in nodes_all(tdir) if criteria_of(n)] + checklist_node(tdir)
+    verdicts = validation_parse(tdir)
+    open_n = failed_n = declined_n = unverified_n = 0
+    for n in nodes:
+        for i in range(1, len(criteria_of(n)) + 1):
+            st = verdicts.get((n["id"], i), ("open", ""))[0]
+            if st == "open":
+                open_n += 1
+            elif st == "failed":
+                failed_n += 1
+            elif st == "declined":
+                declined_n += 1
+            elif st == "unverified":
+                unverified_n += 1
+    return nodes, verdicts, open_n, failed_n, declined_n, unverified_n
+
+
+# ── Свёртка — один закон на все уровни ────────────────────────────────────────
+#
+# The owner's design (2026-08-23): validation is a matryoshka, not a flat list. The check
+# of any node = its OWN criteria + the ROLL-UP of its children — the same rule on every
+# level (stage → work → task). The root of the tree is THE TASK ITSELF: its own criteria
+# are the acceptance checklist (the IFR pseudo-node), its children are the stages, and
+# above the root stands the owner's word — the one thing never computed.
+#
+# Nothing here is collected as a separate step: verdicts are recorded while the work runs
+# and sealed when the node closes (plan_done refuses to close over open criteria); the
+# roll-up is DERIVED, the way a phase is derived from the journal.
+
+VERDICT_RU = {"met": "сошёлся", "failed": "НЕ сошёлся", "declined": "снят",
+              "unverified": "не проверен", "open": "без вердикта"}
+ROLL_MARK = {"failed": "✗", "debt": "?", "open": "▶", "ok": "✓", "empty": "·"}
+ROLL_RU = {"failed": "не сошлось", "debt": "не проверено", "open": "открыто",
+           "ok": "сошлось", "empty": "нечего проверять"}
+
+
+def _fold(c):
+    """The folded verdict of one counter: the worst news wins."""
+    if c["failed"]:
+        return "failed"
+    if c["unverified"]:
+        return "debt"
+    if c["open"]:
+        return "open"
+    return "ok" if c["total"] else "empty"
+
+
+def rollup(tdir):
+    """(order, info) — the whole matryoshka, derived.
+
+    `order` — node ids in tree order, only nodes whose subtree holds at least one
+    criterion; IFR last. `info[id]` — name · level · status · depth · parent ·
+    items [{text, status, proof}] · own / sub counters {met, failed, declined,
+    unverified, open, done, total} · verdict (see _fold). `info["TASK"]` is the root:
+    own = the IFR checklist, sub = everything."""
+    verdicts = validation_parse(tdir)
+    real = sorted(nodes_all(tdir), key=lambda n: n["id"])
+    info, kids = {}, {}
+    for n in real + checklist_node(tdir):
+        nid = n["id"]
+        own = {"met": 0, "failed": 0, "declined": 0, "unverified": 0, "open": 0}
+        items = []
+        for i, c in enumerate(criteria_of(n), 1):
+            st, proof = verdicts.get((nid, i), ("open", ""))
+            items.append({"text": c, "status": st, "proof": proof})
+            own[st] = own.get(st, 0) + 1
+        own["total"] = len(items)
+        own["done"] = own["total"] - own["open"]
+        parent = nid.rsplit(".", 1)[0] if "." in nid else ""
+        info[nid] = {"id": nid, "name": n.get("name", ""), "level": n.get("level", ""),
+                     "status": "" if nid == "IFR" else node_status(n),
+                     "depth": nid.count("."), "parent": parent,
+                     "items": items, "own": own, "sub": dict(own)}
+    for nid, rec in info.items():
+        if rec["parent"] and rec["parent"] not in info:
+            rec["parent"] = ""          # orphan — shown at the top level, not lost
+        kids.setdefault(rec["parent"], []).append(nid)
+    # Bottom-up: the deepest first, each child pours its subtree into the parent.
+    for nid in sorted(info, key=lambda i: -info[i]["depth"]):
+        rec = info[nid]
+        if rec["parent"]:
+            psub = info[rec["parent"]]["sub"]
+            for k, v in rec["sub"].items():
+                psub[k] += v
+    for rec in info.values():
+        rec["verdict"] = _fold(rec["sub"])
+    # The root — the task itself. Its own criteria are the acceptance checklist.
+    task_sub = {"met": 0, "failed": 0, "declined": 0, "unverified": 0, "open": 0,
+                "total": 0, "done": 0}
+    for nid in kids.get("", []):
+        for k, v in info[nid]["sub"].items():
+            task_sub[k] += v
+    ifr = info.get("IFR") or {"own": {"met": 0, "failed": 0, "declined": 0,
+                                      "unverified": 0, "open": 0, "total": 0, "done": 0},
+                              "items": []}
+    info["TASK"] = {"id": "TASK", "name": "задача целиком", "level": "", "status": "",
+                    "depth": -1, "parent": None, "items": ifr["items"],
+                    "own": ifr["own"], "sub": task_sub, "verdict": _fold(task_sub)}
+    order = []
+
+    def walk(nid):
+        rec = info[nid]
+        if rec["sub"]["total"]:
+            order.append(nid)
+        for c in sorted(kids.get(nid, [])):
+            walk(c)
+    for top in sorted(kids.get("", [])):
+        if top != "IFR":
+            walk(top)
+    if "IFR" in info and info["IFR"]["own"]["total"]:
+        order.append("IFR")
+    return order, info
+
+
+def cmd_validate(args):
+    """The ledger: every criterion of every node, with its verdict and what proves it."""
+    root = require_root()
+    if not root:
+        return 1
+    task = pick_task(root, getattr(args, "task", None))
+    if not task:
+        return 1
+    tdir = os.path.join(root, task)
+    nodes, verdicts, _, _, _, _ = validation_state(tdir)
+    if not nodes:
+        print("нет ни критериев в узлах плана, ни чек-листа приёмки — проверять нечего",
+              file=sys.stderr)
+        return 1
+
+    words = list(getattr(args, "words", None) or [])
+    if words:
+        # Addressed the way `el plan` is addressed — `s1 wp1 3` and `s1.wp1 3` name the
+        # same node: the path runs up to the first token that is a number. Taking only the
+        # first word silently SHOWED S1 when S1.WP1 was meant, and the agent believed the
+        # criterion was marked (found by the differential test, 2026-08-21).
+        cut = next((i for i, w in enumerate(words) if w.isdigit()), len(words))
+        nid = path_to_id(words[:cut] or [words[0]])
+        node = next((n for n in nodes if n["id"] == nid), None)
+        if not node:
+            print(f"нет узла {nid} с критериями", file=sys.stderr)
+            return 1
+        crits = criteria_of(node)
+        if cut >= len(words):
+            # One node = its own criteria + the roll-up of its children — the same law
+            # as the whole ledger, shown one level deep (owner, 2026-08-23).
+            order, info = rollup(tdir)
+            rec = info.get(node["id"])
+            head = f"{node['id']} · {node.get('name','')}"
+            if rec and rec["sub"]["total"] != rec["own"]["total"]:
+                head += (f"   свои {rec['own']['done']}/{rec['own']['total']} · "
+                         f"с детьми {rec['sub']['done']}/{rec['sub']['total']}")
+            print(head)
+            for i, c in enumerate(crits, 1):
+                st, proof = verdicts.get((node["id"], i), ("open", ""))
+                mark = {"met": "✓", "failed": "✗", "declined": "—",
+                "unverified": "?"}.get(st, "·")
+                print(f"  {mark} {i}. {c[:90]}")
+                if proof:
+                    print(f"       → {proof[:88]}")
+            kids = [info[i] for i in order
+                    if rec and info[i]["parent"] == node["id"]] if rec else []
+            if kids:
+                print("дети:")
+                for k in kids:
+                    print(f"  {ROLL_MARK[k['verdict']]} {k['id']:<10} "
+                          f"{k['name'][:44]:<46}{k['sub']['done']}/{k['sub']['total']}")
+            print(f'\nотметить  el validate {node["id"].lower()} <номер> --met "<чем доказано>"')
+            return 0
+        num = int(words[cut])
+        if not (1 <= num <= len(crits)):
+            print(f"у {node['id']} критериев {len(crits)}, а не {num}", file=sys.stderr)
+            return 1
+        met = getattr(args, "met", None)
+        failed = getattr(args, "failed", None)
+        # FOUR verdicts, and the last two are not one thing under a vague name. The first cut of
+        # this had a single `--skip`, and the owner refused the word outright (2026-08-20:
+        # "skip — это как бы пропустить и пойти дальше... skipов не должно быть, всё должно быть
+        # осмысленное"). He was right, and the name was hiding TWO different facts:
+        #   declined   — the criterion no longer applies: the work behind it was cancelled.
+        #                Nothing to check, and no debt. Legitimately closed.
+        #   unverified — the work exists, the check does not. The promise still stands and
+        #                nobody answered it. That IS a debt, and it must not pass quietly.
+        # Collapsing them loses the difference between "снято" and "неизвестно".
+        declined = getattr(args, "declined", None)
+        unverified = getattr(args, "unverified", None)
+        if getattr(args, "skip", None):
+            print("нет вердикта «skip» — пропуск без смысла запрещён.", file=sys.stderr)
+            print('  снят вместе с работой:   --declined "<почему отменили>"', file=sys.stderr)
+            print('  работа есть, проверки нет: --unverified "<почему не мерили>"', file=sys.stderr)
+            return 1
+        if not met and not failed and not declined and not unverified:
+            print('нужен вердикт: --met "<чем доказано>" · --failed "<что не сошлось>" · '
+                  '--declined "<почему снят>" · --unverified "<почему не мерили>"',
+                  file=sys.stderr)
+            return 1
+        kind = ("met" if met else "failed" if failed else
+                "declined" if declined else "unverified")
+        proof = (met or failed or declined or unverified).strip()
+        # THE EVIDENCE LINK (owner, 2026-08-22): a proof written as prose is a claim; a proof
+        # that names the file in evidence/ can be opened and re-checked. Stored inside the
+        # proof as [path] — the ledger stays a plain file, the page turns it into a link.
+        ev = (getattr(args, "evidence", None) or "").strip()
+        if ev:
+            # The proof must live INSIDE the project — an absolute path to /tmp passed the
+            # old check (os.path.join swallows absolute paths) and the ledger pointed at a
+            # file that would not survive the night.
+            if os.path.isabs(ev) or not os.path.exists(os.path.join(tdir, ev)):
+                # The path must live INSIDE the project — and the error must hand over the
+                # READY command, not a hint: an agent given only «положи его» went in a
+                # circle twice, re-passing the source path (feedback pool, 2026-08-23).
+                base = os.path.basename(ev)
+                nl, flag = node["id"].lower(), ("--met" if met else "--failed" if failed
+                                                else "--declined" if declined else "--unverified")
+                if os.path.exists(os.path.join(tdir, "evidence", base)):
+                    print(f"файл уже лежит в evidence/ — ссылайся на путь внутри проекта:",
+                          file=sys.stderr)
+                    print(f'  el validate {nl} {num} {flag} "…" --evidence evidence/{base}',
+                          file=sys.stderr)
+                elif os.path.exists(ev):
+                    print(f"{ev} лежит вне проекта — сначала положи, потом ссылайся на копию:",
+                          file=sys.stderr)
+                    print(f"  el evidence {ev} --node {nl} --check {num}", file=sys.stderr)
+                    print(f'  el validate {nl} {num} {flag} "…" --evidence evidence/{base}',
+                          file=sys.stderr)
+                else:
+                    print(f"нет файла {ev} в проекте — положи его: el evidence <файл> --node "
+                          f"{nl} --check {num}, затем --evidence evidence/<имя>", file=sys.stderr)
+                return 1
+            proof = f"{proof} [{ev}]"
+        verdicts[(node["id"], num)] = (kind, proof)
+        validation_render(tdir, nodes, verdicts)
+        journal(root, task, "validated",
+                f"{node['id']}.{num} {kind}: "
+                f"{(met or failed or declined or unverified).strip()[:120]}")
+        touch(root, task)
+        print(f"{node['id']}.{num} · " + {"met": "сошлось", "failed": "НЕ сошлось",
+              "declined": "снят", "unverified": "не проверено"}[kind])
+        _, _, open_n, failed_n, _d, _u = validation_state(tdir)
+        print(f"осталось  {open_n} без вердикта · не сошлось {failed_n}")
+        return 0
+
+    # No arguments: refresh the ledger from the plan and show the whole matryoshka —
+    # every line a node with its OWN count and the roll-up of its subtree, the task on top.
+    validation_render(tdir, nodes, verdicts)
+    base = baseline_line(tdir)
+    print(f"ПРОВЕРКА  {task} · один закон на все уровни: узел = свои критерии + свёртка детей")
+    if base:
+        print(f"мерка до  {base[:88]}")
+    order, info = rollup(tdir)
+    for nid in order:
+        rec = info[nid]
+        pad = "  " * (rec["depth"] + 1)
+        own, sub = rec["own"], rec["sub"]
+        cnt = (f"свои {own['done']}/{own['total']}" if own["total"] else "своих нет")
+        if sub["total"] != own["total"]:
+            cnt += f" · всего {sub['done']}/{sub['total']}"
+        idw = max(12 - len(pad), len(nid))
+        print(f"{pad}{ROLL_MARK[rec['verdict']]} {nid:<{idw}} {rec['name'][:44]:<46}{cnt}" +
+              (f"  ✗ {sub['failed']}" if sub["failed"] else ""))
+    root_rec = info["TASK"]
+    word = word_given_on(root, task, "validate")
+    sub = root_rec["sub"]
+    print(f"ЗАДАЧА    {ROLL_MARK[root_rec['verdict']]} {ROLL_RU[root_rec['verdict']]} · "
+          f"{sub['done']}/{sub['total']} с вердиктом" +
+          (f" · НЕ сошлось {sub['failed']}" if sub["failed"] else "") +
+          (f" · снято {sub['declined']}" if sub["declined"] else "") +
+          (f" · НЕ проверено {sub['unverified']}" if sub["unverified"] else "") +
+          " · слово приёмки: " + ("есть" if word else "НЕТ (el accept --for final)"))
+    # INTEGRITY: every criterion answered, the node still open — the S6 case of the pilot.
+    # The ledger cannot close the node (closing is a decision with a result), but it must
+    # say so out loud instead of printing «complete» over an open graph.
+    for n in nodes:
+        if n["id"] == "IFR":
+            continue
+        crits = criteria_of(n)
+        allv = all(verdicts.get((n["id"], i), ("open", ""))[0] != "open"
+                   for i in range(1, len(crits) + 1))
+        if crits and allv and node_open(n):
+            print(f"⚠ узел    {n['id']}: критерии закрыты, а узел ещё {STATUS_RU.get(node_status(n), '?')} — "
+                  f'закрой: el plan done {n["id"].lower()} "<результат>"')
+    print(f"файл      {os.path.join(tdir, VALIDATION_FILE)}")
+    print('отметить  el validate <узел> <номер> --met "<чем доказано>"')
+    return 0

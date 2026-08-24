@@ -1,0 +1,1152 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Обзор проекта</title>
+<style>
+  :root {
+    --bg: #f7f6f3; --card: #ffffff; --ink: #1d1d1f; --muted: #6e6e73;
+    --line: #e3e2de; --accent: #3b6ea5; --done: #4a7c59; --bad: #b0563e;
+    --warn: #b07d2e; --loan: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1e; --card: #26262a; --ink: #ececee; --muted: #98989d;
+      --line: #3a3a3e; --accent: #7aa5d2; --done: #85b795; --bad: #d08770;
+      --warn: #d0a35c; --loan: #e0a35c;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif;
+    max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  a { color: var(--accent); }
+  .back { color: var(--muted); text-decoration: none; font-size: 14px; }
+  .back:hover { color: var(--accent); }
+  h1 { font-size: 24px; margin: 14px 0 4px; }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+  .sub code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .phases { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 26px; align-items: center; }
+  .ph {
+    padding: 5px 12px; border-radius: 99px; font-size: 13px;
+    border: 1px solid var(--line); color: var(--muted); background: var(--card);
+  }
+  .ph.passed { color: var(--done); border-color: var(--done); }
+  .ph.current { color: #fff; background: var(--accent); border-color: var(--accent); font-weight: 600; }
+  .ph.finish { color: #fff; background: var(--done); border-color: var(--done); font-weight: 600; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .04em;
+       color: var(--muted); margin: 26px 0 10px; }
+  .result { background: var(--card); border: 1px solid var(--done);
+            border-radius: 12px; padding: 14px 18px; }
+  .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .plain { background: var(--card); border: 1px solid var(--line);
+           border-radius: 12px; padding: 14px 18px; }
+  details.box { background: var(--card); border: 1px solid var(--line);
+                border-radius: 12px; padding: 0; margin-bottom: 10px; }
+  details.box > summary {
+    cursor: pointer; padding: 12px 18px; font-weight: 600; list-style: none;
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  details.box > summary::before { content: "▸"; color: var(--muted); font-size: 12px; }
+  details.box[open] > summary::before { content: "▾"; }
+  details.box > summary .n { color: var(--muted); font-weight: 400; font-size: 13px; }
+  details.box > .body { padding: 2px 18px 14px; }
+  .qa { border-top: 1px solid var(--line); padding: 10px 0; }
+  .qa:first-child { border-top: none; }
+  .qa .q { font-weight: 600; }
+  .qa .q .area { font-weight: 400; font-size: 12px; color: var(--accent);
+                 border: 1px solid var(--accent); border-radius: 99px;
+                 padding: 0 7px; margin-left: 6px; vertical-align: 1px; }
+  .qa .a { margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .qa .a.blank { color: var(--muted); font-style: italic; }
+  .qa .q .area.loan { color: var(--loan); border-color: var(--loan); }
+  .dim ul { margin: 4px 0 8px 20px; padding: 0; }
+  .dim .out { color: var(--muted); }
+  .dim .out::before { content: "не входит: "; }
+  .dim .blur { color: var(--muted); font-style: italic; }
+  .dim .blur::before { content: "размыто: "; }
+  .dim .struck { text-decoration: line-through; color: var(--muted); }
+  /* ПОПРАВКИ — карточка под исходным текстом: когда · фаза · почему · основание. */
+  .amend { border-left: 3px solid var(--warn); margin-top: 12px; padding: 8px 12px;
+           background: var(--bg); border-radius: 0 8px 8px 0; }
+  .amend-h { font-size: 12px; font-weight: 600; color: var(--warn); margin-bottom: 2px; }
+  .amend-why { font-size: 13px; color: var(--muted); }
+  .amend-notes { font-size: 13px; color: var(--muted); margin: 6px 0 4px; }
+  .subh { font-weight: 600; color: var(--accent); }
+  /* MARKDOWN — что рендерит md(): абзацы, списки, заголовки, код, цитаты. */
+  .md p { margin: 0 0 8px; overflow-wrap: anywhere; }
+  .md p:last-child, .md ul:last-child, .md ol:last-child { margin-bottom: 0; }
+  .md ul, .md ol { margin: 4px 0 8px 22px; padding: 0; }
+  .md li { margin: 2px 0; overflow-wrap: anywhere; }
+  .md .mh { font-weight: 600; margin: 10px 0 4px; }
+  .md .mh:first-child { margin-top: 0; }
+  .md .mh1 { font-size: 17px; }
+  .md .mh2 { font-size: 15px; color: var(--accent); }
+  .md .mh3, .md .mh4 { font-size: 14px; color: var(--muted); }
+  .md code, .fork code, .crit code, .qa code { font-family: ui-monospace, Menlo, monospace;
+    font-size: 13px; background: var(--bg); padding: 0 4px; border-radius: 4px; }
+  .md blockquote { border-left: 3px solid var(--line); margin: 6px 0; padding: 2px 10px;
+                   color: var(--muted); }
+  .md hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
+  .nfield .md { margin-top: 2px; }
+  .ph.amend-badge { color: var(--warn); border-color: var(--warn); }
+  .ph.mode-badge { color: var(--muted); border-style: dashed; }
+  /* АВТОНОМИЯ — кредит слова: выдана (синий) · остановлена (красный, залит) · долг (янтарь). */
+  .ph.auto-badge { color: var(--accent); border-color: var(--accent); }
+  .ph.auto-badge.halt { color: #fff; background: var(--bad); border-color: var(--bad); font-weight: 600; }
+  .ph.loan-badge { color: var(--loan); border-color: var(--loan); }
+  /* ЗА ТОБОЙ — ответы, которые есть только у человека, и их пока нет; «стоим» — залито. */
+  .ph.owe-badge { color: var(--warn); border-color: var(--warn); cursor: pointer; }
+  .ph.owe-badge.stand { color: #fff; background: var(--bad); border-color: var(--bad); font-weight: 600; }
+  .ph.owe-badge:hover { background: var(--warn); color: #fff; }
+  .owe-row { border-top: 1px solid var(--line); padding: 8px 0; overflow-wrap: anywhere; }
+  .owe-row:first-child { border-top: none; }
+  .owe-row .v { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 99px;
+                border: 1px solid var(--line); margin-right: 8px; white-space: nowrap; }
+  .owe-row .v.stand { color: #fff; background: var(--bad); border-color: var(--bad); }
+  .owe-row .v.held { color: var(--warn); border-color: var(--warn); }
+  .owe-row .v.free { color: var(--muted); }
+  .owe-row .v.paid { color: var(--done); border-color: var(--done); }
+  .owe-row .v.drop { color: var(--muted); }
+  .owe-row .kind { font-size: 12px; color: var(--muted); margin-right: 4px; }
+  .owe-row .fsub { font-size: 13px; color: var(--muted); margin-left: 2px; }
+  .owe-row.closed { opacity: .72; }
+  .owe-row .over { color: var(--bad); font-weight: 600; }
+  .halt { background: var(--card); border: 2px solid var(--bad); border-radius: 12px;
+          padding: 14px 18px; }
+  .halt .hh { color: var(--bad); font-weight: 700; font-size: 13px; text-transform: uppercase;
+              letter-spacing: .04em; margin-bottom: 4px; }
+  .halt .hmeta { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .loan-row { border-top: 1px solid var(--line); padding: 8px 0; overflow-wrap: anywhere; }
+  .loan-row:first-child { border-top: none; }
+  .loan-row .v { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 99px;
+                 border: 1px solid var(--line); color: var(--muted); margin-right: 6px; }
+  .loan-row .v.grant { color: var(--accent); border-color: var(--accent); }
+  .loan-row .v.halt { color: var(--bad); border-color: var(--bad); }
+  .loan-row .v.debt { color: var(--loan); border-color: var(--loan); }
+  .loan-row .v.paid { color: var(--done); border-color: var(--done); }
+  .loan-row .scope { font-family: ui-monospace, Menlo, monospace; font-size: 13px;
+                     color: var(--accent); margin-right: 4px; }
+  .loan-row .fsub { font-size: 13px; color: var(--muted); margin-left: 2px; }
+  .entry .type.loan { color: var(--loan); }
+  /* ПОПРАВКИ ОДНИМ СПИСКОМ — строка на поправку: статус · номер · когда · этап · документ · почему. */
+  .ph.amend-badge[data-jump] { cursor: pointer; }
+  .ph.amend-badge[data-jump]:hover { background: var(--warn); color: #fff; }
+  .amrow { border-top: 1px solid var(--line); padding: 8px 0; overflow-wrap: anywhere; }
+  .amrow:first-child { border-top: none; }
+  .amrow .v { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 99px;
+              border: 1px solid var(--line); color: var(--muted); margin-right: 6px; }
+  .amrow .v.pending { color: var(--warn); border-color: var(--warn); }
+  .amrow .v.ok { color: var(--done); border-color: var(--done); }
+  .amrow .v.loan { color: var(--loan); border-color: var(--loan); }
+  .amrow .doc { font-weight: 600; }
+  .amrow .rel { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .amrow .fsub { font-size: 13px; color: var(--muted); margin-left: 2px; }
+  .amrow a.jump { font-size: 13px; margin-left: 6px; white-space: nowrap; }
+  @keyframes flash { 0% { box-shadow: 0 0 0 3px var(--warn); } 100% { box-shadow: none; } }
+  .flash { animation: flash 1.6s ease-out 1; border-radius: 8px; }
+  /* СЕКЦИИ — заголовок и есть ручка: клик сворачивает, состояние помнится. */
+  details.sec { margin-top: 26px; }
+  details.sec > summary { font-size: 15px; text-transform: uppercase; letter-spacing: .04em;
+                          color: var(--muted); margin: 0 0 10px; cursor: pointer;
+                          list-style: none; }
+  details.sec > summary::-webkit-details-marker { display: none; }
+  details.sec > summary::before { content: "▸ "; font-size: 12px; }
+  details.sec[open] > summary::before { content: "▾ "; }
+  details.sec > summary .n { font-weight: 400; font-size: 13px; text-transform: none;
+                             letter-spacing: 0; }
+  details.band > details.sec { margin-top: 16px; }
+  details.band > details.sec:first-of-type { margin-top: 8px; }
+  details.band > summary { list-style: none; cursor: pointer; }
+  details.band > summary::-webkit-details-marker { display: none; }
+  /* ЛЕНТЫ ЭТАПОВ — липкая полоса с номером, именем и состоянием этапа. */
+  details.band { margin-top: 30px; }
+  .band-h { position: sticky; top: 0; z-index: 5; display: flex; align-items: baseline;
+            gap: 10px; padding: 10px 0 6px; margin-bottom: 2px; background: var(--bg);
+            border-bottom: 2px solid var(--line); }
+  .band-h .bn { font-family: ui-monospace, Menlo, monospace; font-size: 13px;
+                color: var(--muted); border: 1px solid var(--line); border-radius: 99px;
+                padding: 0 8px; }
+  .band-h .bname { font-size: 15px; font-weight: 700; text-transform: uppercase;
+                   letter-spacing: .06em; }
+  .band-h .btitle { font-size: 14px; color: var(--muted); }
+  .band-h .bmark { margin-left: auto; font-size: 13px; color: var(--muted); }
+  details.band.passed .band-h { border-bottom-color: var(--done); }
+  details.band.passed .bname, details.band.passed .bmark, details.band.passed .bn
+    { color: var(--done); border-color: var(--done); }
+  details.band.current .band-h { border-bottom-color: var(--accent); }
+  details.band.current .bname, details.band.current .bmark, details.band.current .bn
+    { color: var(--accent); border-color: var(--accent); }
+  details.band.ahead .bname { color: var(--muted); }
+  .band-empty { color: var(--muted); font-size: 14px; font-style: italic; padding: 6px 0 2px; }
+  /* РАЗВИЛКИ — вопрос, кто решает, варианты с ценой, выбор. */
+  .fork { border-top: 1px solid var(--line); padding: 8px 0; }
+  .fork:first-child { border-top: none; }
+  .fork .fq { font-weight: 600; }
+  .fork .fq .nid { font-family: ui-monospace, Menlo, monospace; color: var(--accent);
+                   font-size: 13px; margin-right: 4px; }
+  .fork .fq .lvl { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .fork ul { margin: 4px 0 6px 20px; padding: 0; }
+  .fork .fdec { color: var(--done); font-size: 14px; }
+  .fork .fdec.open { color: var(--warn); }
+  .fork .prev { font-size: 12px; font-weight: 600; margin-left: 8px; padding: 1px 9px;
+                border: 1px solid var(--accent); border-radius: 99px; text-decoration: none; }
+  .fork .fmeta { font-size: 13px; color: var(--muted); margin: 3px 0; }
+  .fork .fmeta.fixed { color: var(--ink); }
+  .fork .fsub { font-size: 13px; color: var(--muted); margin-left: 2px; }
+  /* ДОСКА ИСПОЛНЕНИЯ */
+  .exnow { font-size: 17px; font-weight: 600; }
+  .exmark { color: var(--accent); margin-right: 4px; }
+  .exprog { color: var(--muted); font-size: 14px; margin-top: 4px; }
+  .exwait { color: var(--warn); margin-top: 6px; }
+  .exrow { border-top: 1px solid var(--line); padding: 6px 0; }
+  .exrow:first-of-type { border-top: none; }
+  .exrow .nid { font-family: ui-monospace, Menlo, monospace; color: var(--accent); font-size: 13px; }
+  .exrow .lvl { font-size: 12px; color: var(--muted); margin-left: 6px; }
+  .exrow .fsub { font-size: 13px; color: var(--muted); margin-left: 22px; }
+  .crit { border-top: 1px solid var(--line); padding: 8px 0; display: flex;
+          gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .crit:first-child { border-top: none; }
+  .crit .v { font-size: 12px; font-weight: 600; padding: 1px 8px;
+             border-radius: 99px; border: 1px solid var(--line); color: var(--muted);
+             flex-shrink: 0; }
+  .crit .v.met { color: var(--done); border-color: var(--done); }
+  .crit .v.failed { color: var(--bad); border-color: var(--bad); }
+  .crit .v.unverified { color: var(--warn); border-color: var(--warn); }
+  .crit .proof { color: var(--muted); font-size: 13px; width: 100%; }
+  .crit-node { font-weight: 600; margin: 10px 0 2px; }
+  /* матрёшка проверки: пилюля-вердикт в строке узла и строка корня — сама задача */
+  .vtree summary .v, .vroot .v { font-size: 12px; font-weight: 600; padding: 1px 8px;
+    border-radius: 99px; border: 1px solid var(--line); color: var(--muted); flex: none; }
+  .vtree summary .v.met, .vroot .v.met { color: var(--done); border-color: var(--done); }
+  .vtree summary .v.failed, .vroot .v.failed { color: var(--bad); border-color: var(--bad); }
+  .vtree summary .v.unverified, .vroot .v.unverified { color: var(--warn); border-color: var(--warn); }
+  .vroot { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+           padding: 10px 2px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .vroot .vword { color: var(--muted); font-size: 13px; width: 100%; }
+  .vroot .vword.none { color: var(--warn); }
+  details.node { border: 1px solid var(--line); border-radius: 10px;
+                 background: var(--card); margin: 8px 0; }
+  details.node > summary { cursor: pointer; padding: 10px 14px; list-style: none;
+                           display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  details.node > summary::before { content: "▸"; color: var(--muted); font-size: 12px; }
+  details.node[open] > summary::before { content: "▾"; }
+  details.node > summary .nid { font-family: ui-monospace, Menlo, monospace;
+                                font-size: 13px; color: var(--accent); font-weight: 600; }
+  details.node > summary .nname { font-weight: 600; }
+  details.node > summary .lvl { font-size: 12px; color: var(--muted);
+                                border: 1px solid var(--line); border-radius: 99px;
+                                padding: 0 8px; }
+  details.node > summary .done { color: var(--done); font-size: 13px; font-weight: 600; }
+  details.node > .nbody { padding: 0 14px 12px; }
+  .nfield { margin: 8px 0 0; }
+  .nfield b { display: block; font-size: 12.5px; text-transform: uppercase;
+              letter-spacing: .03em; color: var(--muted); }
+  .nfield > div { overflow-wrap: anywhere; margin-top: 2px; }
+  .file { display: flex; align-items: center; gap: 10px; padding: 6px 0;
+          border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .file:first-child { border-top: none; }
+  .file .size { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+  audio { width: 100%; height: 36px; margin-top: 4px; }
+  .entry { border-top: 1px solid var(--line); padding: 8px 0; }
+  .entry:first-child { border-top: none; }
+  .entry .top { display: flex; gap: 10px; font-size: 12.5px; color: var(--muted); margin-bottom: 3px; }
+  .entry .type { color: var(--accent); font-weight: 600; }
+  .entry .text { font-size: 14.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .empty { color: var(--muted); padding: 24px 4px; }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← все проекты</a>
+<h1 id="name">Проект</h1>
+<div class="sub" id="sub"></div>
+<div class="phases" id="phases"></div>
+<div id="main"></div>
+<div id="second"></div>
+
+<script>
+/* Страница — статичный читатель базы, её никто не переписывает. Данные для неё CLI
+   складывает в ../metadata/<имя-папки-проекта>.js; страница вычисляет имя своей папки
+   и подключает свой файл относительным путём — это разрешено даже с диска. */
+window.ELEPHANT_OVERVIEW = null;
+(function () {
+  var parts = location.pathname.split("/").filter(Boolean);
+  var dir = decodeURIComponent(parts[parts.length - 2] || "");
+  if (dir) document.write('<script src="../metadata/' +
+    encodeURIComponent(dir) + '.js"><\/script>');
+})();
+</script>
+<script>
+(function () {
+  var ORDER = ["context", "think", "plan", "execute", "validate", "reflect", "align", "close"];
+  var RU = { context: "контекст", think: "думать", plan: "план", execute: "исполнение",
+             validate: "проверка", reflect: "уроки", align: "сверка", close: "закрытие" };
+  var DIMS = [["what", "Что делаем"], ["why", "Зачем"], ["who", "Кто"],
+              ["where", "Где"], ["when", "Когда"], ["how", "Как"]];
+  var VERDICT = { met: "сошёлся", failed: "не сошёлся", open: "не проверялся",
+                  declined: "снят", unverified: "не перепроверен" };
+  var d = window.ELEPHANT_OVERVIEW;
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+  function when(iso) {
+    if (!iso) return "";
+    var t = new Date(iso);
+    return isNaN(t) ? esc(iso) : t.toLocaleString("ru-RU",
+      { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+  /* A document arrives as {text, amend:[…]} — or as a plain string from a data file written
+     before amendments existed; both render. */
+  function doc(v) {
+    if (v == null) return { text: "", amend: [] };
+    if (typeof v === "string") return { text: v, amend: [] };
+    return { text: v.text || "", amend: v.amend || [] };
+  }
+  function hasDoc(v) { var x = doc(v); return !!(x.text || x.amend.length); }
+  /* MARKDOWN — a small, safe renderer of our own (no libraries, works from disk): headings,
+     bullet and numbered lists, **bold**, _italic_, `code`, ~~struck~~, > quotes, links,
+     rules; a single newline is a line break (the documents are line-oriented). The text
+     is HTML-escaped FIRST, then shaped. A literal "\n" left by an agent's shell is a break. */
+  function inlineMd(s) {
+    return s
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+      .replace(/~~([^~]+)~~/g, "<s>$1</s>")
+      .replace(/(^|[\s(])_([^_\s][^_]*)_(?=[\s.,;:!?)]|$)/g, "$1<i>$2</i>")
+      .replace(/(^|[\s(])\*([^*\s][^*]*)\*(?=[\s.,;:!?)]|$)/g, "$1<i>$2</i>")
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (m, t, u) {
+        return '<a href="' + u + '" target="_blank">' + t + "</a>";
+      });
+  }
+  function inl(t) { return inlineMd(esc(t).replace(/\\n/g, "<br>")); }
+  /* a proof that names its file — «… [evidence/x.png]» — gets the file as a link */
+  function proofHtml(p) {
+    var m = /^(.*)\s\[([^\]]+)\]\s*$/.exec(p || "");
+    if (!m) return inl(p);
+    return inl(m[1]) + ' <a href="' + encodeURI(m[2]) + '" target="_blank">' + esc(m[2]) + " ↗</a>";
+  }
+  function md(text) {
+    var lines = esc(text).replace(/\\n/g, "\n").split("\n");
+    var out = "", inList = null, inQuote = false, para = [];
+    function flushPara() { if (para.length) { out += "<p>" + para.join("<br>") + "</p>"; para = []; } }
+    function closeList() { if (inList) { out += "</" + inList + ">"; inList = null; } }
+    function closeQuote() { if (inQuote) { out += "</blockquote>"; inQuote = false; } }
+    lines.forEach(function (raw) {
+      var l = raw.replace(/\s+$/, ""), m;
+      if (!l.trim()) { flushPara(); closeList(); closeQuote(); return; }
+      if ((m = l.match(/^(#{1,6})\s+(.*)$/))) {
+        flushPara(); closeList(); closeQuote();
+        out += '<div class="mh mh' + m[1].length + '">' + inlineMd(m[2]) + "</div>"; return;
+      }
+      if (/^(-{3,}|\*{3,})$/.test(l.trim())) { flushPara(); closeList(); closeQuote(); out += "<hr>"; return; }
+      if ((m = l.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)$/))) {
+        flushPara(); closeQuote();
+        var tag = /^\s*\d/.test(l) ? "ol" : "ul";
+        if (inList !== tag) { closeList(); out += "<" + tag + ">"; inList = tag; }
+        out += "<li>" + inlineMd(m[1]) + "</li>"; return;
+      }
+      if ((m = l.match(/^&gt;\s?(.*)$/))) {
+        flushPara(); closeList();
+        if (!inQuote) { out += "<blockquote>"; inQuote = true; }
+        out += inlineMd(m[1]) + "<br>"; return;
+      }
+      if (inList && /^\s{2,}\S/.test(raw)) {       /* indented line continues the item */
+        out = out.replace(/<\/li>$/, "<br>" + inlineMd(l.trim()) + "</li>"); return;
+      }
+      closeList(); closeQuote(); para.push(inlineMd(l));
+    });
+    flushPara(); closeList(); closeQuote();
+    return '<div class="md">' + out + "</div>";
+  }
+  function textHtml(t) { return md(t); }
+  function amendHtml(items) {
+    var out = "";
+    (items || []).forEach(function (a) {
+      out += '<div class="amend"><div class="amend-h">⟲ поправка п' + esc(a.n) + " · " +
+             esc(a.ts) + " · " + esc(RU[a.phase] || a.phase) + "</div>" +
+             (a.why ? '<div class="amend-why">почему: ' + esc(a.why) + "</div>" : "") +
+             (a.refs && a.refs !== "—" ? '<div class="amend-why">основание: ' + esc(a.refs) + "</div>" : "") +
+             md(a.text) + "</div>";
+    });
+    return out;
+  }
+  function docHtml(v) {
+    var x = doc(v);
+    return md(x.text) + amendHtml(x.amend);
+  }
+  function kb(n) {
+    if (n == null) return "";
+    if (n < 1024) return n + " B";
+    if (n < 1048576) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + " KB";
+    return (n / 1048576).toFixed(1) + " MB";
+  }
+  if (!d) {
+    document.getElementById("main").innerHTML =
+      '<div class="empty">Данные не найдены: страница ждёт свой файл в ../metadata/. ' +
+      "Он появляется после первой команды el в проекте.</div>";
+    return;
+  }
+  document.title = d.name || d.dir || "Проект";
+  document.getElementById("name").textContent = d.name || d.dir || "Проект";
+  document.getElementById("sub").innerHTML =
+    '<code>' + esc(d.dir || "") + "</code>" +
+    (d.updated_at ? " · обновлено " + when(d.updated_at) : "");
+
+  var cur = ORDER.indexOf(d.phase);
+  var closed = !!(d.outcome || (d.status && d.status !== "active"));
+  var strip = document.getElementById("phases");
+  ORDER.forEach(function (ph, i) {
+    var el = document.createElement("span");
+    el.className = "ph" + (closed ? " passed" : i < cur ? " passed" : i === cur ? " current" : "");
+    el.textContent = (i + 1) + " · " + RU[ph];
+    strip.appendChild(el);
+  });
+  if (d.mode) {
+    var mb = document.createElement("span");
+    mb.className = "ph mode-badge";
+    mb.textContent = "режим: " + d.mode;
+    mb.title = { light: "лёгкий — мало обязательного", soft: "мягкий — костяк обязателен",
+                 strict: "строгий — каждый такт обязателен" }[d.mode] || "";
+    strip.appendChild(mb);
+  }
+  /* АВТОНОМИЯ в полосе: выдана · остановлена · долг слова — то же, что печатает el status. */
+  var au = d.autonomy || null;
+  var nDebt = au ? (au.debt || 0) : 0;
+  /* ЗА ТОБОЙ (владелец, 2026-08-24): долг владельца — из того же леджера, что печатает el status
+     (owe.ledger), плюс открытые развилки, где решает он: это тот же долг вида «решить». */
+  var ow = d.owed || null;
+  var owItems = ow ? (ow.items || []) : [];
+  var owOpen = owItems.filter(function (x) { return x.status === "open"; });
+  var ownerForks = (d.forks || []).filter(function (f) {
+    return !f.decision && String(f.who || "").toLowerCase() === "owner"; });
+  var nOwe = owOpen.length + ownerForks.length;
+  var nStand = owOpen.filter(function (x) { return x.stands && x.stands.length; }).length +
+               (d.phase === "think" ? ownerForks.length : 0);
+  if (au && au.grant) {
+    var ab = document.createElement("span"), g0 = au.grant;
+    if (au.halt) {
+      ab.className = "ph auto-badge halt";
+      ab.textContent = "автономия остановлена · " + when(au.halt.ts);
+      ab.title = au.halt.text || "";
+    } else if (au.active) {
+      ab.className = "ph auto-badge";
+      ab.textContent = "автономия выдана · " + when(g0.ts);
+      ab.title = "«" + (g0.text || "") + "»" + (g0.until ? " · до: " + g0.until : "") +
+                 (g0.no ? " · нельзя: " + g0.no : "");
+    } else {
+      ab.className = "ph mode-badge";
+      ab.textContent = "автономия была";
+    }
+    strip.appendChild(ab);
+    if (nDebt) {
+      var lb = document.createElement("span");
+      lb.className = "ph loan-badge";
+      lb.textContent = "долг слова: " + nDebt;
+      lb.title = "слов, которые агент занял за человека и его слово ещё не покрыло";
+      strip.appendChild(lb);
+    }
+  }
+  var amList = d.amend_list || [];
+  var nPend = amList.filter(function (a) { return a.pending; }).length;
+  if (nOwe) {
+    var ob = document.createElement("span");
+    ob.className = "ph owe-badge" + (nStand ? " stand" : "");
+    ob.textContent = "за тобой: " + nOwe + (nStand ? " · стоим: " + nStand : "");
+    ob.title = "ответы, которые есть только у тебя, и их пока нет — клик: к списку";
+    ob.setAttribute("data-jump", "owed");
+    strip.appendChild(ob);
+  }
+  if (d.amendments) {
+    var am = document.createElement("span");
+    am.className = "ph amend-badge";
+    am.textContent = "⟲ поправок: " + d.amendments +
+                     (nPend ? " · ждёт подтверждения: " + nPend : "");
+    am.title = "что изменили в документах уже пройденных этапов — клик: к списку";
+    am.setAttribute("data-jump", "amend");
+    strip.appendChild(am);
+  }
+  if (closed) {
+    var fin = document.createElement("span");
+    fin.className = "ph finish";
+    fin.textContent = "✓ done";
+    strip.appendChild(fin);
+  }
+
+  /* ПАМЯТЬ СЕКЦИЙ — что свёрнуто, что раскрыто, помнит браузер для ЭТОГО проекта и после
+     перезагрузки (владелец, 2026-08-22: «если я секцию свернул — она не показывалась, и после
+     перезагрузки всё так и осталось»). Пока человек не трогал секцию — дефолт: главное
+     раскрыто, второстепенное свёрнуто. localStorage может быть недоступен — тогда просто дефолты. */
+  var MEM_KEY = "el.overview." + (d.dir || location.pathname);
+  var mem = {};
+  try { mem = JSON.parse(localStorage.getItem(MEM_KEY) || "{}") || {}; } catch (e) { mem = {}; }
+  function isOpen(key, dflt) { return (key in mem) ? !!mem[key] : !!dflt; }
+  function box(key, title, inner, dflt, extraCls) {
+    return '<details class="box' + (extraCls ? " " + extraCls : "") + '" data-key="' + esc(key) +
+           '"' + (isOpen(key, dflt) ? " open" : "") + "><summary>" + title + "</summary>" +
+           '<div class="body">' + inner + "</div></details>";
+  }
+  /* a SECTION: the uppercase heading is itself the handle; default open unless told otherwise */
+  function sec(key, title, inner, dflt) {
+    if (dflt === undefined) dflt = true;
+    return '<details class="sec" data-key="' + esc(key) + '"' + (isOpen(key, dflt) ? " open" : "") +
+           "><summary>" + title + "</summary>" + inner + "</details>";
+  }
+
+  /* ЗАГОЛОВОК — итог и запрос, вне лент: ответ и исходная точка читаются первыми. */
+  var h = "";
+  /* ОСТАНОВКА — первой: открыв страницу, человек сразу видит, где агент встал и что от него
+     нужно. Задача при этом открыта — это не «done». */
+  if (au && au.halt) {
+    h += sec("halt", "Автономия остановлена здесь",
+             '<div class="halt"><div class="hh">⛔ кредит слова дальше не распространяется</div>' +
+             '<div class="txt">' + inl(au.halt.text || "") + "</div>" +
+             '<div class="hmeta">' + when(au.halt.ts) +
+             (au.halt.phase ? " · этап: " + esc(RU[au.halt.phase] || au.halt.phase) : "") +
+             " · долг слова: " + nDebt +
+             " · задача открыта и ждёт слова человека — его слово над той же областью платит займ, " +
+             "его «продолжай» открывает автономию дальше</div></div>");
+  }
+  /* ЗА ТОБОЙ — ВЫЯСНИТЬ И РЕШИТЬ (владелец, 2026-08-24): вопрос задан, а ответа нет и у него —
+     он пошёл выяснять (кто подписывает, кто третий) или думать (какой вариант). Не тормоз сам
+     по себе: работа идёт; держит только то, к чему привязан, — и там работа СТОИТ. Стоит второй
+     после остановки: открыв страницу, человек видит, что от него нужно. Раскрыта, пока есть
+     открытое; оплаченное и снятое — ниже, приглушённо. */
+  if (owItems.length || ownerForks.length) {
+    var orows = "";
+    owOpen.forEach(function (it) {
+      var st = (it.stands && it.stands.length) ? ["stand", "стоим"] :
+               (it.holds && it.holds.length) ? ["held", "держит"] : ["free", "пока не держит"];
+      var holds = "";
+      (it.holds || []).forEach(function (hd, i) {
+        var key = hd.indexOf("node:") === 0 ? "plan.tree" : hd.indexOf("fork:") === 0 ? "think.decision" : "";
+        holds += (i ? " · " : "") + esc((it.holds_labels || [])[i] || hd) +
+                 (key ? ' <a class="jump" href="#" data-jump="' + key + '">→</a>' : "");
+      });
+      orows += '<div class="owe-row"><span class="v ' + st[0] + '">' + st[1] + "</span>" +
+               '<span class="kind">' + esc(it.kind) + "</span>#" + esc(it.n) + " · " + inl(it.q) +
+               '<div class="fsub"><b>как:</b> ' + inl(it.how || "—") + " · ждёт с " + when(it.ts) +
+               (it.by ? " · <b>срок:</b> " + esc(it.by) +
+                        (it.overdue ? ' <span class="over">просрочен</span>' : "") : "") +
+               (it.area ? " · область: " + esc(it.area) : "") + "</div>" +
+               (holds ? '<div class="fsub"><b>держит:</b> ' + holds + "</div>" : "") + "</div>";
+    });
+    ownerForks.forEach(function (f) {
+      var think = d.phase === "think";
+      orows += '<div class="owe-row"><span class="v ' + (think ? "stand" : "held") + '">' +
+               (think ? "стоим" : "держит") + "</span>" +
+               '<span class="kind">решить</span>' + esc(f.id) + " · " + inl(f.q) +
+               '<div class="fsub"><b>держит:</b> развилка ' + esc(f.id) +
+               ' <a class="jump" href="#" data-jump="think.decision">→</a>' +
+               (f.options && f.options.length ? " · вариантов: " + f.options.length : "") +
+               "</div></div>";
+    });
+    owItems.filter(function (x) { return x.status !== "open"; }).forEach(function (it) {
+      orows += '<div class="owe-row closed"><span class="v ' + (it.status === "paid" ? "paid" : "drop") + '">' +
+               (it.status === "paid" ? "ответ есть" : "снято") + "</span>" +
+               '<span class="kind">' + esc(it.kind) + "</span>#" + esc(it.n) + " · " + inl(it.q) +
+               '<div class="fsub">' + (it.status === "paid" ? "<b>ответ:</b> " + inl(it.answer || "")
+                                                             : "<b>почему снято:</b> " + inl(it.why || "")) +
+               " · " + when(it.paid_ts) + "</div></div>";
+    });
+    h += sec("owed", 'За тобой — выяснить и решить <span class="n">' + nOwe +
+             (nStand ? " · стоим: " + nStand : "") + "</span>",
+             '<div class="plain">' +
+             (nOwe ? "" : '<div class="owe-row"><span class="fsub">открытого нет — всё, что было за тобой, принесено или снято</span></div>') +
+             orows + "</div>", !!nOwe);
+  }
+  if (d.result || d.outcome) {
+    h += sec("result", "Итог", '<div class="result txt">' +
+             (d.outcome ? "<b>" + esc(d.outcome) + "</b> — " : "") + esc(d.result || "") + "</div>");
+  }
+  if (d.request) {
+    h += sec("request", "Запрос — слово в слово", '<div class="plain txt">' +
+             esc(d.request).replace(/\\n/g, "\n") + "</div>");
+  }
+  /* АВТОНОМИЯ — КРЕДИТ СЛОВА: грант (его слова дословно) · остановка · леджер займов — что агент
+     принял за его слово, почему, как откатить, и оплачено ли это его настоящим словом. Раскрыта,
+     когда есть долг или остановка; иначе свёрнута — заголовок уже говорит счёт. */
+  if (au && au.grant) {
+    var g1 = au.grant, lr = "";
+    lr += '<div class="loan-row"><span class="v grant">грант</span>' + when(g1.ts) +
+          " · «" + inl(g1.text || "") + "»" +
+          (g1.until ? '<div class="fsub"><b>до:</b> ' + inl(g1.until) + "</div>" : "") +
+          (g1.no ? '<div class="fsub"><b>нельзя:</b> ' + inl(g1.no) + "</div>" : "") + "</div>";
+    if (au.halt)
+      lr += '<div class="loan-row"><span class="v halt">стоп</span>' + when(au.halt.ts) +
+            " · " + inl(au.halt.text || "") + "</div>";
+    var loans = au.assumes || [];
+    if (!loans.length)
+      lr += '<div class="loan-row"><span class="fsub">займов слова нет — агент ничего не решал за человека</span></div>';
+    loans.forEach(function (a, i) {
+      lr += '<div class="loan-row"><span class="v ' + (a.paid ? "paid" : "debt") + '">' +
+            (a.paid ? "оплачен" : "долг") + "</span>" +
+            '<span class="scope">' + esc(a.for || "?") + "</span>" + when(a.ts) + " — " + inl(a.text || "") +
+            (a.why ? '<div class="fsub"><b>почему так принял:</b> ' + inl(a.why) + "</div>" : "") +
+            (a.undo ? '<div class="fsub"><b>откат:</b> ' + inl(a.undo) + "</div>" : "") + "</div>";
+    });
+    h += sec("autonomy", 'Автономия — кредит слова <span class="n">займов ' + loans.length +
+             (nDebt ? " · долг " + nDebt : "") + "</span>",
+             '<div class="plain">' + lr + "</div>", !!(nDebt || au.halt));
+  }
+  /* ПОПРАВКИ ОДНИМ СПИСКОМ — стоят здесь, над лентами; собираются ниже, когда известны
+     подписи документов (FRAME · IFRP · лестница думания), и вставляются на это место. */
+  h += "<!--AMEND-->";
+
+  /* ЛЕНТЫ ЭТАПОВ — каждая секция стоит под полосой своего этапа, и полоса ЛИПКАЯ: пока
+     крутишь секции этапа, его имя держится сверху (владелец, 2026-08-21: «когда прокрутил —
+     вижу, к какому этапу относится»). Пройденный этап — зелёный, текущий — выделен,
+     впереди — приглушённый; пустой этап всё равно показан одной строкой — это карта.
+     Полоса — тоже ручка: клик сворачивает всю ленту, и это помнится. */
+  var TITLE = { context: "что у нас есть", think: "что с этим делать и какие варианты",
+                plan: "в каком порядке и что от чего зависит", execute: "делаем",
+                validate: "работает ли на живом", reflect: "работа над ошибками и уроки",
+                align: "куда дальше", close: "хвосты подчищены, результат записан" };
+  var files = d.files || {};
+  function filesBox(folder, label) {
+    var list = files[folder] || [];
+    if (!list.length) return "";
+    var out = "";
+    list.forEach(function (x) {
+      var href = encodeURI(x.path);
+      out += '<div class="file"><a href="' + href + '">' + esc(x.name) + "</a>" +
+             '<span class="size">' + kb(x.size) + "</span>" +
+             (x.kind === "audio"
+               ? '<audio controls preload="none" src="' + href + '"></audio>' : "") +
+             "</div>";
+    });
+    return box("files." + folder, "Файлы · " + label + ' <span class="n">' + list.length + "</span>",
+               out, false);
+  }
+  function band(ph, inner) {
+    var i = ORDER.indexOf(ph);
+    var state = closed ? "passed" : i < cur ? "passed" : i === cur ? "current" : "ahead";
+    var mark = state === "passed" ? "✓ пройден" : state === "current" ? "▶ здесь" : "впереди";
+    return '<details class="band ' + state + '" data-key="band.' + ph + '"' +
+           (isOpen("band." + ph, true) ? " open" : "") + '><summary class="band-h">' +
+           '<span class="bn">' + (i + 1) + "</span><span class=\"bname\">" + RU[ph] + "</span>" +
+           '<span class="btitle">' + TITLE[ph] + "</span><span class=\"bmark\">" + mark + "</span>" +
+           "</summary>" + (inner || '<div class="band-empty">пока ничего</div>') + "</details>";
+  }
+
+  /* 1 · КОНТЕКСТ — вопросы, рамка, ИФР, задача, свёртка, незнание, файлы сбора. */
+  var c = "";
+  var rounds = d.qa || [];
+  var nPairs = rounds.reduce(function (a, r) { return a + r.pairs.length; }, 0);
+  if (nPairs) {
+    var qh = "";
+    rounds.forEach(function (r) {
+      if (rounds.length > 1)
+        qh += '<div class="crit-node">Раунд ' + r.round + "</div>";
+      r.pairs.forEach(function (p) {
+        qh += '<div class="qa"><div class="q">' + inl(p.q) +
+              (p.area ? '<span class="area">' + esc(p.area) + "</span>" : "") +
+              (p.assumed ? '<span class="area loan" title="' + esc(p.assumed) + '">займ слова — предположено агентом</span>' : "") + "</div>" +
+              (p.a ? '<div class="a">' + md(p.a) + "</div>"
+                   : '<div class="a blank">ответа пока нет</div>') +
+              (p.assumed ? '<div class="a blank">почему так принял: ' + esc(p.assumed) + "</div>" : "") + "</div>";
+      });
+    });
+    c += sec("ctx.qa", 'Вопросы и ответы <span class="n">' + nPairs + "</span>",
+             '<div class="plain">' + qh + "</div>", false);
+  }
+  /* SCOPE — РАМКА: 5W+1H плюс части рамки, каждая своей складной карточкой. */
+  var sc = d.scope;
+  var fr = d.frame || {};
+  var FRAME = [["requirements", "Требования (requirements)"],
+               ["constraints", "Ограничения снаружи (constraints)"],
+               ["limitations", "Пределы (limitations)"],
+               ["resources", "Ресурсы (resources)"],
+               ["finance", "Финансы (finance)"],
+               ["tools", "Инструменты (tools)"],
+               ["definitions", "Определения (definitions)"],
+               ["beyond", "За рамкой — близко, но не делаем (beyond)"]];
+  var dimsHtml = "";
+  if (sc) {
+    DIMS.forEach(function (dm) {
+      var v = sc[dm[0]];
+      var struck = (v && v.struck) || [];
+      if (!v || (!v["in"].length && !v.out.length && !v.blur.length && !struck.length)) return;
+      dimsHtml += "<b>" + dm[1] + "</b><ul>";
+      v["in"].forEach(function (x) { dimsHtml += "<li>" + inl(x) + "</li>"; });
+      v.out.forEach(function (x) { dimsHtml += '<li class="out">' + inl(x) + "</li>"; });
+      v.blur.forEach(function (x) { dimsHtml += '<li class="blur">' + inl(x) + "</li>"; });
+      struck.forEach(function (x) {
+        dimsHtml += '<li class="struck">' + inl(x.replace(/~~/g, "")) + "</li>";
+      });
+      dimsHtml += "</ul>";
+    });
+    var notes = d.scope_notes || [];
+    if (notes.length) {
+      dimsHtml += '<div class="amend-notes">' + notes.map(function (n) {
+        return "⟲ п" + esc(n.n) + " · " + esc(n.ts) + " · " + esc(RU[n.phase] || n.phase) +
+               " · " + esc(n.why) + (n.refs && n.refs !== "—" ? " · основание: " + esc(n.refs) : "");
+      }).join("<br>") + "</div>";
+    }
+  }
+  var hasFrame = FRAME.some(function (f) { return hasDoc(fr[f[0]]); });
+  if (dimsHtml || hasFrame) {
+    var sh = "";
+    if (dimsHtml) {
+      sh += box("ctx.scope.5w", "5W+1H — границы: что входит, что не входит, где размыто",
+                '<div class="dim">' + dimsHtml + "</div>", false);
+    }
+    FRAME.forEach(function (f) {
+      if (!hasDoc(fr[f[0]])) return;
+      sh += box("ctx.frame." + f[0], f[1], docHtml(fr[f[0]]), false);
+    });
+    c += sec("ctx.scope", "Scope — рамка задачи", sh);
+  }
+  /* ИФР — ПЯТЬ ЧАСТЕЙ, в порядке накопления: критерии успеха · ожидаемые результаты ·
+     метрики · чек-лист приёмки (по нему ходит проверка) · сам идеал — последним. */
+  var ip = d.ifr_parts || {};
+  var IFRP = [["success", "Критерии успеха — при каких условиях это успех", true],
+              ["outcomes", "Ожидаемые результаты — что будет существовать и наблюдаться", false],
+              ["metrics", "Метрики качества — числа с порогами", false],
+              ["checklist", "Чек-лист приёмки — что человек проверит руками", true],
+              ["parts", "Крупные части пути — как ЧЕЛОВЕК видит работу", true]];
+  var hasIfr = hasDoc(d.ifr) || IFRP.some(function (f) { return hasDoc(ip[f[0]]); });
+  if (hasIfr) {
+    var ih = "";
+    IFRP.forEach(function (f) {
+      if (!hasDoc(ip[f[0]])) return;
+      ih += box("ifr." + f[0], f[1], docHtml(ip[f[0]]), f[2]);
+    });
+    if (hasDoc(d.ifr)) ih += box("ifr.ideal", "Сам идеал — одним абзацем", docHtml(d.ifr), true);
+    c += sec("ctx.ifr", "Идеальный финальный результат — глазами пользователя", ih);
+  }
+  if (hasDoc(d.clarified)) {
+    c += sec("ctx.clarified", "Задача после уточнений", '<div class="plain">' + docHtml(d.clarified) + "</div>");
+  }
+  if (hasDoc(d.summary)) {
+    c += sec("ctx.summary", "Summary — свёртка контекста", '<div class="plain">' + docHtml(d.summary) + "</div>");
+  }
+  if (d.unknown) {
+    c += sec("ctx.unknown", "Чего я не знаю (unknown)", '<div class="plain">' + md(d.unknown) + "</div>");
+  }
+  var cf = filesBox("context", "Контекст") + filesBox("research", "Исследования");
+  if (cf) c += sec("ctx.files", "Файлы сбора", cf);
+  h += band("context", c);
+
+  /* 2 · ДУМАТЬ — ЛЕСТНИЦА ТАКТОВ в порядке думания (владелец, 2026-08-21: «в таком порядке
+     тактов, как оно идёт, в таком порядке и показываем»). Порядок и названия приходят из
+     данных (think_steps) — та же таблица, что ведёт агента. Главное раскрыто — идеалы,
+     кристалл, развилки с выбором; остальное свёрнуто; не написанный такт — строкой. */
+  var t = "";
+  var tsteps = d.think_steps || [];
+  var tparts = d.think_parts || {};
+  var forks = d.forks || [];
+  var OPEN_T = { ideals: 1, crystal: 1, decision: 1 };
+  var anyThink = forks.length || hasDoc(d.think_tools) ||
+                 tsteps.some(function (s) { return hasDoc(tparts[s[0]]); });
+  if (anyThink) {
+    var lh = "";
+    tsteps.forEach(function (s) {
+      var key = s[0], title = s[1], v = tparts[key];
+      if (key === "decision" && forks.length) {
+        var fh = "";
+        forks.forEach(function (f) {
+          fh += '<div class="fork"><div class="fq"><span class="nid">' + esc(f.id) + "</span> " +
+                inl(f.q) + ' <span class="lvl">решает: ' + esc(f.who) + "</span>" +
+                (f.preview ? ' <a class="prev" href="' + encodeURI(f.preview) +
+                             '" target="_blank">открыть превью ↗</a>' : "") + "</div>";
+          if (f.decide) fh += '<div class="fmeta"><b>решить:</b> ' + inl(f.decide) + "</div>";
+          fh += "<ul>";
+          var det = f.details || [];
+          (f.options || []).forEach(function (o, i) {
+            var dd = det[i] || {};
+            fh += "<li>" + inl(o) +
+                  (dd.model ? '<div class="fsub"><b>модель:</b> ' + inl(dd.model) + "</div>" : "") +
+                  (dd.falsifier ? '<div class="fsub"><b>falsifier:</b> ' + inl(dd.falsifier) + "</div>" : "") +
+                  "</li>";
+          });
+          fh += "</ul>";
+          if (f.recommendation)
+            fh += '<div class="fmeta"><b>рекомендация до выбора:</b> ' + inl(f.recommendation) + "</div>";
+          fh += (f.decision ? '<div class="fdec">✓ ' + inl(f.decision) + "</div>"
+                            : '<div class="fdec open">— развилка открыта</div>');
+          if (f.fixed) fh += '<div class="fmeta fixed"><b>зафиксировано:</b> ' + inl(f.fixed) + "</div>";
+          fh += "</div>";
+        });
+        lh += box("think." + key, esc(title) + ' <span class="n">' + forks.length + "</span>",
+                  fh + (hasDoc(v) && doc(v).amend.length ? amendHtml(doc(v).amend) : ""), true);
+      } else if (hasDoc(v)) {
+        lh += box("think." + key, esc(title), docHtml(v), !!OPEN_T[key]);
+      } else {
+        lh += '<div class="band-empty">· ' + esc(title) + " — ещё нет</div>";
+      }
+    });
+    if (hasDoc(d.think_tools)) {
+      lh += box("think.tools", "Приёмы думания — что брал и что дал каждый", docHtml(d.think_tools), false);
+    }
+    t += sec("think.ladder", "Лестница думания", lh);
+  } else if (!tsteps.length && (hasDoc(d.ideals) || hasDoc(d.crystal))) {
+    /* a data file written before the ladder existed: fall back to the two old sections */
+    if (hasDoc(d.ideals))
+      t += sec("think.ideals", "Семья идеалов", '<div class="plain">' + docHtml(d.ideals) + "</div>");
+    if (hasDoc(d.crystal))
+      t += sec("think.crystal", "Кристалл — как вызревало решение", '<div class="plain">' + docHtml(d.crystal) + "</div>");
+  }
+  var tf = filesBox("thinking", "Думание");
+  if (tf) t += sec("think.files", "Файлы думания", tf);
+  h += band("think", t);
+
+  /* 3 · ПЛАН — сетевой план и складное дерево узлов: этапы, внутри пакеты и задачи; у
+     каждого узла его заполненные поля (результат, критерии, артефакты, входы, зависимости,
+     остановки). */
+  var pl = "";
+  var LVL = { stage: "этап", work_package: "пакет работ", work: "работа",
+              task: "задача", subtask: "подзадача" };
+  if (d.plan_word) {
+    pl += sec("plan.word", "План принят", '<div class="plain"><b>' + when(d.plan_word.ts) +
+              "</b> · «" + esc(d.plan_word.words) + "»</div>");
+  }
+  /* ЦЕЛОСТНОСТЬ МАРШРУТА (его решение 2026-08-24) — проверка СВЕРХУ ВНИЗ: за каждым куском
+     цели кто-то стоит. Стоит в ленте плана, потому что это свойство плана: свёртка снизу
+     говорит «обещанное сделано», целостность сверху — «нужное обещано». */
+  var ig = d.integrity || null;
+  if (ig && ig.kinds && ig.kinds.length) {
+    var gh = '<div class="plain">', nHole = 0, nAll = 0, nOk = 0;
+    ig.kinds.forEach(function (k) {
+      if (!k.items.length) return;
+      gh += '<div class="crit-node">' + esc(k.title) + "</div>";
+      k.items.forEach(function (it) {
+        nAll++;
+        var by = (it.by || []), unf = (it.unfolded || []);
+        var cls = by.length ? "met" : unf.length ? "unverified" : "failed";
+        var word = by.length ? "покрыт" : unf.length ? "раскроется" : "НИКТО";
+        if (by.length || unf.length) nOk++; else nHole++;
+        gh += '<div class="crit"><span class="v ' + cls + '">' + word + "</span><span>" +
+              inl(it.text) + "</span>" +
+              ((by.length || unf.length)
+                ? '<span class="proof">' + esc(by.concat(unf).join(", ")) +
+                  (unf.length ? " · план достроится позже" : "") + "</span>" : "");
+        gh += "</div>";
+      });
+    });
+    if (ig.orphans && ig.orphans.length)
+      gh += '<div class="crit"><span class="v unverified">ничьи</span><span>' +
+            esc(ig.orphans.join(", ")) + " — эти ветки не работают ни на один кусок цели</span></div>";
+    gh += "</div>";
+    pl += sec("plan.integrity", "Целостность маршрута <span class=\"n\">" + nOk + "/" + nAll +
+              "</span>" + (nHole ? ' <span class="n">дыр: ' + nHole + "</span>" : ""), gh, true);
+  }
+  var nodes = d.plan_nodes || [];
+  if (nodes.length || d.plan) {
+    if (d.plan) {
+      pl += sec("plan.network", "Сетевой план", box("plan.md", "plan.md", md(d.plan), false));
+    }
+    if (nodes.length) {
+      var byId = {}, kids = {}, roots = [];
+      nodes.forEach(function (n) { byId[n.id] = n; kids[n.id] = []; });
+      nodes.forEach(function (n) {
+        var p = /[.\-]/.test(n.id) ? n.id.replace(/[.\-][^.\-]+$/, "") : "";
+        if (p && byId[p]) kids[p].push(n); else roots.push(n);
+      });
+      var labels = d.node_labels || {};
+      function renderNode(n) {
+        var key = "plan.node." + n.id;
+        var out = '<details class="node" data-key="' + esc(key) + '"' +
+                  (isOpen(key, false) ? " open" : "") + '><summary><span class="nid">' +
+                  esc(n.id.toUpperCase()) + '</span><span class="nname">' + esc(n.name) +
+                  "</span>" + (LVL[n.level] ? '<span class="lvl">' + LVL[n.level] + "</span>" : "") +
+                  (n.status === "done" ? '<span class="done">✓ закрыт</span>' : "") +
+                  "</summary><div class=\"nbody\">";
+        Object.keys(n.fields || {}).forEach(function (k) {
+          out += '<div class="nfield"><b>' + esc(labels[k] || k) + "</b>" + md(n.fields[k]) + "</div>";
+        });
+        kids[n.id].forEach(function (c) { out += renderNode(c); });
+        out += "</div></details>";
+        return out;
+      }
+      var th = "";
+      roots.forEach(function (n) { th += renderNode(n); });
+      pl += sec("plan.tree", "Дерево узлов", th);
+    }
+  }
+  h += band("plan", pl);
+
+  /* 4 · ИСПОЛНЕНИЕ — ЖИВАЯ ДОСКА (владелец, 2026-08-22: «в исполнении не было видно, над чем
+     именно мы работаем»): сейчас · прогресс · узлы по статусам · карточка активного узла с
+     критериями, следами и дизайном. План остаётся контрактом, здесь — ход работы. */
+  var ex = "";
+  var xd = d.exec || null;
+  var STN = { active: "В работе", waiting: "Ждёт владельца", blocked: "Заблокировано",
+              open: "Осталось", parked: "Отложено", done: "Сделано" };
+  var STM = { active: "▶", waiting: "⏸", blocked: "✗", open: "·", parked: "⏹", done: "✓" };
+  if (xd && xd.nodes && xd.nodes.length) {
+    var byS = {};
+    xd.nodes.forEach(function (n) { (byS[n.status] = byS[n.status] || []).push(n); });
+    var doneN = (byS.done || []).length, totalN = xd.nodes.length;
+    var cT = 0, cD = 0;
+    xd.nodes.forEach(function (n) { cT += n.crit_total; cD += n.crit_done; });
+    var actN = null;
+    xd.nodes.forEach(function (n) { if (n.id === xd.active) actN = n; });
+    var now = actN
+      ? '<span class="exmark">▶</span> ' + esc(actN.id) + " · " + esc(actN.name) +
+        (actN.started_at ? ' <span class="lvl">в работе с ' + when(actN.started_at) + "</span>" : "")
+      : (xd.waiting.length ? '<span class="exmark">⏸</span> ждём владельца: ' + esc(xd.waiting.join(", "))
+                           : (doneN === totalN ? "все узлы закрыты" : "в работе никого"));
+    var nh = '<div class="plain"><div class="exnow">' + now + "</div>" +
+             '<div class="exprog">узлов закрыто ' + doneN + "/" + totalN +
+             " · критериев с вердиктом " + cD + "/" + cT +
+             (xd.stops && xd.stops.total ? " · остановок пройдено " + xd.stops.passed + "/" + xd.stops.total : "") +
+             "</div>";
+    (byS.waiting || []).forEach(function (n) {
+      nh += '<div class="exwait">⏸ ' + esc(n.id) + " ждёт владельца" + (n.note ? " — " + inl(n.note) : "") +
+            '<span class="lvl"> · агент не трогает этот сценарий</span></div>';
+    });
+    nh += "</div>";
+    ex += sec("exec.now", "Сейчас и прогресс", nh);
+    if (actN) {
+      var ah = '<div class="plain">';
+      if (actN.result) ah += '<div class="nfield"><b>результат</b>' + md(actN.result) + "</div>";
+      var cn = (d.criteria || []).filter(function (c) { return c.node === actN.id; })[0];
+      if (cn) {
+        ah += '<div class="nfield"><b>критерии · ' + actN.crit_done + "/" + actN.crit_total + "</b>";
+        cn.items.forEach(function (c) {
+          ah += '<div class="crit"><span class="v ' + esc(c.status) + '">' +
+                (VERDICT[c.status] || esc(c.status)) + "</span><span>" + inl(c.text) + "</span>" +
+                (c.proof ? '<span class="proof">' + proofHtml(c.proof) + "</span>" : "") + "</div>";
+        });
+        ah += "</div>";
+      }
+      function fileLinks(folder, list) {
+        return list.map(function (f) {
+          return '<a href="' + encodeURI(folder + "/" + f) + '">' + esc(f) + "</a>";
+        }).join(" · ");
+      }
+      ah += '<div class="nfield"><b>следы</b><div>артефакты: ' +
+            (actN.artifacts.length ? fileLinks("artifacts", actN.artifacts) : "—") +
+            "<br>доказательства: " + (actN.evidence.length ? fileLinks("evidence", actN.evidence) : "—") +
+            "</div></div>";
+      if (actN.stop) ah += '<div class="nfield"><b>остановка</b><div>' + esc(actN.stop) + "</div></div>";
+      (actN.design || []).forEach(function (g) {
+        ah += '<div class="nfield"><b>дизайн-контракт</b><div>' + esc(g.fork) +
+              (g.fidelity ? " · обязательность: " + esc(g.fidelity) : "") +
+              (g.preview ? ' · <a class="prev" href="' + encodeURI(g.preview) + '" target="_blank">открыть превью ↗</a>' : "") +
+              "</div></div>";
+      });
+      ah += "</div>";
+      ex += sec("exec.active", "Активный узел — " + esc(actN.id), ah);
+    }
+    var rows = "";
+    ["active", "waiting", "blocked", "open", "parked", "done"].forEach(function (stt) {
+      var list = byS[stt] || [];
+      if (!list.length) return;
+      rows += '<div class="crit-node">' + STN[stt] + ' <span class="n">' + list.length + "</span></div>";
+      list.forEach(function (n) {
+        rows += '<div class="exrow"><span class="exmark">' + STM[stt] + '</span><span class="nid">' + esc(n.id) +
+                "</span> " + esc(n.name) + ' <span class="lvl">' +
+                (n.crit_total ? n.crit_done + "/" + n.crit_total + " критериев" : "") +
+                (n.artifacts.length || n.evidence.length ? " · следов " + (n.artifacts.length + n.evidence.length) : "") +
+                (n.stop ? " · " + esc(n.stop) : "") + "</span>" +
+                (n.note ? '<div class="fsub">' + inl(n.note) + "</div>" : "") + "</div>";
+      });
+    });
+    ex += sec("exec.board", "Доска узлов", '<div class="plain">' + rows + "</div>");
+  }
+  var exf = filesBox("artifacts", "Артефакты") + filesBox("evidence", "Доказательства");
+  if (exf) ex += sec("exec.files", "Произведено и доказано", exf);
+  h += band("execute", ex);
+
+  /* 5 · ПРОВЕРКА — матрёшка (владелец, 2026-08-23): один закон на все уровни — проверка
+     узла = свои критерии + свёртка детей; корень — сама задача: её собственные критерии —
+     чек-лист приёмки (IFR), её дети — этапы, над всем — слово человека. Строка узла
+     раскрывается в критерии и детей, как дерево плана. */
+  var va = "";
+  var crit = d.criteria || [];
+  var ROLL = { ok: "сошлось", failed: "не сошлось", debt: "не проверено",
+               open: "открыто", empty: "—" };
+  var RCLS = { ok: "met", failed: "failed", debt: "unverified", open: "open", empty: "open" };
+  var nCrit = crit.reduce(function (s, n) { return s + n.items.length; }, 0);
+  if (nCrit) {
+    var vById = {}, vKids = {}, vRoots = [];
+    crit.forEach(function (n) { vById[n.node] = n; vKids[n.node] = []; });
+    crit.forEach(function (n) {
+      var p = n.parent || "";
+      if (p && vById[p]) vKids[p].push(n); else vRoots.push(n);
+    });
+    function critRows(items) {
+      var out = "";
+      (items || []).forEach(function (c) {
+        out += '<div class="crit"><span class="v ' + esc(c.status) + '">' +
+               (VERDICT[c.status] || esc(c.status)) + "</span><span>" + inl(c.text) + "</span>" +
+               (c.proof ? '<span class="proof">' + proofHtml(c.proof) + "</span>" : "") + "</div>";
+      });
+      return out;
+    }
+    function renderVal(n) {
+      var key = "val.node." + n.node;
+      var verdict = n.verdict || "open";
+      var cnt = n.own && n.own[1] ? "свои " + n.own[0] + "/" + n.own[1] : "";
+      if (n.sub && n.own && n.sub[1] !== n.own[1])
+        cnt += (cnt ? " · " : "") + "всего " + n.sub[0] + "/" + n.sub[1];
+      var out = '<details class="node" data-key="' + esc(key) + '"' +
+                (isOpen(key, !(n.depth > 0)) ? " open" : "") + '><summary>' +
+                '<span class="v ' + (RCLS[verdict] || "open") + '">' +
+                (ROLL[verdict] || verdict) + '</span><span class="nid">' + esc(n.node) +
+                '</span><span class="nname">' + esc(n.name || "") + "</span>" +
+                (cnt ? '<span class="lvl">' + cnt + "</span>" : "") +
+                '</summary><div class="nbody">' + critRows(n.items);
+      (vKids[n.node] || []).forEach(function (c) { out += renderVal(c); });
+      out += "</div></details>";
+      return out;
+    }
+    var vh = '<div class="vtree">';
+    var vr = d.val_root || null;
+    if (vr) {
+      vh += '<div class="vroot"><span class="v ' + (RCLS[vr.verdict] || "open") + '">' +
+            (ROLL[vr.verdict] || vr.verdict) + "</span><b>задача целиком</b><span>" +
+            vr.done + "/" + vr.total + " с вердиктом" +
+            (vr.failed ? " · не сошлось " + vr.failed : "") +
+            (vr.unverified ? " · не проверено " + vr.unverified : "") +
+            (vr.ifr && vr.ifr[1] ? " · чек-лист ИФР " + vr.ifr[0] + "/" + vr.ifr[1] : "") +
+            "</span>" +
+            (vr.word ? '<span class="vword">слово приёмки: «' + esc(vr.word.words) + "»</span>"
+                     : '<span class="vword none">слова приёмки ещё нет</span>') +
+            "</div>";
+    }
+    vRoots.forEach(function (n) { vh += renderVal(n); });
+    vh += "</div>";
+    va += sec("val.criteria", 'Критерии валидации <span class="n">' + nCrit + "</span>", vh);
+  }
+  h += band("validate", va);
+
+  /* 6 · УРОКИ · 7 · СВЕРКА · 8 · ЗАКРЫТИЕ — из журнала: уроки, решения по направлению,
+     запись о закрытии. */
+  var journal = d.journal || [];
+  function eventList(items, fmt) {
+    if (!items.length) return "";
+    return '<div class="plain">' + items.map(function (e) {
+      return '<div class="entry"><div class="top"><span>' + when(e.ts) + "</span></div>" +
+             '<div class="text">' + fmt(e) + "</div></div>";
+    }).join("") + "</div>";
+  }
+  var lessons = journal.filter(function (e) { return e.type === "lesson"; });
+  h += band("reflect", lessons.length ? sec("reflect.lessons", "Уроки",
+            eventList(lessons, function (e) { return inl(e.text || ""); })) : "");
+  var turns = journal.filter(function (e) {
+    return (e.type === "advance" && /^align/.test(e.text || "")) || e.type === "reroute";
+  });
+  h += band("align", turns.length ? sec("align.turns", "Решения по направлению",
+            eventList(turns, function (e) {
+              return "<b>" + esc(e.text || "") + "</b>" + (e.why ? " — " + inl(e.why) : "");
+            })) : "");
+  var dones = journal.filter(function (e) { return e.type === "done" || e.type === "reopened"; });
+  h += band("close", dones.length ? sec("close.done", "Закрытие",
+            eventList(dones, function (e) {
+              return (e.type === "reopened" ? "<b>открыта заново</b> — " :
+                      "<b>" + esc(e.outcome || "закрыта") + "</b> — ") + inl(e.text || "") +
+                     (e.dirty ? '<div class="proof">без коммита: ' + esc(e.dirty) + "</div>" : "");
+            })) : "");
+  /* ПОПРАВКИ — что изменили в документах уже пройденных этапов, одним списком по времени
+     (владелец, 2026-08-23: карточки лежали каждая под своим документом, бейдж только считал —
+     негде было увидеть «что изменилось после того, как я подтвердил»). Строка = оглавление:
+     полный текст живёт в карточке под документом, ссылка ведёт туда. «ждёт подтверждения» —
+     поправка позже твоего последнего записанного слова: то, что ты подтверждал, с тех пор
+     изменилось (тот же признак, что у `el next`). */
+  function docLabel(a) {
+    var k = a.key || "";
+    if (k === "ctx.scope.5w") return "5W+1H — границы" + (a.dim ? " · " + esc(a.dim) : "");
+    if (k.indexOf("ctx.frame.") === 0) {
+      var fk = k.slice(10), f = FRAME.filter(function (x) { return x[0] === fk; })[0];
+      return f ? f[1] : fk;
+    }
+    if (k.indexOf("ifr.") === 0) {
+      var ik = k.slice(4), g = IFRP.filter(function (x) { return x[0] === ik; })[0];
+      return ik === "ideal" ? "Сам идеал — одним абзацем" : (g ? g[1] : ik);
+    }
+    var fixed = { "ctx.clarified": "Задача после уточнений", "ctx.summary": "Summary — свёртка контекста",
+                  "ctx.unknown": "Чего я не знаю (unknown)", "ctx.qa": "Вопросы и ответы",
+                  "think.tools": "Приёмы думания", "plan.md": "План — карта маршрута",
+                  "plan.tree": "Дерево узлов" };
+    if (fixed[k]) return fixed[k];
+    if (k.indexOf("think.") === 0) {
+      var tk = k.slice(6), t = tsteps.filter(function (x) { return x[0] === tk; })[0];
+      return t ? t[1] : tk;
+    }
+    return a.rel || a.part || "документ";
+  }
+  var amHtml = "";
+  if (amList.length) {
+    var rows = "";
+    amList.slice().reverse().forEach(function (a) {
+      var st = a.pending ? ["pending", "ждёт подтверждения"] :
+               a.covered_by === "assume" ? ["loan", "принято за тебя — долг"] : ["ok", "подтверждено тобой"];
+      rows += '<div class="amrow">' +
+              '<span class="v ' + st[0] + '">' + st[1] + "</span>" +
+              "⟲ " + (a.late ? "поздний след" : "п" + esc(a.n)) + " · " + when(a.ts) +
+              " · этап: " + esc(RU[a.phase] || a.phase) +
+              ' · <span class="doc">' + esc(docLabel(a)) + "</span> " +
+              '<span class="rel">' + esc(a.rel) + "</span>" +
+              (a.key ? ' <a class="jump" href="#" data-jump="' + esc(a.key) + '" data-n="' +
+                       esc(a.n == null ? "" : a.n) + '">→ к документу</a>' : "") +
+              (a.why ? '<div class="fsub"><b>почему:</b> ' + inl(a.why) + "</div>" : "") +
+              (a.refs && a.refs.length ? '<div class="fsub"><b>основание:</b> ' + inl(a.refs.join(" · ")) + "</div>" : "") +
+              "</div>";
+    });
+    amHtml = sec("amend", 'Поправки — что изменилось задним числом <span class="n">' + amList.length +
+                 (nPend ? " · ждёт подтверждения " + nPend : "") + "</span>",
+                 '<div class="plain">' + rows + "</div>", !!nPend);
+  }
+  h = h.replace("<!--AMEND-->", amHtml);
+  document.getElementById("main").innerHTML = h;
+
+  /* ПЕРЕХОД К ДОКУМЕНТУ — раскрыть все папки на пути, прокрутить, мигнуть карточкой поправки. */
+  function jumpTo(key, n) {
+    var el = document.querySelector('details[data-key="' + key + '"]');
+    if (!el) return;
+    for (var p = el; p; p = p.parentElement) {
+      if (p.tagName === "DETAILS" && !p.open) { p.open = true; mem[p.getAttribute("data-key")] = true; }
+    }
+    try { localStorage.setItem(MEM_KEY, JSON.stringify(mem)); } catch (e) {}
+    var target = el;
+    if (n) {
+      var cards = el.querySelectorAll(".amend, .amend-notes");
+      for (var i = 0; i < cards.length; i++) {
+        if (cards[i].textContent.indexOf("п" + n + " ") >= 0 || cards[i].textContent.indexOf("п" + n + " ·") >= 0) { target = cards[i]; break; }
+      }
+    }
+    /* a card goes to the centre — the sticky band header would cover its top otherwise */
+    target.scrollIntoView({ behavior: "smooth", block: target === el ? "start" : "center" });
+    target.classList.remove("flash"); void target.offsetWidth; target.classList.add("flash");
+  }
+  document.addEventListener("click", function (ev) {
+    var a = ev.target.closest ? ev.target.closest("[data-jump]") : null;
+    if (!a) return;
+    ev.preventDefault();
+    jumpTo(a.getAttribute("data-jump"), a.getAttribute("data-n"));
+  });
+
+  /* ВТОРОСТЕПЕННОЕ — свёрнуто, раскрывается по клику: файлы без этапа и журнал целиком. */
+  var s = filesBox("init", "Начало") + filesBox("notes", "Заметки");
+  var entries = journal.slice().reverse();
+  var jh = "";
+  if (!entries.length) jh += '<div class="empty">Записей пока нет.</div>';
+  entries.forEach(function (e) {
+    jh += '<div class="entry"><div class="top"><span class="type' +
+          (/^(grant|halt|assume|owe|owe-holds|owe-paid|owe-drop)$/.test(e.type || "") ? " loan" : "") + '">' + esc(e.type || "") +
+          "</span><span>" + when(e.ts) + "</span></div>" +
+          '<div class="text">' + esc(e.text || e.short || "") +
+          (e.detail ? "\n" + esc(e.detail) : "") + "</div></div>";
+  });
+  s += box("journal", 'Журнал <span class="n">' + entries.length + "</span>", jh, false);
+  document.getElementById("second").innerHTML = sec("details", "Подробности", s);
+
+  /* remember every toggle — the user's hand, not the defaults: listeners go on AFTER the
+     stored state was already written into the markup above */
+  Array.prototype.forEach.call(document.querySelectorAll("details[data-key]"), function (el) {
+    el.addEventListener("toggle", function () {
+      mem[el.getAttribute("data-key")] = el.open;
+      try { localStorage.setItem(MEM_KEY, JSON.stringify(mem)); } catch (e) {}
+    });
+  });
+})();
+</script>
+</body>
+</html>

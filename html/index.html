@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проекты</title>
+<style>
+  :root {
+    --bg: #f7f6f3; --card: #ffffff; --ink: #1d1d1f; --muted: #6e6e73;
+    --line: #e3e2de; --accent: #3b6ea5; --done: #4a7c59; --closed: #8a8a8e;
+    --bad: #b0563e; --loan: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1e; --card: #26262a; --ink: #ececee; --muted: #98989d;
+      --line: #3a3a3e; --accent: #7aa5d2; --done: #85b795; --closed: #7c7c80;
+      --bad: #d08770; --loan: #e0a35c;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif;
+    max-width: 1320px; margin: 0 auto; padding: 40px 28px 80px;
+  }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+  a.card {
+    display: block; background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px 18px; margin-bottom: 12px;
+    text-decoration: none; color: inherit; transition: border-color .15s;
+  }
+  a.card:hover { border-color: var(--accent); }
+  .row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .name { font-weight: 600; font-size: 17px; }
+  .dir { color: var(--muted); font-size: 13px; font-family: ui-monospace, Menlo, monospace; }
+  .meta { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px;
+          color: var(--muted); font-size: 13px; }
+  .phase { color: var(--accent); font-weight: 600; }
+  .badge { font-size: 12px; padding: 1px 8px; border-radius: 99px;
+           border: 1px solid var(--line); color: var(--muted); }
+  .badge.completed { color: var(--done); border-color: var(--done); }
+  .badge.closed, .badge.dropped { color: var(--closed); }
+  .badge.blocked { color: var(--bad); border-color: var(--bad); }
+  /* АВТОНОМИЯ — тот же язык, что на обзоре: выдана · остановлена (залита) · долг слова */
+  .badge.auto { color: var(--accent); border-color: var(--accent); }
+  .badge.halt { color: #fff; background: var(--bad); border-color: var(--bad); font-weight: 600; }
+  .badge.loan { color: var(--loan); border-color: var(--loan); }
+  /* ЗА ТОБОЙ — ответы, которые есть только у человека, и их пока нет; «стоим» — залито */
+  .badge.owe { color: var(--loan); border-color: var(--loan); }
+  .badge.owe.stand { color: #fff; background: var(--bad); border-color: var(--bad); font-weight: 600; }
+  /* ПАНЕЛЬ (владелец, 2026-08-23): что показывать и в каком порядке. Выбор помнится
+     в localStorage — вернулся на страницу, она та же, что была. */
+  .bar { display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+         margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  .grp { display: flex; gap: 6px; align-items: center; }
+  .grp > .lbl { color: var(--muted); font-size: 13px; margin-right: 2px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px;
+         overflow: hidden; background: var(--card); }
+  .seg button { border: 0; background: transparent; color: var(--muted); cursor: pointer;
+                font: inherit; font-size: 13px; padding: 5px 11px; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--accent); color: #fff; font-weight: 600; }
+  .chk { display: inline-flex; gap: 6px; align-items: center; color: var(--muted);
+         font-size: 13px; cursor: pointer; user-select: none; }
+  .chk input { accent-color: var(--accent); cursor: pointer; }
+  /* ПОИСК — иконкой (его правка 2026-08-23): свёрнут в кнопку, нажал — развернулся
+     на всю строку и взял фокус; Esc или пустой поиск сворачивает обратно. */
+  .findwrap { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+  .findwrap.open { flex: 1 1 100%; margin-left: 0; }
+  .iconbtn { border: 1px solid var(--line); background: var(--card); color: var(--muted);
+             border-radius: 8px; cursor: pointer; font: inherit; font-size: 14px;
+             padding: 5px 10px; line-height: 1.2; }
+  .iconbtn:hover { border-color: var(--accent); color: var(--accent); }
+  .iconbtn.on { border-color: var(--accent); color: var(--accent); }
+  .find { display: none; flex: 1; background: var(--card); color: inherit;
+          border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit;
+          font-size: 14px; }
+  .findwrap.open .find { display: block; }
+  .find:focus { outline: none; border-color: var(--accent); }
+  /* КАРТОЧКА: имя крупно, под ним запрос своими словами, снизу — где идём и сколько закрыто */
+  a.card.done-card { opacity: .72; }
+  a.card.done-card:hover { opacity: 1; }
+  .req { color: var(--muted); font-size: 14px; margin-top: 6px;
+         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+         overflow: hidden; }
+  .track { display: flex; gap: 3px; margin-top: 10px; }
+  .track i { height: 4px; flex: 1; border-radius: 2px; background: var(--line); }
+  .track i.past { background: var(--accent); opacity: .45; }
+  .track i.here { background: var(--accent); }
+  .track i.ok { background: var(--done); }
+  .cnt { font-variant-numeric: tabular-nums; }
+  .cnt.bad { color: var(--bad); font-weight: 600; }
+  .drift { color: var(--loan); }
+  /* ЗАКРЫТИЕ на карточке (его правка 2026-08-23): у закрытого проекта видно, чем кончилось
+     и почему закрыли — не один бейдж, а сам итог. */
+  .closing { margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+             border: 1px solid var(--line); background: rgba(127,127,127,.06); font-size: 14px; }
+  .closing .ct { font-weight: 600; color: var(--done); margin-right: 6px; }
+  .closing.dropped .ct, .closing.closed .ct { color: var(--closed); }
+  .closing .cw { display: block; color: var(--muted); margin-top: 4px; }
+  .empty { text-align: center; color: var(--muted); padding: 70px 20px; }
+  .empty b { color: var(--ink); display: block; font-size: 18px; margin-bottom: 8px; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>🐘 Проекты</h1>
+<div class="sub" id="sub"></div>
+<div class="bar" id="bar" hidden>
+  <div class="grp"><span class="lbl">показывать</span>
+    <span class="seg" id="segShow">
+      <button data-v="all">все</button><button data-v="open">в работе</button><button data-v="done">завершённые</button>
+    </span>
+  </div>
+  <div class="grp"><span class="lbl">порядок</span>
+    <span class="seg" id="segSort">
+      <button data-v="updated">обновлён</button><button data-v="created">создан</button><button data-v="name">название</button><button data-v="phase">этап</button>
+    </span>
+  </div>
+  <label class="chk"><input type="checkbox" id="chkMe"> только те, где нужен я</label>
+  <span class="findwrap" id="findwrap">
+    <button class="iconbtn" id="findBtn" title="найти по названию или запросу">🔍</button>
+    <input class="find" id="find" type="search" placeholder="найти по названию или запросу…">
+  </span>
+</div>
+<div id="list"></div>
+
+<script>
+/* Страница — статичный читатель базы, её никто не переписывает. Всё, что она
+   показывает, CLI складывает в служебную папку metadata/ рядом; нет файла —
+   страница честно показывает пустое состояние. */
+window.ELEPHANT_INDEX = null;
+</script>
+<script src="metadata/index-data.js"></script>
+<script>
+(function () {
+  var PH = { context: "1/8 контекст", think: "2/8 думать", plan: "3/8 план",
+             execute: "4/8 исполнение", validate: "5/8 проверка",
+             reflect: "6/8 уроки", align: "7/8 сверка", close: "8/8 закрытие" };
+  var d = window.ELEPHANT_INDEX;
+  var list = document.getElementById("list");
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+  function when(iso) {
+    if (!iso) return "";
+    var t = new Date(iso);
+    return isNaN(t) ? esc(iso) : t.toLocaleString("ru-RU",
+      { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+  if (!d || !d.projects || !d.projects.length) {
+    list.innerHTML = '<div class="empty"><b>Пока ни одного проекта</b>' +
+      'Проект появится здесь после команды <code>el boot "&lt;задача&gt;" --id &lt;имя&gt;</code></div>';
+    return;
+  }
+  var ORDER = ["context", "think", "plan", "execute", "validate", "reflect", "align", "close"];
+  var OUT = { completed: "доехали", closed: "закрыто", dropped: "отброшено",
+              blocked: "заблокировано" };
+  var sub = document.getElementById("sub");
+  var bar = document.getElementById("bar");
+  bar.hidden = false;
+
+  /* ВЫБОР ПОМНИТСЯ — как складные секции обзора: вернулся, и всё на месте. */
+  var MEM_KEY = "el.index." + (d.storage || "");
+  var ui = { show: "all", sort: "updated", me: false, q: "" };
+  try { ui = Object.assign(ui, JSON.parse(localStorage.getItem(MEM_KEY) || "{}")); } catch (e) {}
+  function remember() { try { localStorage.setItem(MEM_KEY, JSON.stringify(ui)); } catch (e) {} }
+
+  function isDone(p) { return !!p.outcome || (p.status && p.status !== "active"); }
+  function needsMe(p) {
+    var au = p.autonomy;
+    return !!(au && (au.halt || au.debt)) || !!(p.owed && p.owed.open);
+  }
+  function card(p) {
+    var a = document.createElement("a");
+    a.className = "card" + (isDone(p) ? " done-card" : "");
+    a.href = encodeURIComponent(p.dir) + "/overview.html";
+    var badge = "";
+    if (p.outcome) badge = '<span class="badge ' + esc(p.outcome) + '">' + esc(p.outcome) + "</span>";
+    else if (p.status && p.status !== "active")
+      badge = '<span class="badge">' + esc(p.status) + "</span>";
+    var au = p.autonomy;
+    if (au && au.grant) {
+      if (au.halt)
+        badge += '<span class="badge halt" title="' + esc(au.halt.text || "") + '">автономия остановлена</span>';
+      else if (au.active)
+        badge += '<span class="badge auto" title="' + esc(au.grant.text || "") + '">автономия</span>';
+      if (au.debt)
+        badge += '<span class="badge loan">долг слова: ' + au.debt + "</span>";
+    }
+    if (p.owed && p.owed.open)
+      badge += '<span class="badge owe' + (p.owed.standing ? " stand" : "") +
+               '" title="ответы, которые есть только у тебя, и их пока нет">за тобой: ' + p.owed.open +
+               (p.owed.standing ? " · стоим: " + p.owed.standing : "") + "</span>";
+    /* ЛЕНТА ФАЗ — восемь делений: пройденное залито бледным, текущее ярким, закрытая
+       задача — вся зелёным. Видно с одного взгляда, далеко ли уехали. */
+    /* ФАЗА ПО СЛЕДАМ (его случай 2026-08-23: completed · узлы 12/12 · проверка 69/69 —
+       и «2/8 думать»). Закрытая задача стоит на закрытии, а у открытой лента показывает
+       самое дальнее, чему есть доказательство; объявленная фаза остаётся видна, когда
+       расходится, — расхождение само по себе сигнал «либо el forward, либо это волна». */
+    var nominal = ORDER.indexOf(p.phase);
+    var reached = ORDER.indexOf(p.phase_reached || p.phase);
+    var ci = Math.max(nominal, reached);
+    var track = '<div class="track">';
+    for (var i = 0; i < ORDER.length; i++) {
+      var cls = p.outcome ? "ok" : i < ci ? "past" : i === ci ? "here" : "";
+      track += '<i class="' + cls + '"></i>';
+    }
+    track += "</div>";
+    var nd = p.nodes || [0, 0], vl = p.val || [0, 0];
+    var counts = "";
+    if (nd[1]) counts += '<span class="cnt">узлы ' + nd[0] + "/" + nd[1] + "</span>";
+    if (vl[1]) counts += '<span class="cnt' + (p.verdict === "failed" ? " bad" : "") +
+                         '">проверка ' + vl[0] + "/" + vl[1] +
+                         (p.verdict === "failed" ? " · не сошлось" : "") + "</span>";
+    a.innerHTML =
+      '<div class="row"><span class="name">' + esc(p.name || p.dir) + "</span>" + badge + "</div>" +
+      (p.request ? '<div class="req">' + esc(p.request) + "</div>" : "") + track +
+      (p.closing ? '<div class="closing ' + esc(p.closing.outcome || "") + '"><span class="ct">' +
+        esc(OUT[p.closing.outcome] || p.closing.outcome || "закрыто") + "</span>" +
+        esc(p.closing.result || "") +
+        (p.closing.why ? '<span class="cw">почему закрыли: ' + esc(p.closing.why) + "</span>" : "") +
+        (p.closing.phase && p.closing.phase !== "close"
+          ? '<span class="cw">закрыто с этапа: ' + esc(PH[p.closing.phase] || p.closing.phase) + "</span>"
+          : "") +
+        (p.closing.dirty ? '<span class="cw">без коммита: ' + esc(p.closing.dirty) + "</span>" : "") +
+        "</div>" : "") +
+      '<div class="meta"><span class="phase">' + esc(PH[ORDER[ci]] || p.phase || "") + "</span>" +
+      (ci > nominal && nominal >= 0
+        ? '<span class="drift" title="объявленная фаза отстаёт от следов — либо el forward, либо это волна">объявлено: ' +
+          esc(PH[p.phase] || p.phase) + "</span>" : "") +
+      counts + '<span title="последнее обновление">' + when(p.updated_at) + "</span>" +
+      '<span title="создан">род. ' + esc(String(p.dir || "").slice(0, 10)) + "</span>" +
+      '<span class="dir">' + esc(p.dir) + "</span></div>";
+    return a;
+  }
+
+  function draw() {
+    var q = (ui.q || "").trim().toLowerCase();
+    var rows = d.projects.filter(function (p) {
+      if (ui.show === "open" && isDone(p)) return false;
+      if (ui.show === "done" && !isDone(p)) return false;
+      if (ui.me && !needsMe(p)) return false;
+      if (q && ((p.name || "") + " " + (p.dir || "") + " " + (p.request || ""))
+               .toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+    rows.sort(function (a, b) {
+      if (ui.sort === "name")
+        return String(a.name || a.dir).localeCompare(String(b.name || b.dir), "ru");
+      if (ui.sort === "created") {
+        /* дата рождения стоит в самом имени папки — 2026-08-23-<имя>; новые сверху */
+        var c1 = String(a.dir || "").slice(0, 10), c2 = String(b.dir || "").slice(0, 10);
+        if (c1 !== c2) return c2.localeCompare(c1);
+        return String(a.dir || "").localeCompare(String(b.dir || ""), "ru");
+      }
+      if (ui.sort === "phase") {
+        var d1 = ORDER.indexOf(a.phase), d2 = ORDER.indexOf(b.phase);
+        if (d1 !== d2) return d2 - d1;   /* дальше уехавшие — выше */
+      }
+      return String(b.updated_at || "").localeCompare(String(a.updated_at || ""));
+    });
+    list.innerHTML = "";
+    if (!rows.length) {
+      list.innerHTML = '<div class="empty"><b>Ничего не подошло</b>Смягчи фильтры выше</div>';
+    } else {
+      rows.forEach(function (p) { list.appendChild(card(p)); });
+    }
+    var n = rows.length, all = d.projects.length;
+    sub.textContent = n + " " + (n === 1 ? "проект" : n < 5 && n !== 0 ? "проекта" : "проектов") +
+      (n !== all ? " из " + all : "") +
+      (d.generated ? " · обновлено " + when(d.generated) : "");
+  }
+
+  function seg(id, key) {
+    var box = document.getElementById(id);
+    function paint() {
+      Array.prototype.forEach.call(box.children, function (b) {
+        b.classList.toggle("on", b.getAttribute("data-v") === ui[key]);
+      });
+    }
+    box.addEventListener("click", function (e) {
+      var v = e.target.getAttribute && e.target.getAttribute("data-v");
+      if (!v) return;
+      ui[key] = v; remember(); paint(); draw();
+    });
+    paint();
+  }
+  seg("segShow", "show");
+  seg("segSort", "sort");
+  var chk = document.getElementById("chkMe");
+  chk.checked = !!ui.me;
+  chk.addEventListener("change", function () { ui.me = chk.checked; remember(); draw(); });
+  var find = document.getElementById("find");
+  var findWrap = document.getElementById("findwrap");
+  var findBtn = document.getElementById("findBtn");
+  function openFind(on) {
+    findWrap.classList.toggle("open", on);
+    findBtn.classList.toggle("on", on || !!(ui.q || "").trim());
+    if (on) find.focus();
+  }
+  find.value = ui.q || "";
+  openFind(!!(ui.q || "").trim());          /* был поиск — страница открывается с ним */
+  findBtn.addEventListener("click", function () {
+    var willOpen = !findWrap.classList.contains("open");
+    if (!willOpen && (ui.q || "").trim()) { ui.q = ""; find.value = ""; remember(); draw(); }
+    openFind(willOpen);
+  });
+  find.addEventListener("input", function () { ui.q = find.value; remember(); draw(); });
+  find.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { ui.q = ""; find.value = ""; remember(); draw(); openFind(false); }
+  });
+  draw();
+})();
+</script>
+</body>
+</html>
