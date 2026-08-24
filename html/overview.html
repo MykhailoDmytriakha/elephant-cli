@@ -242,6 +242,13 @@
                                 padding: 0 8px; }
   details.node > summary .done { color: var(--done); font-size: 13px; font-weight: 600; }
   details.node > .nbody { padding: 0 14px 12px; }
+  /* УЗЕЛ РАСКРЫТ (владелец, 2026-08-24): суть одной строкой, контракт — своя складная карточка
+     (свёрнута), дети — сразу под ней, а не за экраном текста. */
+  .ngist { color: var(--muted); font-size: 14px; margin: 0 0 6px; overflow-wrap: anywhere; }
+  details.node > .nbody > details.box { margin: 6px 0 8px; }
+  details.node > .nbody > details.box > .body { padding-bottom: 10px; }
+  .nkids { font-size: 12px; text-transform: uppercase; letter-spacing: .03em;
+           color: var(--muted); margin: 10px 0 2px; }
   .nfield { margin: 8px 0 0; }
   .nfield b { display: block; font-size: 12.5px; text-transform: uppercase;
               letter-spacing: .03em; color: var(--muted); }
@@ -850,16 +857,33 @@ window.ELEPHANT_OVERVIEW = null;
       var labels = d.node_labels || {};
       function renderNode(n) {
         var key = "plan.node." + n.id;
+        var st = n.status || "open";
+        var STATUS = { active: "▶ в работе", waiting: "⏸ ждёт владельца", blocked: "✗ заблокирован",
+                       parked: "⏹ отложен" };
+        var stBadge = st === "done" ? '<span class="done">✓ закрыт</span>' :
+                      STATUS[st] ? '<span class="lvl">' + STATUS[st] + "</span>" : "";
+        var ch = kids[n.id];
         var out = '<details class="node" data-key="' + esc(key) + '"' +
                   (isOpen(key, false) ? " open" : "") + '><summary><span class="nid">' +
                   esc(n.id.toUpperCase()) + '</span><span class="nname">' + esc(n.name) +
                   "</span>" + (LVL[n.level] ? '<span class="lvl">' + LVL[n.level] + "</span>" : "") +
-                  (n.status === "done" ? '<span class="done">✓ закрыт</span>' : "") +
+                  stBadge + (ch.length ? '<span class="lvl">внутри ' + ch.length + "</span>" : "") +
                   "</summary><div class=\"nbody\">";
-        Object.keys(n.fields || {}).forEach(function (k) {
-          out += '<div class="nfield"><b>' + esc(labels[k] || k) + "</b>" + md(n.fields[k]) + "</div>";
-        });
-        kids[n.id].forEach(function (c) { out += renderNode(c); });
+        /* суть — первая строка результата, без раскрытия контракта */
+        var gist = ((n.fields || {}).result || "").split("\n").filter(function (l) { return l.trim(); })[0] || "";
+        if (gist) out += '<div class="ngist">' + inl(gist.replace(/^[-*•]\s+/, "")) + "</div>";
+        var fk = Object.keys(n.fields || {});
+        if (fk.length) {
+          var fh = "";
+          fk.forEach(function (k) {
+            fh += '<div class="nfield"><b>' + esc(labels[k] || k) + "</b>" + md(n.fields[k]) + "</div>";
+          });
+          out += box(key + ".fields", 'Контракт узла <span class="n">' + fk.length + " полей</span>", fh, false);
+        }
+        if (ch.length) {
+          out += '<div class="nkids">внутри · ' + ch.length + "</div>";
+          ch.forEach(function (c) { out += renderNode(c); });
+        }
         out += "</div></details>";
         return out;
       }
