@@ -7,7 +7,7 @@ import json, os, re, sys
 from .protocol import NODE_FIELDS, NODE_KEYS, NODE_KEYS_OPTIONAL, PLAN_LEVELS
 from . import autonomy
 from .state import (pick_task, current_task, fm_read, fm_write, journal, now_iso, require_root,
-                    resolve_task, task_mode, touch)
+                    resolve_task, task_mode, touch, write)
 from .term import wrap
 
 
@@ -301,6 +301,158 @@ def cmd_plan(args):
     return plan_tree(tdir, root, task)
 
 
+PROJECTION_MARK = "_Проекция дерева узлов"
+ID_RE = re.compile(r"\b[Ss]\d+(?:\.[Ww][Pp]\d+)*\b")
+
+
+def deps_of(node):
+    """Node ids named in the `deps` field — «после S1, S2.WP1» → {S1, S2.WP1}; own id dropped."""
+    raw = (node.get("_fields", {}) or {}).get("deps") or ""
+    if raw.strip() == "_пусто_":
+        return []
+    out = []
+    for m in ID_RE.finditer(raw):
+        d = m.group(0).upper()
+        if d != node["id"] and d not in out:
+            out.append(d)
+    return out
+
+
+def plan_waves(tdir):
+    """The network plan COMPUTED from the tree (owner, 2026-08-24: «план — проекция дерева»).
+
+    Returns (waves, missing, cycle): waves — lists of node ids that can run side by side, in
+    order (Kahn layers over `deps`; a child inherits its parent's deps, since it is part of
+    the parent); missing — {node: [dep ids that are no node]}; cycle — ids left when the
+    deps go round. The hand-written plan.md used to say the same things in prose and drift
+    from the tree by definition — a computed field is not stored (his law for the phase)."""
+    nodes = sorted(nodes_all(tdir), key=lambda x: x["id"])
+    ids = {n["id"] for n in nodes}
+    by_id = {n["id"]: n for n in nodes}
+    deps, missing = {}, {}
+    for n in nodes:
+        own = deps_of(n)
+        miss = [d for d in own if d not in ids]
+        if miss:
+            missing[n["id"]] = miss
+        eff = [d for d in own if d in ids]
+        p = n.get("parent")
+        while p and p in by_id:
+            eff += [d for d in deps.get(p, []) if d not in eff]
+            p = by_id[p].get("parent")
+        deps[n["id"]] = [d for d in eff if not n["id"].startswith(d + ".") and d != n["id"]]
+    placed, waves = set(), []
+    while len(placed) < len(nodes):
+        wave = [n["id"] for n in nodes if n["id"] not in placed
+                and all(d in placed for d in deps[n["id"]])]
+        if not wave:
+            break
+        waves.append(wave)
+        placed.update(wave)
+    cycle = [n["id"] for n in nodes if n["id"] not in placed]
+    return waves, missing, cycle, deps
+
+
+def network_plan(tdir):
+    """plan.md as text — the projection. None when there are no nodes."""
+    nodes = sorted(nodes_all(tdir), key=lambda x: x["id"])
+    if not nodes:
+        return None
+    by_id = {n["id"]: n for n in nodes}
+    waves, missing, cycle, deps = plan_waves(tdir)
+    out = ["# Сетевой план — проекция дерева узлов", "",
+           PROJECTION_MARK + ": строится из полей `deps` (что после чего) и `sync` (где "
+           "остановки) командой `el`, рукой не правится. Почему порядок такой — "
+           "`thinking/order.md`. Изменить план = изменить узлы: "
+           '`el plan set s2 deps "после S1"`._', "", "## Порядок"]
+    any_deps = any(deps[i] for i in deps)
+    if not any_deps:
+        out.append("_зависимостей не задано — порядок по id; параллельность не объявлена_")
+    for k, wave in enumerate(waves, 1):
+        head = f"**волна {k}**" + (" · параллельно" if len(wave) > 1 else "")
+        out.append(head)
+        for nid in wave:
+            n = by_id[nid]
+            st = node_status(n)
+            after = [d for d in deps[nid] if d in by_id]
+            sm = sync_mark(n)
+            out.append(f"- {STATUS_MARK.get(st, '·')} {nid} · {n.get('name', '')}"
+                       + (f" ← после {', '.join(after)}" if after else "")
+                       + (f" · {sm}" if sm else ""))
+    if cycle:
+        out += ["", f"**ЦИКЛ зависимостей** — не разложить в порядок: {', '.join(cycle)}"]
+    stops = [n for n in nodes if node_sync(n)]
+    out += ["", "## Остановки"]
+    if stops:
+        for n in stops:
+            subj = sync_subject(n)
+            out.append(f"- {sync_mark(n)} {n['id']} · {n.get('name', '')}"
+                       + (f" — {subj}" if subj else ""))
+    else:
+        out.append("_остановок не объявлено — поле sync пусто у всех узлов_")
+    if missing:
+        out += ["", "## Расхождение"]
+        for nid, miss in missing.items():
+            out.append(f"- {nid} зависит от {', '.join(miss)} — таких узлов нет")
+    return "\n".join(out) + "\n"
+
+
+def write_plan_md(tdir):
+    """Write plan.md as the projection. A hand-written plan.md (no projection mark) is moved
+    to notes/plan-by-hand.md first — the words are kept, the file stops being a source.
+    Returns «migrated» / «written» / None."""
+    text = network_plan(tdir)
+    if text is None:
+        return None
+    pm = os.path.join(tdir, "plan.md")
+    moved = None
+    try:
+        old = open(pm, encoding="utf-8").read()
+    except OSError:
+        old = None
+    if old is not None and PROJECTION_MARK not in old:
+        dst = os.path.join(tdir, "notes", "plan-by-hand.md")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        try:
+            had = open(dst, encoding="utf-8").read()
+        except OSError:
+            had = ""
+        if old.strip() not in had:            # idempotent: the same text is never kept twice
+            with open(dst, "a", encoding="utf-8") as fh:
+                fh.write(("\n\n" if had else "")
+                         + f"<!-- рукописный plan.md, перенесён {now_iso()[:16]}: план теперь проекция дерева -->\n"
+                         + old.rstrip() + "\n")
+        moved = "migrated"
+    if old != text:
+        write(pm, text)
+    return moved or "written"
+
+
+def plan_drift(tdir):
+    """Where the tree's own words do not add up: deps naming no node · a cycle.
+    None when there are no nodes."""
+    if not nodes_all(tdir):
+        return None
+    _w, missing, cycle, _d = plan_waves(tdir)
+    return {"missing": missing, "cycle": cycle}
+
+
+def drift_lines(tdir, indent="           "):
+    """What the tree, `el next` and the gate say about it. [] when the plan adds up."""
+    d = plan_drift(tdir)
+    if not d:
+        return []
+    out = []
+    for nid, miss in d["missing"].items():
+        first = miss[0].lower().replace(".", " ")
+        out.append(f"{indent}РАСХОЖДЕНИЕ  {nid} зависит от {', '.join(miss)} — таких узлов нет: "
+                   f'el plan new {first} "<имя>" · либо поправь: el plan set {nid.lower()} deps "…"')
+    if d["cycle"]:
+        out.append(f"{indent}ЦИКЛ  зависимости ходят по кругу: {', '.join(d['cycle'])} — "
+                   "разорви в поле deps")
+    return out
+
+
 def plan_tree(tdir, root=None, task=None):
     """The plan AND its state: what is closed, what is open, what moved recently.
 
@@ -310,11 +462,7 @@ def plan_tree(tdir, root=None, task=None):
     nodes = nodes_all(tdir)
     mode = task_mode(tdir)
     if not nodes:
-        pm = os.path.join(tdir, "plan.md")
-        if os.path.exists(pm):
-            print(open(pm, encoding="utf-8").read().rstrip())
-            print()
-        print("узлов нет.")
+        print("узлов нет — и сетевого плана нет: план строится из узлов (deps · sync).")
         print('запись   el plan new s1 "<имя этапа>"')
         return 0
 
@@ -337,6 +485,8 @@ def plan_tree(tdir, root=None, task=None):
         print(f"           ближайшая остановка: {sync_mark(nxt)} {nxt['id']} · {nxt.get('name','')}")
     if holes:
         print(f"           с пустыми полями: {', '.join(holes)}")
+    for l in drift_lines(tdir):
+        print(l)
     print()
 
     for n in sorted(nodes, key=lambda x: x["id"]):
@@ -388,12 +538,16 @@ def plan_tree(tdir, root=None, task=None):
                     print(f"  {ts}  {names.get(e['type'], e['type']):<14} "
                           f"{wrap(str(e.get('text', ''))[:150], indent='                             ')}")
 
-    pm = os.path.join(tdir, "plan.md")
-    if os.path.exists(pm):
-        print("\nСЕТЕВОЙ ПЛАН")
-        print(open(pm, encoding="utf-8").read().rstrip())
+    moved = write_plan_md(tdir)
+    if moved == "migrated":
+        print("\nplan.md   рукописный план перенесён в notes/plan-by-hand.md — план теперь "
+              "проекция дерева (его решение 2026-08-24)")
+    text = network_plan(tdir) or ""
+    body = [l for l in text.splitlines()[1:] if not l.startswith(PROJECTION_MARK)]
+    print("\nСЕТЕВОЙ ПЛАН — проекция дерева (deps · sync) → plan.md")
+    print("\n".join(body).strip())
     print("\nподробно     el plan s1 · el plan s1 wp1 · el sync — только остановки · "
-          "в работу: el plan start s1")
+          'в работу: el plan start s1 · порядок: el plan set s2 deps "после S1"')
     return 0
 
 

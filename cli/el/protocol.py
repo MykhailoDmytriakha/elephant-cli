@@ -685,7 +685,7 @@ PHASE_MAP = {
     },
     "plan": {
         "artifacts": [
-            ("plan.md", "network plan: order, dependencies, branch and merge points", "soft"),
+            ("plan.md", "network plan — a PROJECTION of the tree (deps · sync), written by el", "soft"),
             # nodes/ and the owner's word are what `el forward` actually refuses without —
             # the blueprint said «по нужде» while the gate said «НЕ ПУЩУ» (caught 2026-08-21).
             ("nodes/", "hierarchical decomposition: nodes with the eight fields", "light"),
@@ -703,7 +703,7 @@ PHASE_MAP = {
                 "dependencies and order, acyclic · (8) who executes it. The move out of plan "
                 "needs the owner's explicit yes — not an assumption."),
         "gate": ("есть хотя бы один узел и у каждого заполнены все девять полей · ЦЕЛОСТНОСТЬ МАРШРУТА: за каждым пунктом чек-листа приёмки и каждой крупной частью пути стоит узел или объявленное место раскрытия (el plan integrity) · слово "
-                 "владельца над планом (acceptance.md) · plan.md"),
+                 "владельца над планом (acceptance.md) · plan.md — проекция дерева, есть всегда, когда есть узлы"),
         "cmds": ['el plan new s1 "<этап>"', 'el plan set s1 <поле> "<текст>"', "el sync",
                  'el accept "<его «да» над планом>"',
                  'el forward --why "plan accepted by the owner"'],
@@ -818,10 +818,11 @@ PHASE_BEATS = {
          "что там будет — объяви дыру вслух (el plan unfold … --after <узел>): названная дыра "
          "тоже покрытие, молчаливая — провал",
          "el plan integrity  ·  el plan cover s1 ifr 2 3  ·  el plan cover s1 part 1"),
-        ("сетевой план — порядок, зависимости, ветвления", "agent", "plan.md", "soft",
-         "не список дел, а сеть: что после чего, что можно вести параллельно, где план ветвится "
-         "по решению человека. Пишется ДО узлов и сверяется с ними",
-         "plan.md — пишется рукой, файлом"),
+        ("сетевой план — проекция дерева", "agent", "plan.md", "soft",
+         "не пишется рукой: el строит его из полей узлов — deps (что после чего; волны = что "
+         "можно вести параллельно) и sync (где остановки). Почему порядок такой — thinking/order.md. "
+         "Изменить план = изменить узлы (его решение 2026-08-24)",
+         'el plan — печатает · el plan set s2 deps "после S1" · el plan set s2 sync "…"'),
         ("узлы с контрактом из девяти полей", "agent", "nodes/<узел>.md", "light",
          "узел — единица работы с контрактом: outcome · inputs · outputs · check · sync · "
          "depends · size · scope (light: результат + критерии). Уровни: этап s1 → работа s1/wp1 "

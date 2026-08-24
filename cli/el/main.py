@@ -48,9 +48,13 @@ the parser that registers the commands sit together and cannot drift apart.
 #   el lesson "<text>"                a lesson that OUTLIVES its task → <storage>/lessons.md;
 #                                     bare `el` prints them, so the next agent starts warned
 #   el feedback "<text>"              THE TOOL'S OWN INBOX — what in `el` got in the way, what
-#                                     helped; one file per review in the skill's feedback/ (the
+#                                     helped; one file per review in feedback/ of the clone (the
 #                                     pool a meta-session reads, fixes, deletes) · --about · --by ·
 #                                     --from user (his words) · --file · <id> · done <id>
+#                                     THE SHAPE, so it can be reproduced: наблюдал: <command →
+#                                     what it printed> · ожидал: <instead> · обошёл: <how you went
+#                                     on> · помогло: <what worked> — a thin review is taken, but
+#                                     told it is thin
 #
 # look — the three questions and the map
 #   el status                         where we are: project, task, and the phase strip —

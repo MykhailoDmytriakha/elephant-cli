@@ -11,7 +11,7 @@ from .state import _DIRTY, SKILL_ROOT, now_iso, task_meta, tasks_of, write
 from .context import qa_read, scope_notes, scope_read
 from .think import forks_read
 from .amend import pending_word, split_amendments, word_given_on
-from .plan import active_node, node_status, node_sync, nodes_all, sync_mark, waiting_nodes
+from .plan import active_node, node_status, node_sync, nodes_all, sync_mark, waiting_nodes, write_plan_md
 from .validate import criteria_of, rollup, validation_state
 from . import autonomy, owe
 
@@ -331,6 +331,10 @@ def render_views(root, only=None):
             data_path = os.path.join(meta_dir, t + ".js")
             if only is not None and t not in only and os.path.exists(data_path):
                 continue
+            try:
+                write_plan_md(tdir)            # plan.md — the projection of the tree
+            except Exception:
+                pass
             entries = []
             try:
                 with open(os.path.join(tdir, "journal.jsonl"), encoding="utf-8") as fh:

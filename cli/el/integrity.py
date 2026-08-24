@@ -44,12 +44,20 @@ def goal_items(tdir, kind):
     path = os.path.join(tdir, rel)
     if not os.path.exists(path):
         return []
+    # One item per line — bulleted, numbered or PLAIN: `el context parts` writes the owner's
+    # pieces one per line with no bullet, and until 2026-08-24 those counted as nothing
+    # (found through the scenario: «parts only» → «считать не от чего»). Skipped: headings,
+    # italic notes, amendment heads and their почему/основание lines.
+    from .amend import AMEND_HEAD
     out = []
     for line in open(path, encoding="utf-8"):
         st = line.strip()
+        if not st or st.startswith(("#", "_", "почему:", "основание:", "- основание:")):
+            continue
+        if AMEND_HEAD.match(line):
+            continue
         m = re.match(r"^(?:[-*•]|\d+[.)])\s+(.+)$", st)
-        if m and not st.startswith("- основание:"):
-            out.append(m.group(1).strip())
+        out.append((m.group(1) if m else st).strip())
     return out
 
 
@@ -177,8 +185,8 @@ def cmd_integrity(root, task, tdir, quiet=False):
     """The route seen TOP-DOWN: every item of the goal and who closes it."""
     if not has_goal(tdir):
         if not quiet:
-            print("целостность считать не от чего: нет ни чек-листа приёмки, ни крупных частей",
-                  file=sys.stderr)
+            print("ЦЕЛОСТНОСТЬ НЕ ПОСЧИТАНА — считать не от чего: нет ни чек-листа приёмки, "
+                  "ни крупных частей пути (код выхода 1)", file=sys.stderr)
             print("  собери на контексте: el context checklist … · el context parts …",
                   file=sys.stderr)
         return 1
@@ -203,6 +211,14 @@ def cmd_integrity(root, task, tdir, quiet=False):
                 mark, who = "✗", "НИКТО"
             print(f"  {mark} {it['n']}. {it['text'][:70]:<72}{who}")
     print(f"\nитого     {covered}/{total} кусков цели покрыто")
+    # THE CHECKLIST IS THE OBLIGATORY SOURCE (context: success criteria · checklist · ideal
+    # are required); without it the count above stands on the parts alone and must not read
+    # as «whole». Non-zero, so a script or a gate cannot mistake it (feedback 2026-08-24:
+    # «returned 0 while reporting that integrity could not be calculated»).
+    partial = not state["ifr"]
+    if partial:
+        print("НЕ ПОСЧИТАНА до конца — чек-лист приёмки пуст: считалось только по крупным "
+              "частям; собери: el context checklist … (код выхода 1)")
     holes = [f"{GOAL_KINDS[k][0]}: {', '.join(str(i['n']) for i in v)}"
              for k, v in gaps(tdir).items() if v]
     if holes:
@@ -213,4 +229,4 @@ def cmd_integrity(root, task, tdir, quiet=False):
     if orphans:
         print(f"ничьи     {', '.join(orphans)} — эти ветки не работают ни на один кусок цели: "
               "либо привяжи (el plan cover), либо спроси, зачем они")
-    return 0 if not holes else 1
+    return 0 if not holes and not partial else 1

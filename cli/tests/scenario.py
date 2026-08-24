@@ -139,6 +139,12 @@ def pre_preview_B(ws):
            "<!doctype html><title>g1</title><button>один</button><button>два</button>\n")
 
 
+def pre_plan_md_drift(ws):
+    """plan.md that promises more stages than the tree holds (feedback 2026-08-24)."""
+    _write(os.path.join(_task_dir(ws, "shrink-model"), "plan.md"),
+           "# Сетевой план\n\nS1 → S2 → S3 → S4; остановка после S2.\n")
+
+
 def pre_plan_md_B(ws):
     _write(os.path.join(_task_dir(ws, "share-songs"), "plan.md"),
            "# План B\n\nпока только набросок.\n")
@@ -509,10 +515,12 @@ def scenario(ws):
     add(S(["plan", "cover", "s1", "part", "2"]))
     add(S(["plan", "cover", "s2", "part", "3"]))
     add(S(["plan", "integrity"], label="integrity: covered, one piece unfolds later"))
-    add(S(["forward", "--why", "план принят владельцем"], rc=1,
-          label="forward: plan.md missing"))
-    add(S(["plan"], pre=pre_plan_md_A))
-    add(S(["forward", "--why", "план принят владельцем"]))
+    # plan.md is a PROJECTION of the tree since 2026-08-24: it exists whenever nodes do, so
+    # the gate no longer asks for it by hand — the forward passes here.
+    add(S(["forward", "--why", "план принят владельцем"],
+          label="forward: plan.md is a projection — never «missing» with nodes"))
+    add(S(["plan"], pre=pre_plan_md_A, label="plan: a hand-written plan.md is moved to notes/"))
+    add(S(["forward", "--why", "x"], rc=1, label="forward from execute: open nodes"))
 
     # ── execute phase, task A ───────────────────────────────────────────────
     add(S(["next"]))
@@ -1016,6 +1024,21 @@ def scenario(ws):
     add(S(["owe", "drop", "1", "--why", "нашли в переписке"], label="owe drop #1"))
     add(S(["owe"], label="owe: all closed"))
     add(S(["help", "owe"]))
+    # ── plan.md vs the tree · integrity exit codes (feedback 2026-08-24) ──
+    add(S(["plan"], pre=pre_plan_md_drift, label="plan: hand-written plan.md → notes/, projection printed"))
+    add(S(["plan", "set", "s3", "deps", "после S1 и S9"], label="deps naming a node that is not there"))
+    add(S(["plan"], label="plan: РАСХОЖДЕНИЕ — S3 ← S9, no such node"))
+    add(S(["plan", "set", "s3", "deps", "после S1"]))
+    add(S(["plan", "set", "s1", "deps", "после S3"], label="a cycle: S1 ← S3 ← S1"))
+    add(S(["plan"], label="plan: ЦИКЛ"))
+    add(S(["plan", "set", "s1", "deps", "N/A — первый"]))
+    add(S(["ctx", "--section", "plan"], label="ctx plan: the projection"))
+    add(S(["plan", "integrity"], rc=1, label="integrity: nothing to count from → rc 1"))
+    add(S(["context", "parts", "собрать стенд\nужать\nпринять"], label="parts only"))
+    add(S(["plan", "integrity"], rc=1, label="integrity: parts only, no checklist → partial, rc 1"))
+    add(S(["feedback", "мешало"], label="feedback: thin — taken, told it is thin"))
+    add(S(["feedback", "наблюдал: el plan integrity → 0 при «считать не от чего» · ожидал: код 1 · обошёл: смотрел вывод глазами · помогло: el plan status показал недостающее",
+           "--about", "plan integrity"], label="feedback: full shape"))
     # ids: the date prefix does not eat the five-word cap; a cut is said out loud
     add(S(["spawn", "скорость после ансамбля", "--id", "2026-01-01-speed-after-ensemble-test"],
           label="spawn: a dated id keeps its words"))

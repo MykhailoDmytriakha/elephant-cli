@@ -20,7 +20,7 @@ from .term import bar, emit, human_when, wrap
 from .blueprint import phase_brief
 from .context import area_coverage, context_step, questions_stat, scope_done
 from .think import forks_read, think_step
-from .plan import (STATUS_MARK, STATUS_RU, active_node, node_gaps, node_open, node_status,
+from .plan import (STATUS_MARK, STATUS_RU, active_node, drift_lines, plan_drift, node_gaps, node_open, node_status,
                    node_sync, nodes_all, sync_mark, waiting_nodes)
 from .validate import VERDICT_RU, criteria_of, rollup, validation_state
 from .amend import acked, amend_events, pending_line, pending_word, word_given_on
@@ -971,9 +971,15 @@ def cmd_next(args):
                 g = node_gaps(n, mode)
                 print(f"узел     {'▶' if g else '✓'} {n['id']} · {n.get('name','')} "
                       f"[{n.get('level','?')}]{'  пусто: ' + ', '.join(g) if g else ''}")
+            for l in drift_lines(tdir, indent="план.md  "):
+                print(l)
+            dr = plan_drift(tdir) or {}
             if holes:
                 nid = holes[0]["id"]
                 move = f'заполни {nid}: el plan {nid.lower()} — покажет, каких полей нет'
+            elif dr.get("missing") or dr.get("cycle"):
+                move = ("дерево само с собой не сходится (deps на несуществующий узел или цикл) "
+                        "— поправь deps или заведи узлы: см. РАСХОЖДЕНИЕ выше")
             elif not os.path.exists(os.path.join(tdir, "acceptance.md")):
                 move = 'покажи план владельцу (el plan) и запиши его «да»: el accept "<слова>"'
             else:
@@ -1224,6 +1230,18 @@ def cmd_forward(args):
         # other check, because what nobody wrote down cannot be verified. Not waivable in
         # spirit but waivable in fact: `--waive` writes the debt into the journal, like
         # everywhere else, because sometimes the human decides a piece is not ours.
+        # THE TREE MUST ADD UP (feedback 2026-08-24, then his decision: the network plan is a
+        # PROJECTION of the tree): a dep naming no node is a stage promised and never held;
+        # a cycle is an order nobody can walk. Both stop the gate; --waive says so aloud.
+        dr = plan_drift(tdir_f) or {}
+        if (dr.get("missing") or dr.get("cycle")) and not getattr(args, "waive", None):
+            print("НЕ ПУЩУ — дерево не сходится само с собой:", file=sys.stderr)
+            for l in drift_lines(tdir_f, indent="  "):
+                print(l, file=sys.stderr)
+            print('  либо осознанно: el forward --waive "<почему>"', file=sys.stderr)
+            for d in gate_doors(phase_f):
+                print(d, file=sys.stderr)
+            return 1
         from .integrity import gaps as integrity_gaps, has_goal
         if has_goal(tdir_f) and not getattr(args, "waive", None):
             holes_g = {k: v for k, v in integrity_gaps(tdir_f).items() if v}

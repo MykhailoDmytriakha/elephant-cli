@@ -722,7 +722,8 @@ def cmd_done(args):
     else:
         print("в руке    ничего — задача снята с руки · взять следующую: el use <id>")
     print("next      el projects — what is still open")
-    print('отзыв     об инструменте, пока свежо: el feedback "<что мешало · что помогло>"')
+    print('отзыв     об инструменте, пока свежо: el feedback "наблюдал: <команда → вывод> · '
+          'ожидал: … · обошёл: … · помогло: …" --about <команда>')
     return 0
 
 
@@ -1080,6 +1081,33 @@ def harness_guess():
     return "unknown harness"
 
 
+# THE SHAPE OF A REVIEW (owner, 2026-08-24: «нужно, чтобы писали конкретнее — задать формат»).
+# A review the meta-session cannot REPRODUCE is a mood, not a task: it needs the command that
+# was run, what it printed, what was expected instead, and what the agent did to get by.
+FEEDBACK_FORMAT = [
+    "формат   четыре строки, чтобы мета-сессия могла ВОСПРОИЗВЕСТИ, а не гадать:",
+    "           наблюдал: <команда, которую запустил> → <что напечатала / что сделала>",
+    "           ожидал:   <что должно было быть вместо этого>",
+    "           обошёл:   <что сделал, чтобы продолжить — или «встал»>",
+    "           помогло:  <что в el сработало хорошо — тоже ценно>",
+    "         плюс --about <команда> — о какой команде речь",
+]
+
+
+def feedback_nudge(text):
+    """[] when the review carries what a fix needs; else the lines that say what is missing.
+    Never refuses — a thin review is better than none — but says out loud that it is thin."""
+    low = text.lower()
+    missing = []
+    if not any(k in low for k in ("ожидал", "expected", "должн", "should", "вместо", "instead")):
+        missing.append("ожидал")
+    if not any(k in low for k in ("el ", "команд", "command", "напечат", "printed", "returned", "вернул", "rc")):
+        missing.append("наблюдал (команда → вывод)")
+    if len(text) < 160:
+        missing.append("подробности — короче двух предложений не воспроизвести")
+    return missing
+
+
 def cmd_feedback(args):
     """The tool's own inbox (owner, 2026-08-22: «команда — отзыв от агента, чтобы он клал его
     в какое-то место, а мета-сессия потом читала, разбиралась, чинила и удаляла»).
@@ -1160,10 +1188,18 @@ def cmd_feedback(args):
         print(f"записан   {stem}")
         print(f"          {path}")
         print(f"в pool    {len(ids) + 1} · читает и чинит мета-сессия над скиллом: el feedback")
+        thin = feedback_nudge(text) if who == "agent" else []
+        if thin:
+            print(f"тонко     не хватает: {' · '.join(thin)} — допиши тем же id: "
+                  f'el feedback "<ещё>" (новый файл) или правь {stem}.md руками')
+            for l in FEEDBACK_FORMAT:
+                print(l)
         return 0
     if not ids:
         print("POOL      пусто — отзывов об инструменте нет")
-        print('оставить  el feedback "<что мешало · что помогло>" [--about <команда>] [--by "<кто ты>"]')
+        print('оставить  el feedback "<наблюдал → ожидал → обошёл → помогло>" [--about <команда>] [--by "<кто ты>"]')
+        for l in FEEDBACK_FORMAT:
+            print(l)
         print("          --from user — слова человека дословно · --file <путь> — длинное письмо")
         return 0
     print(f"POOL      {len(ids)} отзыв(ов) об инструменте · {fdir}")
