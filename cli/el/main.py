@@ -275,7 +275,9 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     --met "<proof>" · --failed "<what did not hold>" ·
 #                                     --declined "<work cancelled, criterion no longer applies>" ·
 #                                     --unverified "<work exists, check does not>" — a DEBT that
-#                                     holds the phase until answered, declined or waived
+#                                     holds the phase until answered, declined or waived ·
+#                                     --covered-by <node[.N]> --why "…" — a POINTER: proven downstream
+#                                     (WP1 ← e2e in WP4); reads as the target reads; a debt until then
 #
 # close (phase 8/8)
 #   el done "<result>" [--as KIND]    close a task WITH a result · kinds: completed |
@@ -507,6 +509,8 @@ def main():
         q.add_argument("--skip")          # kept only to refuse it with guidance
         q.add_argument("--declined")
         q.add_argument("--unverified")
+        q.add_argument("--covered-by", dest="covered_by")   # a pointer: verdict lives there
+        q.add_argument("--why")           # its reason — required with --covered-by
         q.add_argument("--evidence")      # the file in the project that proves it
         q.add_argument("--task")
         q.set_defaults(fn=cmd_validate)
@@ -676,5 +680,10 @@ def main():
         elif isinstance(_v, list) and any(isinstance(x, str) and "\\n" in x for x in _v):
             setattr(args, _k, [x.replace("\\n", "\n") if isinstance(x, str) else x for x in _v])
     rc = args.fn(args) if getattr(args, "fn", None) else cmd_help(args)
+    # THE SCREEN LEAVES BEFORE THE PAGES ARE DRAWN. Rendering the HTML views is a side job
+    # after the command; a harness that caps a call by time and kills the process mid-render
+    # would take the buffered screen down with it — the one way `el validate` can hand back
+    # an empty screen (feedback pool, 2026-08-24). Flush first: the answer is already out.
+    sys.stdout.flush()
     flush_renders()
     return rc

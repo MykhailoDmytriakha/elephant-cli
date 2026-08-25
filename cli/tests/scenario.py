@@ -869,6 +869,7 @@ def scenario(ws):
           label="forward from context in light: spine only"))
     add(S(["next"], cwd="D", label="next: think in light — nothing required"))
     add(S(["forward", "--why", "light: думать нечего"], cwd="D"))
+    add(S(["validate"], cwd="D", label="validate: no criteria yet — a screen, never a blank"))
     add(S(["plan", "new", "s1", "сделать кнопку"], cwd="D"))
     add(S(["plan", "set", "s1", "result", "кнопка есть"], cwd="D"))
     add(S(["plan", "set", "s1", "check", "кнопка нажимается"], cwd="D"))
@@ -876,9 +877,45 @@ def scenario(ws):
     add(S(["plan", "done", "s1", "кнопка стоит"], cwd="D", rc=1,
           label="light: even here a node does not close over an unanswered criterion"))
     add(S(["validate", "s1", "1", "--met", "нажал — работает"], cwd="D"))
-    add(S(["plan", "done", "s1", "кнопка стоит"], cwd="D"))
+    # A POINTER, not a verdict (feedback pool, 2026-08-24): the proof of S1 lives in the
+    # end-to-end run of S2. The criterion reads as S2 reads; until then it is a travelling
+    # debt — S1 closes and names where the debt went, the task cannot leave validate.
+    add(S(["plan", "new", "s2", "прогон целиком"], cwd="D"))
+    add(S(["plan", "set", "s2", "result", "прогон прошёл"], cwd="D"))
+    add(S(["plan", "set", "s2", "check", "кнопка в прогоне нажалась"], cwd="D"))
+    add(S(["plan", "set", "s2", "deps", "после S1"], cwd="D"))
+    add(S(["plan", "new", "s3", "отчёт"], cwd="D"))
+    add(S(["plan", "set", "s3", "result", "отчёт есть"], cwd="D"))
+    add(S(["plan", "set", "s3", "check", "отчёт прочитан"], cwd="D"))
+    add(S(["plan", "set", "s3", "deps", "после S2"], cwd="D"))
+    add(S(["validate", "s1", "1", "--covered-by", "s2"], cwd="D", rc=1,
+          label="covered-by: --why required"))
+    add(S(["validate", "s1", "1", "--covered-by", "s1", "--why", "x"], cwd="D", rc=1,
+          label="covered-by: not itself"))
+    add(S(["validate", "s1", "1", "--covered-by", "s9", "--why", "x"], cwd="D", rc=1,
+          label="covered-by: no such node"))
+    add(S(["validate", "s1", "1", "--covered-by", "s2.5", "--why", "x"], cwd="D", rc=1,
+          label="covered-by: no such criterion"))
+    add(S(["validate", "s1", "1", "--covered-by", "s2", "--why", "нажатие видно только в прогоне"],
+          cwd="D", label="covered-by: a pointer — the debt travels"))
+    add(S(["validate", "s2", "1", "--covered-by", "s1.1", "--why", "x"], cwd="D", rc=1,
+          label="covered-by: a circle proves nothing"))
+    add(S(["validate", "s1"], cwd="D", label="validate <node>: the pointer waits for S2"))
+    add(S(["accept", "кнопка ок", "--for", "node:s1", "--close"], cwd="D",
+          label="accept --close: closable — his word and the node closed, debt named downstream"))
+    add(S(["validate"], cwd="D", label="validate: pointers waiting, by address"))
     add(S(["accept", "план ок", "--for", "plan"], cwd="D"))
     add(S(["forward", "--why", "light: план принят"], cwd="D", label="forward from plan in light: no plan.md needed"))
+    # BY THE GRAPH (feedback pool, 2026-08-24): S2 is ready (S1 closed), S3 waits for S2 —
+    # said on the board, and the move names S2, not «the first open node by id».
+    add(S(["next"], cwd="D", label="next: execute in light — S2 ready by the graph, S3 waits"))
+    add(S(["forward", "--why", "x"], cwd="D", rc=1, label="forward from execute in light: open nodes"))
+    add(S(["validate", "s2", "1", "--met", "в прогоне нажалась"], cwd="D"))
+    add(S(["validate", "s1"], cwd="D", label="validate <node>: the pointer resolved through S2"))
+    add(S(["plan", "done", "s2", "прогон прошёл"], cwd="D"))
+    add(S(["next"], cwd="D", label="next: S3 ready after S2"))
+    add(S(["validate", "s3", "1", "--met", "прочитан"], cwd="D"))
+    add(S(["plan", "done", "s3", "отчёт есть"], cwd="D"))
     add(S(["next"], cwd="D", label="next: execute in light, all nodes done"))
     add(S(["forward", "--why", "light: узел закрыт"], cwd="D", label="forward from execute in light: no artifacts needed"))
     add(S(["validate"], cwd="D", label="validate in light: one node, one criterion, the task on top"))

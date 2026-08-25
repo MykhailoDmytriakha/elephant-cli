@@ -292,25 +292,46 @@ def cmd_status(args):
         print(f"task      {state} — {human}")
         print(f"mode      {meta.get('mode', 'soft')} — {MODES.index(meta.get('mode', 'soft')) + 1}/3 по строгости"
               f" · el mode light|soft|strict")
-        # The phase strip: passed · current · ahead, at a glance.
+        # The phase strip: passed · current · ahead, at a glance — and «~» for a phase the
+        # TRACES reached without being declared, so the two readings sit on one line.
         i = PHASES.index(ph) if ph in PHASES else 0
-        strip = " ".join(("✓" + p if k < i else ("▶" + p.upper() if k == i else "·" + p))
-                         for k, p in enumerate(PHASES))
-        print(f"phases    {strip}")
         # THE DRIFT between what was declared and what the traces reached (his case
         # 2026-08-23: «2/8 думать» over 12 closed nodes and 69 verdicts). The declared phase
         # still rules the gates — a phase is entered with a reason, not by a side effect —
         # but a silent drift is how a task ends up closed from the middle of the road.
+        # Said with the evidence and in two readings (feedback pool, 2026-08-24: «status
+        # should separate the declared phase from what the traces cover»): which traces
+        # pulled it there, and whether that is a wave inside execute or a gate driven past.
+        r_i = i
         try:
             from .views import phase_reached
             reached = phase_reached(tdir, meta)
-            if PHASES.index(reached) > i and st == "active":
-                print(f"следы     ушли дальше объявленного: по диску это {phase_no(reached)}/8 "
-                      f"{reached}, а числимся на {phase_no(ph)}/8 {ph}")
-                print('          либо переведи: el forward --why "<что закрыто>" · '
-                      "либо это волна внутри исполнения — так и оставь")
+            r_i = PHASES.index(reached)
         except Exception:
-            pass
+            reached = ph
+        strip = " ".join(("✓" + p if k < i else ("▶" + p.upper() if k == i else
+                          ("~" + p if k <= r_i else "·" + p)))
+                         for k, p in enumerate(PHASES))
+        print(f"phases    {strip}" + ("   ~ следы есть, фаза не объявлена" if r_i > i else ""))
+        if r_i > i and st == "active":
+            try:
+                from .plan import node_status as _ns, nodes_all as _na
+                _nodes = _na(tdir)
+                _closed = sum(1 for n in _nodes if _ns(n) == "done")
+                _vn, _vv, _o, *_r = validation_state(tdir)
+                _total = sum(len(criteria_of(n)) for n in _vn)
+                proof = (f" — узлов закрыто {_closed}/{len(_nodes)}"
+                         + (f" · вердиктов {_total - _o}/{_total}" if _total else ""))
+            except Exception:
+                proof = ""
+            print(f"объявлено {phase_no(ph)}/8 {ph} — эта фаза правит гейтами")
+            print(f"по следам {phase_no(reached)}/8 {reached}{proof}")
+            if i < PHASES.index("execute") and r_i >= PHASES.index("execute"):
+                print(f"          исполнение началось, а {ph} не закрыт — закрой его, чтобы "
+                      'путь сходился с диском: el forward --why "<что закрыто и чем доказано>"')
+            else:
+                print('          волна внутри исполнения (план → работа → проверка → снова план) '
+                      '— нормально; переводить фазу — el forward --why "<что закрыто>"')
         # A CHECKLIST, not a mood: for each phase, how many required traces exist. An agent
         # reads it and sees at once "validation never came in", without asking anyone.
         print("checklist")
@@ -1010,9 +1031,18 @@ def cmd_next(args):
                     f"показал — el plan wait {act['id'].lower()} \"…\"; готово — el plan done "
                     f"{act['id'].lower()} \"<наблюдаемый результат>\"")
         elif left_e:
-            first = left_e[0]
-            gaps_f = node_gaps(first, mode)
-            move = (f"в работе никого — назови активный узел: el plan start {first['id'].lower()}"
+            # BY THE GRAPH, not by id (feedback pool, 2026-08-24: «start WP1» after WP3 was
+            # closed): the next node is an open leaf whose prerequisites are closed, and
+            # the board says who waits for whom, so the priority is visible, not implied.
+            from .plan import ready_line, ready_nodes
+            ready_e, blocked_e = ready_nodes(tdir)
+            if ready_e or blocked_e:
+                print("граф     " + (f"готовы: {', '.join(n['id'] for n in ready_e[:6])}"
+                                    if ready_e else "готовых нет")
+                      + ("" if not blocked_e else " · ждут: " + "; ".join(
+                          f"{k} ← {', '.join(v)}" for k, v in list(blocked_e.items())[:5])))
+            gaps_f = node_gaps(ready_e[0], mode) if ready_e else []
+            move = ("в работе никого — " + ready_line(tdir)
                     + (f" (сначала заполни: {', '.join(gaps_f)})" if gaps_f else ""))
         elif not nodes_e:
             move = ('плана нет — узлы заводятся на плане: el phase plan --why "…" · '

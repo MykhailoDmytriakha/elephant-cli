@@ -874,13 +874,19 @@ def plan_set(root, task, tdir, words, replace=False):
     return 0
 
 
-def plan_done(root, task, tdir, words, force=False):
+def plan_done(root, task, tdir, words, force=False, dry=False):
     """Close a node — and refuse to close it past a stop that has not happened.
 
     This is where the sync point stops being a note and becomes a mechanism. A node whose stop
     is СВЕРКА or РАЗРЕШЕНИЕ cannot be marked done until the owner's words are recorded after it:
     `el accept`. Otherwise the plan would carry beautifully drawn stops that the agent drives
-    straight past — which is exactly what happens when a rule lives only in prose."""
+    straight past — which is exactly what happens when a rule lives only in prose.
+
+    `dry` — run every refusal and stop before touching anything: `el accept --close` asks
+    first whether the node CAN close, and records his word only if the answer is yes
+    (feedback pool, 2026-08-24: the word landed, then «НЕ ЗАКРОЮ» — a flag that promised
+    more than it did). The stop-word check is skipped when dry: that word is what the
+    caller is about to write."""
     if not words:
         print('el plan done s1 wp1 "<что получилось>"', file=sys.stderr)
         return 1
@@ -921,8 +927,10 @@ def plan_done(root, task, tdir, words, force=False):
     #   2. a node does not close over its own criteria without verdicts, and «не сошлось» /
     #      «не проверено» do not close either — the owner's rule is «останавливаться, если
     #      что-то не получается, и уточнить у пользователя», not to drive past.
-    from .validate import criteria_of, validation_parse  # function-level: validate imports plan
-    kids_open = [n["id"] for n in nodes_all(tdir)
+    from .validate import (checklist_node, covered_target, criteria_of, resolve_verdicts,
+                           validation_parse)  # function-level: validate imports plan
+    all_nodes = nodes_all(tdir)
+    kids_open = [n["id"] for n in all_nodes
                  if (n.get("parent") or "") == nid and node_open(n)]
     if kids_open and not force:
         print(f"НЕ ЗАКРОЮ {nid} — родитель закрывается после детей, а открыты: "
@@ -930,12 +938,21 @@ def plan_done(root, task, tdir, words, force=False):
         print("  закрой их (el plan done) или отложи осознанно (el plan park --why)",
               file=sys.stderr)
         return 1
-    verdicts = validation_parse(tdir)
+    raw = validation_parse(tdir)
+    resolved, _cyc = resolve_verdicts([n for n in all_nodes if criteria_of(n)]
+                                      + checklist_node(tdir), raw)
     crits = criteria_of(node)
     no_verdict = [i for i in range(1, len(crits) + 1)
-                  if verdicts.get((nid, i), ("open", ""))[0] == "open"]
-    bad = [(i, verdicts[(nid, i)][0]) for i in range(1, len(crits) + 1)
-           if verdicts.get((nid, i), ("open", ""))[0] in ("failed", "unverified")]
+                  if raw.get((nid, i), ("open", ""))[0] == "open"]
+    # A criterion COVERED by another node whose answer is not in yet is a debt that
+    # travels: the node closes, the debt is named downstream and holds the task there.
+    travel = [(i, covered_target(raw[(nid, i)][1])) for i in range(1, len(crits) + 1)
+              if raw.get((nid, i), ("open", ""))[0] == "covered"
+              and resolved.get((nid, i), ("open", ""))[0] == "unverified"]
+    travel_i = {i for i, _t in travel}
+    bad = [(i, resolved[(nid, i)][0]) for i in range(1, len(crits) + 1)
+           if resolved.get((nid, i), ("open", ""))[0] in ("failed", "unverified")
+           and i not in travel_i]
     if no_verdict and not force:
         print(f"НЕ ЗАКРОЮ {nid} — критерии без вердикта: "
               f"{', '.join(str(i) for i in no_verdict)}. Проверь каждый:", file=sys.stderr)
@@ -943,6 +960,8 @@ def plan_done(root, task, tdir, words, force=False):
               file=sys.stderr)
         print("  снят вместе с работой — только явно и со своим «потому что»: "
               f'el validate {nid.lower()} <N> --declined "потому что …"', file=sys.stderr)
+        print("  доказательство придёт из другого узла: "
+              f'el validate {nid.lower()} <N> --covered-by <узел[.N]> --why "…"', file=sys.stderr)
         return 1
     if bad and not force:
         what = " · ".join(f"{i} {'не сошёлся' if k == 'failed' else 'не проверен'}"
@@ -954,7 +973,7 @@ def plan_done(root, task, tdir, words, force=False):
               file=sys.stderr)
         return 1
     kind = node_sync(node)
-    if kind in ("РАЗВИЛКА", "РАЗРЕШЕНИЕ") and not force:
+    if kind in ("РАЗВИЛКА", "РАЗРЕШЕНИЕ") and not force and not dry:
         ap = os.path.join(tdir, "acceptance.md")
         said_after = False
         if os.path.exists(ap):
@@ -969,6 +988,8 @@ def plan_done(root, task, tdir, words, force=False):
             print("  остановка, мимо которой можно проехать, — это не остановка.",
                   file=sys.stderr)
             return 1
+    if dry:
+        return 0                     # every refusal passed; nothing touched
     meta = {k: v for k, v in node.items() if k not in ("_fields", "id")}
     meta["status"] = "done"
     meta["closed_at"] = now_iso()
@@ -978,6 +999,10 @@ def plan_done(root, task, tdir, words, force=False):
     journal(root, task, "node-done", f"{nid}: {result[:120]}", {"sync": kind or None})
     touch(root, task)
     print(f"закрыт {nid}" + (f" · {result[:80]}" if result else ""))
+    if travel:
+        print("долг     проверки уехал: " + " · ".join(
+            f"{i} → {t[0]}{'.' + str(t[1]) if t[1] else ''}" for i, t in travel)
+            + " — сочтётся там; выход из проверки держит, пока цель не сойдётся")
     # The validation card of the closed node — the moment of closing IS the moment its
     # check is sealed, so the roll-up is shown right here, not discovered later.
     try:
@@ -995,8 +1020,54 @@ def plan_done(root, task, tdir, words, force=False):
     left = [n["id"] for n in nodes_all(tdir) if node_open(n)]
     print(f"осталось {', '.join(left) if left else '— все узлы закрыты'}")
     if left:
-        print(f"дальше   el plan start {left[0].lower()} — следующий в работу")
+        print("дальше   " + ready_line(tdir))
     return 0
+
+
+def ready_nodes(tdir):
+    """(ready, blocked) — who can be started now, by the GRAPH, and who waits for whom.
+
+    `ready` — open leaves (no open child; a parent is led through its children) whose
+    prerequisites in `deps` are all closed or parked, in wave order; `blocked` — {id:
+    [open prerequisites]} for the rest. The hint used to name the first open node by id
+    — «start WP1» after WP3 was closed and WP1 was the very node waiting on it (feedback
+    pool, 2026-08-24). Order is read from the same `deps` that draw plan.md."""
+    nodes = nodes_all(tdir)
+    by = {n["id"]: n for n in nodes}
+    waves, _m, _c, deps = plan_waves(tdir)
+    placed = [i for w in waves for i in w]
+    order = placed + sorted(i for i in by if i not in placed)
+    parents_open = {n.get("parent") for n in nodes if n.get("parent") and node_open(n)}
+    ready, blocked = [], {}
+    for nid in order:
+        n = by[nid]
+        if node_status(n) != "open" or nid in parents_open:
+            continue
+        waits = [d for d in deps.get(nid, []) if d in by and node_open(by[d])]
+        if waits:
+            blocked[nid] = waits
+        else:
+            ready.append(n)
+    return ready, blocked
+
+
+def ready_line(tdir):
+    """One line for `el next` / `el plan done`: the next node by the graph, and why."""
+    ready, blocked = ready_nodes(tdir)
+    if ready:
+        first = ready[0]
+        _w, _m, _c, deps = plan_waves(tdir)
+        after = [d for d in deps.get(first["id"], []) if d in {n["id"] for n in nodes_all(tdir)}]
+        line = (f"el plan start {first['id'].lower()} — по графу готов"
+                + (f" (после {', '.join(after)} — закрыты)" if after else " (предпосылок нет)"))
+        if len(ready) > 1:
+            line += f" · готовы также: {', '.join(n['id'] for n in ready[1:5])}"
+        return line
+    if blocked:
+        return ("по графу никто не готов: " + "; ".join(
+            f"{k} ждёт {', '.join(v)}" for k, v in list(blocked.items())[:5])
+            + " — закрой предпосылки или поправь порядок: el plan set <узел> deps \"…\"")
+    return "открытых листьев нет — родители закрываются после детей: el plan done <родитель>"
 
 
 def plan_start(root, task, tdir, words, force=False):

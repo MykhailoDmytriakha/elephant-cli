@@ -92,10 +92,10 @@ def validation_parse(tdir):
         if head:
             node = head.group(1).upper()
             continue
-        item = re.match(r"^- \[([ xX!\-?])\]\s+(\d+)\.", line)
+        item = re.match(r"^- \[([ xX!\-?>])\]\s+(\d+)\.", line)
         if item and node:
-            status = {"x": "met", "X": "met", "!": "failed",
-                      "-": "declined", "?": "unverified"}.get(item.group(1), "open")
+            status = {"x": "met", "X": "met", "!": "failed", "-": "declined",
+                      "?": "unverified", ">": "covered"}.get(item.group(1), "open")
             last = (node, int(item.group(2)))
             out[last] = [status, ""]
             continue
@@ -103,6 +103,93 @@ def validation_parse(tdir):
         if proof and last:
             out[last][1] = proof.group(1).strip()
     return {k: tuple(v) for k, v in out.items()}
+
+
+# ── Покрыт другим узлом — вердикт-указатель ───────────────────────────────────
+#
+# The fifth mark is not a fifth verdict. An agent (Copilot, 2026-08-24) had to close WP1
+# and WP2 whose proof would only come from the end-to-end run in WP4/WP5, and the only
+# door was `--declined` — the CLI printed «снят» over work that was never cancelled, and
+# the link «the proof lives downstream» survived only as prose inside ten reasons.
+#
+# `--covered-by <node[.N]>` records a POINTER: the criterion's verdict IS the verdict of
+# what it points at, derived at read time the way a phase is derived from the journal.
+# While the target is undecided the criterion reads «ждёт S1.WP4» and COUNTS AS A DEBT
+# (unverified): the node it belongs to may close — the debt travels downstream and is
+# named there — but the task does not leave validate over it. When the target comes in
+# met, the criterion resolves to met by itself; failed there — failed here. Nothing is
+# copied, so nothing can drift.
+
+def covered_target(proof):
+    """`S1.WP4 · why` → ("S1.WP4", None) · `S1.WP4.2 · why` → ("S1.WP4", 2)."""
+    head = proof.split("·", 1)[0].strip()
+    parts = [p for p in head.split(".") if p]
+    if len(parts) > 1 and parts[-1].isdigit():
+        return ".".join(parts[:-1]).upper(), int(parts[-1])
+    return head.upper(), None
+
+
+def resolve_verdicts(nodes, verdicts):
+    """The ledger with every pointer followed: (resolved verdicts, cycle keys).
+
+    A covered criterion takes the verdict of its target — one criterion, or a whole node
+    read by the matryoshka law (own criteria + everything below it): any failed → failed;
+    all met (declined ones may sit among them) → met; all declined → declined; anything
+    still open → unverified, the travelling debt. Its proof is rewritten as «ждёт S1.WP4 ·
+    why», so every screen that prints a proof says where the answer will come from."""
+    ncrit = {n["id"]: len(criteria_of(n)) for n in nodes}
+    cycles = set()
+
+    def one(key, seen):
+        st, proof = verdicts.get(key, ("open", ""))
+        if st != "covered":
+            return st
+        if key in seen:
+            cycles.add(key)
+            return "unverified"
+        seen = seen | {key}
+        tid, num = covered_target(proof)
+        if num:
+            if tid not in ncrit or not 1 <= num <= ncrit[tid]:
+                return "unverified"
+            r = one((tid, num), seen)
+            return r if r in ("met", "failed", "declined") else "unverified"
+        if tid not in ncrit:
+            return "unverified"
+        sts = [one((i, k), seen) for i in ncrit if i == tid or i.startswith(tid + ".")
+               for k in range(1, ncrit[i] + 1)]
+        if not sts or "failed" in sts:
+            return "failed" if sts else "unverified"
+        if all(s == "declined" for s in sts):
+            return "declined"
+        if all(s in ("met", "declined") for s in sts):
+            return "met"
+        return "unverified"
+
+    out = {}
+    for key, (st, proof) in verdicts.items():
+        if st != "covered":
+            out[key] = (st, proof)
+            continue
+        r = one(key, frozenset())
+        tid, num = covered_target(proof)
+        label = tid + (f".{num}" if num else "")
+        reason = proof.split("·", 1)[1].strip() if "·" in proof else ""
+        word = {"met": f"сошлось через {label}", "failed": f"НЕ сошлось в {label}",
+                "declined": f"снято вместе с {label}"}.get(r, f"ждёт {label}")
+        out[key] = (r, word + (f" · {reason}" if reason else ""))
+    return out, cycles
+
+
+def covered_pending(nodes, raw):
+    """[(key, target label)] — pointers whose target has not answered yet."""
+    resolved, _c = resolve_verdicts(nodes, raw)
+    out = []
+    for key, (st, proof) in raw.items():
+        if st == "covered" and resolved[key][0] == "unverified":
+            tid, num = covered_target(proof)
+            out.append((key, tid + (f".{num}" if num else "")))
+    return sorted(out)
 
 
 def validation_render(tdir, nodes, verdicts):
@@ -128,7 +215,7 @@ def validation_render(tdir, nodes, verdicts):
         for i, c in enumerate(crits, 1):
             status, proof = verdicts.get((n["id"], i), ("open", ""))
             box = {"met": "x", "failed": "!", "declined": "-",
-                   "unverified": "?"}.get(status, " ")
+                   "unverified": "?", "covered": ">"}.get(status, " ")
             lines.append(f"- [{box}] {i}. {c}")
             if proof:
                 lines.append(f"      → {proof}")
@@ -140,7 +227,9 @@ def validation_state(tdir):
     """(nodes, verdicts, open, failed, declined, unverified) — the whole picture."""
     # Nodes first — «работает ли» — then the checklist — «то ли это, чего он ждал».
     nodes = [n for n in nodes_all(tdir) if criteria_of(n)] + checklist_node(tdir)
-    verdicts = validation_parse(tdir)
+    # Pointers followed: a covered criterion reads as what it points at, and a pending one
+    # counts as the debt it is. Only the ledger WRITER wants the raw file (validation_parse).
+    verdicts, _cycles = resolve_verdicts(nodes, validation_parse(tdir))
     open_n = failed_n = declined_n = unverified_n = 0
     for n in nodes:
         for i in range(1, len(criteria_of(n)) + 1):
@@ -169,7 +258,8 @@ def validation_state(tdir):
 # roll-up is DERIVED, the way a phase is derived from the journal.
 
 VERDICT_RU = {"met": "сошёлся", "failed": "НЕ сошёлся", "declined": "снят",
-              "unverified": "не проверен", "open": "без вердикта"}
+              "unverified": "не проверен", "open": "без вердикта",
+              "covered": "покрыт другим узлом"}
 ROLL_MARK = {"failed": "✗", "debt": "?", "open": "▶", "ok": "✓", "empty": "·"}
 ROLL_RU = {"failed": "не сошлось", "debt": "не проверено", "open": "открыто",
            "ok": "сошлось", "empty": "нечего проверять"}
@@ -194,8 +284,8 @@ def rollup(tdir):
     items [{text, status, proof}] · own / sub counters {met, failed, declined,
     unverified, open, done, total} · verdict (see _fold). `info["TASK"]` is the root:
     own = the IFR checklist, sub = everything."""
-    verdicts = validation_parse(tdir)
     real = sorted(nodes_all(tdir), key=lambda n: n["id"])
+    verdicts, _cycles = resolve_verdicts(real + checklist_node(tdir), validation_parse(tdir))
     info, kids = {}, {}
     for n in real + checklist_node(tdir):
         nid = n["id"]
@@ -263,10 +353,23 @@ def cmd_validate(args):
         return 1
     tdir = os.path.join(root, task)
     nodes, verdicts, _, _, _, _ = validation_state(tdir)
+    raw = validation_parse(tdir)          # the file as written — pointers kept as pointers
     if not nodes:
-        print("нет ни критериев в узлах плана, ни чек-листа приёмки — проверять нечего",
-              file=sys.stderr)
-        return 1
+        # NEVER AN EMPTY SCREEN (feedback pool, 2026-08-24: «el validate без аргументов
+        # вернул пустой экран»). The ledger with nothing in it is still a screen: it says
+        # what the ledger is made of, why it is empty, and the next call that fills it.
+        print(f"ПРОВЕРКА  {task} · леджер пуст — проверять пока нечего")
+        print("          критерии приходят из плана: поле `check` каждого узла (по одному "
+              "на строку) и чек-лист приёмки context/acceptance-checklist.md")
+        n_all = len(nodes_all(tdir))
+        if n_all:
+            print(f"          узлов {n_all}, ни у одного нет поля check — задай: "
+                  'el plan set <узел> check "- критерий 1\\n- критерий 2 …"')
+        else:
+            print('          узлов нет — план начинается с них: el plan new s1 "<этап>"')
+        print('дальше    заполнил критерии → el validate (леджер) · отметить: '
+              'el validate <узел> <N> --met "<чем доказано>"')
+        return 0
 
     words = list(getattr(args, "words", None) or [])
     if words:
@@ -295,6 +398,8 @@ def cmd_validate(args):
                 st, proof = verdicts.get((node["id"], i), ("open", ""))
                 mark = {"met": "✓", "failed": "✗", "declined": "—",
                 "unverified": "?"}.get(st, "·")
+                if raw.get((node["id"], i), ("", ""))[0] == "covered":
+                    mark = "⇢"          # a pointer: the verdict is read from another node
                 print(f"  {mark} {i}. {c[:90]}")
                 if proof:
                     print(f"       → {proof[:88]}")
@@ -324,16 +429,66 @@ def cmd_validate(args):
         # Collapsing them loses the difference between "снято" and "неизвестно".
         declined = getattr(args, "declined", None)
         unverified = getattr(args, "unverified", None)
+        covered = (getattr(args, "covered_by", None) or "").strip()
         if getattr(args, "skip", None):
             print("нет вердикта «skip» — пропуск без смысла запрещён.", file=sys.stderr)
             print('  снят вместе с работой:   --declined "<почему отменили>"', file=sys.stderr)
             print('  работа есть, проверки нет: --unverified "<почему не мерили>"', file=sys.stderr)
-            return 1
-        if not met and not failed and not declined and not unverified:
-            print('нужен вердикт: --met "<чем доказано>" · --failed "<что не сошлось>" · '
-                  '--declined "<почему снят>" · --unverified "<почему не мерили>"',
+            print('  доказательство придёт из другого узла: --covered-by <узел[.N]> --why "…"',
                   file=sys.stderr)
             return 1
+        if not met and not failed and not declined and not unverified and not covered:
+            print('нужен вердикт: --met "<чем доказано>" · --failed "<что не сошлось>" · '
+                  '--declined "<почему снят>" · --unverified "<почему не мерили>" · '
+                  '--covered-by <узел[.N]> --why "<почему там>"',
+                  file=sys.stderr)
+            return 1
+        if covered:
+            # A POINTER, not a verdict (see resolve_verdicts): the criterion will read as
+            # whatever its target reads. Refused when the target is not in the ledger, is
+            # the same node, or points back around — a circle of promises proves nothing.
+            why = (getattr(args, "why", None) or "").strip()
+            if not why:
+                print('покрытие называет причину: --covered-by <узел[.N]> --why '
+                      '"<почему доказательство живёт там>"', file=sys.stderr)
+                return 1
+            tid, tnum = covered_target(covered)
+            tid = path_to_id([tid])
+            target = next((n for n in nodes if n["id"] == tid), None)
+            if not target:
+                print(f"нет узла {tid} с критериями — покрыть можно только тем, что проверяется: "
+                      f"{', '.join(n['id'] for n in nodes)}", file=sys.stderr)
+                return 1
+            if tid == node["id"]:
+                print(f"{tid} не покрывает сам себя — назови другой узел", file=sys.stderr)
+                return 1
+            if tnum and not 1 <= tnum <= len(criteria_of(target)):
+                print(f"у {tid} критериев {len(criteria_of(target))}, а не {tnum}",
+                      file=sys.stderr)
+                return 1
+            label = tid + (f".{tnum}" if tnum else "")
+            trial = dict(raw)
+            trial[(node["id"], num)] = ("covered", f"{label} · {why}")
+            resolved, cycles = resolve_verdicts(nodes, trial)
+            if (node["id"], num) in cycles or (tnum and (tid, tnum) in cycles):
+                print(f"круг: {node['id']}.{num} → {label} → … → {node['id']}.{num} — "
+                      "покрытие по кругу ничего не доказывает; один из них надо мерить",
+                      file=sys.stderr)
+                return 1
+            raw[(node["id"], num)] = ("covered", f"{label} · {why}")
+            validation_render(tdir, nodes, raw)
+            journal(root, task, "validated",
+                    f"{node['id']}.{num} covered: {label} — {why[:100]}")
+            touch(root, task)
+            r_st, r_proof = resolved[(node["id"], num)]
+            print(f"{node['id']}.{num} · покрыт {label} — вердикт читается оттуда: сейчас "
+                  f"{VERDICT_RU[r_st]}" + (f" ({r_proof[:60]})" if r_st != "unverified" else ""))
+            if r_st == "unverified":
+                print(f"          узел {node['id']} закрыть можно — долг проверки уедет на "
+                      f"{label} и будет держать выход из проверки, пока {tid} не сойдётся")
+            _, _, open_n, failed_n, _d, _u = validation_state(tdir)
+            print(f"осталось  {open_n} без вердикта · не сошлось {failed_n}")
+            return 0
         kind = ("met" if met else "failed" if failed else
                 "declined" if declined else "unverified")
         proof = (met or failed or declined or unverified).strip()
@@ -368,8 +523,8 @@ def cmd_validate(args):
                           f"{nl} --check {num}, затем --evidence evidence/<имя>", file=sys.stderr)
                 return 1
             proof = f"{proof} [{ev}]"
-        verdicts[(node["id"], num)] = (kind, proof)
-        validation_render(tdir, nodes, verdicts)
+        raw[(node["id"], num)] = (kind, proof)
+        validation_render(tdir, nodes, raw)
         journal(root, task, "validated",
                 f"{node['id']}.{num} {kind}: "
                 f"{(met or failed or declined or unverified).strip()[:120]}")
@@ -382,7 +537,7 @@ def cmd_validate(args):
 
     # No arguments: refresh the ledger from the plan and show the whole matryoshka —
     # every line a node with its OWN count and the roll-up of its subtree, the task on top.
-    validation_render(tdir, nodes, verdicts)
+    validation_render(tdir, nodes, raw)
     base = baseline_line(tdir)
     print(f"ПРОВЕРКА  {task} · один закон на все уровни: узел = свои критерии + свёртка детей")
     if base:
@@ -407,6 +562,15 @@ def cmd_validate(args):
           (f" · снято {sub['declined']}" if sub["declined"] else "") +
           (f" · НЕ проверено {sub['unverified']}" if sub["unverified"] else "") +
           " · слово приёмки: " + ("есть" if word else "НЕТ (el accept --for final)"))
+    # Pointers still waiting: the debt that travelled downstream, named by address, so
+    # nobody re-marks a criterion that will answer itself when its target comes in.
+    pend = covered_pending(nodes, raw)
+    if pend:
+        print(f"ждут      {len(pend)} покрыты другими узлами — сочтутся, когда сойдётся цель:")
+        for (nid_c, i_c), label in pend[:12]:
+            print(f"          ⇢ {nid_c}.{i_c} ← {label}")
+        if len(pend) > 12:
+            print(f"          … ещё {len(pend) - 12}")
     # INTEGRITY: every criterion answered, the node still open — the S6 case of the pilot.
     # The ledger cannot close the node (closing is a decision with a result), but it must
     # say so out loud instead of printing «complete» over an open graph.

@@ -387,6 +387,23 @@ def cmd_accept(args):
                 print(f"эстафета  снова у агента — {nid}")
         print('gate      открыт займом — el forward --why "<что закрыто и чем доказано>"')
         return 0
+    # --close PROMISES «его слово и узел закрыт» — so the question «can it close?» is asked
+    # BEFORE the word is written, and a «no» writes nothing (feedback pool, 2026-08-24: the
+    # word landed, then «НЕ ЗАКРОЮ» over criteria without verdicts, exit 1 — half a command).
+    # His word is not lost: the refusal hands back the same call without --close.
+    if scope.lower().startswith("node:") and getattr(args, "close", False):
+        nid_c = path_to_id([scope.split(":", 1)[1]])
+        node_c = node_read(tdir, nid_c)
+        if not node_c:
+            print(f"нет узла {nid_c} — слово не записано", file=sys.stderr)
+            return 1
+        if plan_done(root, task, tdir, [nid_c, args.words.strip()[:120]], dry=True):
+            print(f"слово НЕ записано: --close обещает закрыть {nid_c}, а закрыть его нельзя "
+                  "(причина выше).", file=sys.stderr)
+            print(f'  записать слово сейчас, узел позже:  el accept "{args.words.strip()[:60]}" '
+                  f"--for node:{nid_c.lower()}", file=sys.stderr)
+            print(f"  или сначала ответь критериям, потом повтори с --close", file=sys.stderr)
+            return 1
     body += f"\n## {now_iso()[:16]} · фаза {phase} · {scope}\n\n> {args.words.strip()}\n"
     if getattr(args, "on", None):
         body += f"\nутверждено: {args.on.strip()}\n"
