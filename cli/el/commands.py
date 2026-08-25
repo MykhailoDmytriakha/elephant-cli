@@ -1029,7 +1029,11 @@ def cmd_grant(args):
     print('займ      там, где нужен он: el accept … --assumed "<почему>" · el context qa … --assumed · '
           'el think decide … --assumed --undo · леджер: el review')
     print('граница   el halt "<почему дальше без человека нельзя · что нужно>" — и стоп, не «done»')
-    print("листок    el brief \"<baseline · замер · лучшее · не повторять · сейчас>\" — перечитывается первым")
+    if brief_read(os.path.join(root, task)):
+        print("листок    brief.md написан ДО этого гранта — его «жди владельца» больше не действует; "
+              "перепиши под грант: el brief \"<baseline · замер · лучшее · не повторять · сейчас>\"")
+    else:
+        print("листок    el brief \"<baseline · замер · лучшее · не повторять · сейчас>\" — перечитывается первым")
     return 0
 
 
@@ -1322,6 +1326,9 @@ def cmd_onboard(_args):
                 print("  листок (brief.md) — читать первым:")
                 for bl in b.splitlines():
                     print(f"    {bl}")
+                bs = autonomy.brief_stale_line(root, cur, indent="    ")
+                if bs:
+                    print(bs)
         else:
             live = open_tasks(root)
             if live:

@@ -72,6 +72,10 @@ def session_start(root, gap=RETURN_GAP):
             continue
         if rec.get("type") == "version" or not rec.get("ts"):
             continue
+        # `el ui` is the human refreshing the pages (recorder 2026-08-25: his `ui` two minutes
+        # before the agent's boot hid a 32-minute pause) — it does not end the agent's silence
+        if rec.get("argv") == ["ui"]:
+            continue
         stamps.append(rec["ts"])
         if len(stamps) > 500:
             break

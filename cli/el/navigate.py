@@ -107,8 +107,10 @@ def return_lines(root, task):
             return []
         last = last_trace_ts(root, task, skip=("hold",))
         if last:
-            from datetime import datetime
-            if datetime.fromisoformat(last) >= datetime.fromisoformat(start):
+            from datetime import datetime, timedelta
+            # the journal line of a call is written BEFORE the recorder's line for the same
+            # call — a few seconds of slack keep the run's own first write inside the run
+            if datetime.fromisoformat(last) >= datetime.fromisoformat(start) - timedelta(seconds=10):
                 return []
     except Exception:
         return []
@@ -413,6 +415,9 @@ def cmd_status(args):
             print("листок    brief.md — читать первым:")
             for bl in b.splitlines():
                 print(f"  {bl}")
+            bs = autonomy.brief_stale_line(root, task, indent="  ")
+            if bs:
+                print(bs)
         # LOOP HYGIENE under autonomy: «холостой ход» — looks at `el status` that follow one
         # another with not a single new trace between them. The count lives in metadata/
         # (service data, derived — delete it and it restarts), never in the journal.
@@ -639,6 +644,9 @@ def progress_lines(root, task, part=None):
         if b:
             out.append("── листок · brief.md")
             out += b.splitlines()
+            bs = autonomy.brief_stale_line(root, task, indent="")
+            if bs:
+                out.append(bs)
             out.append("")
     if want("init"):
         out += _file_block(tdir, "init/request.md", "0 · запрос — слово в слово", "init")
@@ -897,6 +905,9 @@ def cmd_next(args):
     b_line = brief_read(tdir).splitlines()
     if b_line:
         print(f"листок   {b_line[0][:80]} … · el brief — целиком (читай первым после обрыва)")
+        bs = autonomy.brief_stale_line(root, task, indent="         ")
+        if bs:
+            print(bs)
     elif auto_on:
         print('листок   brief.md пуст — заведи: el brief "<baseline · замер · лучшее · не повторять · сейчас>"')
     # Stage 0 closes with the tree on disk AND the raw request recorded (owner, 2026-08-21):

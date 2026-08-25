@@ -57,6 +57,36 @@ def debt(meta):
     return out
 
 
+def brief_stale(root, task):
+    """The sheet written BEFORE the standing grant — its «wait for the owner» is void, and a
+    returning agent must not obey it (feedback 2026-08-25, Copilot: after `el grant` the
+    onboarding still printed brief.md with the old owner-gated guidance). (grant_ts,
+    brief_ts) when stale, else None."""
+    from datetime import datetime
+    from .state import brief_path
+    st = state(root, task)
+    if not st or not st["grant"] or not st["active"]:
+        return None
+    p = brief_path(os.path.join(root, task))
+    try:
+        b_ts = os.path.getmtime(p)
+        g_ts = datetime.fromisoformat(st["grant"].get("ts", "")).timestamp()
+    except (OSError, ValueError):
+        return None
+    return (st["grant"].get("ts", ""), b_ts) if b_ts < g_ts else None
+
+
+def brief_stale_line(root, task, indent="          "):
+    """One line to print right under the sheet — or ''."""
+    from datetime import datetime
+    s = brief_stale(root, task)
+    if not s:
+        return ""
+    b_when = human_when(datetime.fromtimestamp(s[1]).astimezone().isoformat(timespec="minutes"))
+    return (f"{indent}⚠ листок старше гранта ({b_when} < грант {human_when(s[0])}): его «жди владельца» "
+            f"грант отменяет — верь леджеру автономии; перепиши: el brief \"…\"")
+
+
 def on(root, task):
     """Autonomy is ON: a grant stands and no halt followed it (and the task is open)."""
     st = state(root, task)
