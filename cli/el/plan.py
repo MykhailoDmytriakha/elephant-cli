@@ -644,10 +644,11 @@ def plan_one(tdir, nid):
     from .term import human_when as _hw
     wl = _worklog(os.path.dirname(tdir), os.path.basename(tdir)).get(nid, [])
     if wl:
-        print(f"\n  ход работы · {len(wl)}" +
-              ("  (курсивом по времени: запись без узла легла к узлу, который был в работе)"
+        # newest first (owner, 2026-08-25): the last step is what a returning reader wants
+        print(f"\n  ход работы · {len(wl)} · свежие сверху" +
+              ("  (~ по времени: запись без узла легла к узлу, который был в работе)"
                if any(e["by_time"] for e in wl) else ""))
-        for e in wl[-10:]:
+        for e in reversed(wl[-10:]):
             print(f"    {_hw(e['ts']):<16} {e['type']:<10} {'~ ' if e['by_time'] else ''}{e['text'][:90]}")
         if len(wl) > 10:
             print(f"    … и ещё {len(wl) - 10} раньше")

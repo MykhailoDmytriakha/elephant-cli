@@ -400,9 +400,11 @@ window.ELEPHANT_OVERVIEW = null;
   /* ХОД РАБОТЫ по узлу (владелец, 2026-08-25): записи el log, сделанные, пока узел был в работе
      (у старых журналов — по времени, помечены ~), артефакты и доказательства. */
   var WL = (window.ELEPHANT_OVERVIEW || {}).worklog || {};
+  /* СВЕЖИЕ СВЕРХУ (владелец, 2026-08-25: «свежие логи уходят под низ») — как в журнале внизу
+     страницы: последняя запись первой, старое ниже. */
   function wlRows(list) {
     var out = "";
-    list.forEach(function (e) {
+    list.slice().reverse().forEach(function (e) {
       out += '<div class="entry"><div class="top"><span class="type">' + esc(e.type) + "</span><span>" +
              when(e.ts) + "</span>" + (e.by_time ? '<span title="запись без узла легла к узлу, который был в работе">~ по времени</span>' : "") +
              '</div><div class="text">' + esc(e.text) + "</div></div>";
@@ -1312,7 +1314,7 @@ window.ELEPHANT_OVERVIEW = null;
             "</div></div>";
       var wlA = WL[actN.id] || [];
       ah += '<div class="nfield"><b>' + term("log", "ход работы") + " · " + wlA.length + "</b>" +
-            (wlA.length ? wlRows(wlA.slice(-6)) + (wlA.length > 6 ? '<div class="fsub">… и ещё ' + (wlA.length - 6) + " раньше — в дереве узлов</div>" : "")
+            (wlA.length ? wlRows(wlA.slice(-6)) + (wlA.length > 6 ? '<div class="fsub">… и ещё ' + (wlA.length - 6) + " раньше — все записи в дереве узлов</div>" : "")
                         : '<div class="fsub">пусто — агент пишет el log по ходу, и это ложится сюда</div>') + "</div>";
       if (actN.stop) ah += '<div class="nfield"><b>остановка</b><div>' + esc(actN.stop) + "</div></div>";
       (actN.design || []).forEach(function (g) {
