@@ -115,7 +115,7 @@
   </div>
   <div class="grp"><span class="lbl">порядок</span>
     <span class="seg" id="segSort">
-      <button data-v="updated">обновлён</button><button data-v="created">создан</button><button data-v="name">название</button><button data-v="phase">этап</button>
+      <button data-v="updated">обновлён</button><button data-v="created">создан</button><button data-v="name">название</button><button data-v="phase">phase</button>
     </span>
   </div>
   <label class="chk"><input type="checkbox" id="chkMe"> только те, где нужен я</label>
@@ -135,9 +135,9 @@ window.ELEPHANT_INDEX = null;
 <script src="metadata/index-data.js"></script>
 <script>
 (function () {
-  var PH = { context: "1/8 контекст", think: "2/8 думать", plan: "3/8 план",
-             execute: "4/8 исполнение", validate: "5/8 проверка",
-             reflect: "6/8 уроки", align: "7/8 сверка", close: "8/8 закрытие" };
+  var PH = { context: "1/8 context", think: "2/8 think", plan: "3/8 plan",
+             execute: "4/8 execute", validate: "5/8 validate",
+             reflect: "6/8 reflect", align: "7/8 align", close: "8/8 close" };
   var d = window.ELEPHANT_INDEX;
   var list = document.getElementById("list");
   function esc(s) {
@@ -157,7 +157,7 @@ window.ELEPHANT_INDEX = null;
     return;
   }
   var ORDER = ["context", "think", "plan", "execute", "validate", "reflect", "align", "close"];
-  var OUT = { completed: "доехали", closed: "закрыто", dropped: "отброшено",
+  var OUT = { completed: "completed · доехали", closed: "closed · закрыто", dropped: "dropped · отброшено",
               blocked: "заблокировано" };
   var sub = document.getElementById("sub");
   var bar = document.getElementById("bar");
@@ -185,11 +185,11 @@ window.ELEPHANT_INDEX = null;
     var au = p.autonomy;
     if (au && au.grant) {
       if (au.halt)
-        badge += '<span class="badge halt" title="' + esc(au.halt.text || "") + '">автономия остановлена</span>';
+        badge += '<span class="badge halt" title="' + esc(au.halt.text || "") + '">halt · автономия остановлена</span>';
       else if (au.active)
-        badge += '<span class="badge auto" title="' + esc(au.grant.text || "") + '">автономия</span>';
+        badge += '<span class="badge auto" title="' + esc(au.grant.text || "") + '">grant · автономия</span>';
       if (au.debt)
-        badge += '<span class="badge loan">долг слова: ' + au.debt + "</span>";
+        badge += '<span class="badge loan">debt · долг слова: ' + au.debt + "</span>";
     }
     /* «за тобой» = долг владельца (ответы) + эстафета (узлы, ждущие его рук) — 2026-08-25 */
     var oweN = (p.owed ? p.owed.open : 0) + (p.baton ? p.baton.length : 0);
@@ -197,7 +197,7 @@ window.ELEPHANT_INDEX = null;
       badge += '<span class="badge owe' + (p.owed && p.owed.standing ? " stand" : "") +
                '" title="ответы и сценарии, которые есть только у тебя' +
                (p.baton && p.baton.length ? " · эстафета: " + esc(p.baton.map(function (b) { return b.id; }).join(", ")) : "") +
-               '">за тобой: ' + oweN +
+               '">owed · за тобой: ' + oweN +
                (p.owed && p.owed.standing ? " · стоим: " + p.owed.standing : "") + "</span>";
     /* ЛЕНТА ФАЗ — восемь делений: пройденное залито бледным, текущее ярким, закрытая
        задача — вся зелёным. Видно с одного взгляда, далеко ли уехали. */

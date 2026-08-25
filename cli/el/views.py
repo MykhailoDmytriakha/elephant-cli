@@ -14,6 +14,7 @@ from .amend import pending_word, split_amendments, word_given_on
 from .plan import active_node, node_status, node_sync, nodes_all, sync_mark, waiting_nodes, write_plan_md
 from .validate import criteria_of, rollup, validation_state
 from . import autonomy, owe
+from .worklog import stale, worklog
 
 
 def skill_html(name):
@@ -525,6 +526,7 @@ def render_views(root, only=None):
             write(data_path,
                   dump("ELEPHANT_OVERVIEW",
                        dict(m, generated=stamp, request=request,
+                            worklog=worklog(root, t), stale=stale(root, t, tdir),
                             clarified=docs["clarified"],
                             ifr=docs["ifr"],
                             ideals=docs["ideals"],

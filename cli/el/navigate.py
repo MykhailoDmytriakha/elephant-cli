@@ -11,6 +11,7 @@ from .protocol import (AREA_KEYS, CONTEXT_FILES, CONTEXT_MIN, CONTEXT_STEPS, MOD
                        OUTCOME_RU, PHASE_MAP, PHASE_MODE, PHASE_RU, PHASES, QA_AREAS, SCOPE_KEYS,
                        THINK_STEPS, required_in)
 from . import autonomy, owe
+from .worklog import last_line, stale_lines, worklog
 from .state import (CLI_ENTRY, SKILL_ROOT, brief_read, current_task, find_root, journal, journal_path, open_tasks,
                     phase_no, phase_state, pick_task, request_line, task_mode,
                     project_root, require_root, resolve_task, task_meta, task_state,
@@ -319,6 +320,8 @@ def cmd_status(args):
         print(f"          {meta.get('name', '')[:70]}")
         for l in return_lines(root, task):
             print(l)
+        for l in stale_lines(root, task, tdir):
+            print(l)
         # AUTONOMY FIRST (owner, 2026-08-22): whether the grant stands or stopped here is
         # what the agent, the harness judge and the returning owner all need before anything
         # else — so it is printed, not implied.
@@ -513,6 +516,7 @@ def left_lines(root, task, tdir, owed=True):
                        f"→ el accept \"<его слова>\" --for node:{w_n['id'].lower()}")
         if act and node_status(act) == "active":
             out.append(f"          ▶ сейчас {act['id']} · {(act.get('name') or '')[:50]}")
+            out.append(f"          {last_line(root, task, act['id'])}")
         elif nodes and not waiting_nodes(tdir):
             out.append(f"          в работе никого — el plan start {nodes[0]['id'].lower()}")
         for n in nodes:
@@ -888,6 +892,8 @@ def cmd_next(args):
     auto_on = bool(auto and auto["active"])
     for l in return_lines(root, task):
         print(l)
+    for l in stale_lines(root, task, tdir):
+        print(l)
     b_line = brief_read(tdir).splitlines()
     if b_line:
         print(f"листок   {b_line[0][:80]} … · el brief — целиком (читай первым после обрыва)")
@@ -1068,7 +1074,8 @@ def cmd_next(args):
                     " (принял и закрываем: --close)")
         elif act:
             node_board(root, task, tdir, act, verd_e)
-            move = (f"веди {act['id']}: проверяй критерии ПО ХОДУ — el validate {act['id'].lower()} "
+            print(f"ход      {last_line(root, task, act['id'])}")
+            move = (f"веди {act['id']}: пиши el log по ходу (ложится к узлу); проверяй критерии ПО ХОДУ — el validate {act['id'].lower()} "
                     f"<N> --met \"…\" --evidence <файл>; клади следы --node {act['id'].lower()}; "
                     f"показал — el plan wait {act['id'].lower()} \"…\"; готово — el plan done "
                     f"{act['id'].lower()} \"<наблюдаемый результат>\"")
@@ -1091,7 +1098,7 @@ def cmd_next(args):
                     'el plan new s1 "<этап>"')
         else:
             move = 'все узлы закрыты — проверь следы и дальше: el forward --why "<что исполнено и чем доказано>"'
-        print("правило  работа идёт узел за узлом: start → делать → критерии по ходу → следы к узлу "
+        print("правило  работа идёт узел за узлом: start → делать и писать el log (ложится к узлу) → критерии по ходу → следы к узлу "
               "→ остановка (wait) → done; крупный этап перед работой раскладывается на работы")
 
     elif phase == "think":
@@ -1186,8 +1193,11 @@ def cmd_next(args):
         print('         el think forks — состояние · el think decide <id> "<вариант>"')
     elif phase in ("execute", "validate") and [n for n in nodes_all(tdir) if node_open(n)]:
         left_g = [n for n in nodes_all(tdir) if node_open(n)]
+        wl_g = worklog(root, task)
         print("gate     ЗАКРЫТ — узлы плана не закрыты: " + ", ".join(
-            f"{n['id']} ({STATUS_RU.get(node_status(n), '?')})" for n in left_g))
+            f"{n['id']} ({STATUS_RU.get(node_status(n), '?')}"
+            + (f", следов {len(wl_g.get(n['id'], []))}" if node_status(n) == "active" else "") + ")"
+            for n in left_g))
         print('         закрыть: el plan done <узел> "<результат>" · отложить осознанно: '
               'el plan park <узел> --why "…"')
     elif req_missing:

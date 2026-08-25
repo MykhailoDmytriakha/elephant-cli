@@ -795,7 +795,14 @@ def scenario(ws):
     add(S(["plan", "start"], rc=1))
     add(S(["plan", "start", "s9"], rc=1))
     add(S(["plan", "new", "s2", "второй"]))
-    add(S(["plan", "start", "s2", "--force"], label="plan start s2: s1 steps back to open"))
+    # NO SILENT ABANDONMENT (owner, 2026-08-25): a second start while S1 is in work refuses
+    # until the agent says what happens to S1 — here, a switch with its reason.
+    add(S(["plan", "start", "s2", "--force"], rc=1, label="plan start s2 while s1 in work: refused"))
+    add(S(["plan", "start", "s2", "--force", "--switch", "s1 ждёт данных владельца"],
+          label="plan start s2 --switch: s1 steps back to open, reason in the journal"))
+    add(S(["log", "первый шаг по s2"], label="log lands on the node in work"))
+    add(S(["log", "заметка мимо узлов", "--free"], label="log --free stays off nodes"))
+    add(S(["plan", "s2"], label="plan s2 shows the work log"))
     add(S(["plan"], label="plan: statuses in the tree"))
     add(S(["plan", "wait", "s2", "показал экран"], label="plan wait: the baton goes to the owner"))
     add(S(["next"], label="next: baton with the owner"))
@@ -805,7 +812,9 @@ def scenario(ws):
     add(S(["plan", "s2"], label="plan s2: open again, word noted"))
     add(S(["plan", "block", "s2"], rc=1, label="plan block: --why required"))
     add(S(["plan", "block", "s2", "--why", "нет доступа"]))
-    add(S(["plan", "start", "s2", "--force"], label="plan start: from blocked"))
+    add(S(["plan", "start", "s2", "--force"], rc=1, label="plan start from blocked while s1 in work: refused"))
+    add(S(["plan", "start", "s2", "--force", "--switch", "блок снят, s1 подождёт"],
+          label="plan start: from blocked, with the switch reason"))
     add(S(["plan", "wait", "s2", "показал ещё раз"]))
     add(S(["accept", "принимаю этот узел", "--for", "node:s2", "--close"], rc=1,
           label="accept --close: the node still has gaps"))

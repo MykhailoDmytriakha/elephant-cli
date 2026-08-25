@@ -34,6 +34,9 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     decomposed, five criteria per node, no --waive. Bare: show.
 #                                     The human's word and the graph integrity hold in every mode
 #   el log "<text>" [--type T]        append an event to the journal · --task <id> writes it
+#                                     during execute the note lands on the node IN WORK
+#                                     (el plan <узел> and the page show it there) · --node <id>
+#                                     aims elsewhere · --free keeps it off nodes on purpose
 #                                     to ANOTHER task — a note about a task you are not standing
 #                                     in; the hand does not move (no write ever moves it)
 #   el beat <name> [--ref FILE]       mark a beat that leaves no file of its own · --task <id>
@@ -550,6 +553,8 @@ def _dispatch(argv):
     p = sub.add_parser("done", add_help=False); p.add_argument("result"); p.add_argument("--as", dest="outcome", default="completed"); p.add_argument("--task"); p.add_argument("--dirty")
     p.add_argument("--why"); p.set_defaults(fn=cmd_done)
     p = sub.add_parser("log", add_help=False); p.add_argument("text"); p.add_argument("--type", default="note")
+    p.add_argument("--node")                        # aim at a node other than the one in work
+    p.add_argument("--free", action="store_true")   # on purpose off any node
     p.add_argument("--task"); p.set_defaults(fn=cmd_log)
     for nm in ("where", "path"):
         sub.add_parser(nm, add_help=False).set_defaults(fn=cmd_where)
@@ -607,6 +612,7 @@ def _dispatch(argv):
     pl.add_argument("--force", action="store_true")
     pl.add_argument("--replace", action="store_true")
     pl.add_argument("--why")                       # el plan block / park
+    pl.add_argument("--switch")                    # el plan start <другой> --switch "<почему>" — сменить узел в работе
     pl.add_argument("--owe", type=int)             # el plan block — держит долг владельца #n
     pl.add_argument("--file")                      # el plan set <узел> --file <контракт.md> | -
     pl.add_argument("--after")                     # el plan unfold — после чего раскроется

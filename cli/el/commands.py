@@ -7,6 +7,7 @@ that teach: blueprint (the whole contract) and onboard (bare `el`).
 import argparse, json, os, re, shutil, sys
 from .protocol import BRIEF_CHARS, BRIEF_LINES, CONTEXT_FILES, MODE_RU, MODES, OUTCOMES, PHASES
 from .navigate import return_lines
+from .worklog import stale_lines
 from .state import SKILL_ROOT
 from . import autonomy, owe
 from .blueprint import PARTS, render, resolve_part
@@ -219,8 +220,36 @@ def cmd_log(args):
         print("  advance → el forward · reroute → el phase · done → el done · "
               "reopened → el reopen", file=sys.stderr)
         return 1
-    journal(root, task, args.type, args.text)
-    print(f"logged: {args.type}" + (f" → {task}" if getattr(args, "task", None) else ""))
+    # TO THE NODE IN WORK (owner, 2026-08-25: «чтобы работа записывалась туда, где делается»):
+    # a note written during execute lands on the active node — the page and `el plan <узел>`
+    # show it there. `--node` aims elsewhere, `--free` keeps it off any node, on purpose.
+    tdir = os.path.join(root, task)
+    from .plan import active_node as _act, node_read as _nread, node_status as _nst, path_to_id
+    act = _act(tdir)
+    act = act if act and _nst(act) == "active" else None
+    want = (getattr(args, "node", None) or "").strip()
+    free = bool(getattr(args, "free", False))
+    extra = {}
+    if want:
+        nid = path_to_id([want])
+        if not _nread(tdir, nid):
+            print(f"нет узла {nid}", file=sys.stderr)
+            return 1
+        extra["node"] = nid
+    elif act and not free:
+        extra["node"] = act["id"]
+    if free:
+        extra["free"] = True      # said so — the by-time reading must not attach it either
+    journal(root, task, args.type, args.text, extra or None)
+    print(f"logged: {args.type}" + (f" → {extra['node']}" if extra.get("node") else "")
+          + (f" → {task}" if getattr(args, "task", None) else ""))
+    if extra.get("node") and act and extra["node"] != act["id"]:
+        print(f"⚠ {act['id']} всё ещё в работе, а запись ушла в {extra['node']} — закрой "
+              f"(el plan done {act['id'].lower()}), поставь ждать (el plan wait), отложи "
+              f"(el plan park --why) или смени: el plan start {extra['node'].lower()} --switch \"<почему>\"")
+    elif not extra.get("node") and not free and task_meta(root, task).get("phase") == "execute":
+        print("⚠ запись без узла — на execute работа идёт по узлам: el plan start <узел>; "
+              "осознанно мимо узлов: --free")
     return 0
 
 
@@ -1283,6 +1312,8 @@ def cmd_onboard(_args):
             for l in autonomy.lines(root, cur):
                 print(f"  {l}")
             for l in return_lines(root, cur):
+                print(f"  {l}")
+            for l in stale_lines(root, cur, os.path.join(root, cur)):
                 print(f"  {l}")
             # THE SHEET FIRST (owner, 2026-08-22): a returning agent reads brief.md before
             # anything else — baseline, best, what not to repeat, what is now.

@@ -277,7 +277,8 @@ def cmd_plan(args):
     if verb == "done":
         return plan_done(root, task, tdir, words[1:], getattr(args, "force", False))
     if verb == "start":
-        return plan_start(root, task, tdir, words[1:], getattr(args, "force", False))
+        return plan_start(root, task, tdir, words[1:], getattr(args, "force", False),
+                          switch=getattr(args, "switch", None))
     if verb == "wait":
         return plan_wait(root, task, tdir, words[1:])
     if verb in ("block", "park"):
@@ -637,6 +638,22 @@ def plan_one(tdir, nid):
         nxt = level_of_depth(nid + ".X")
         print(f"\n  внутри пусто · разложить: el plan new {nid.lower()} wp1 \"<имя>\"  "
               f"(будет уровень {nxt})")
+    # THE WORK LOG (owner, 2026-08-25): what was done on this node, in order — the notes
+    # `el log` wrote while it was in work (older journals: by time), artifacts and evidence.
+    from .worklog import worklog as _worklog
+    from .term import human_when as _hw
+    wl = _worklog(os.path.dirname(tdir), os.path.basename(tdir)).get(nid, [])
+    if wl:
+        print(f"\n  ход работы · {len(wl)}" +
+              ("  (курсивом по времени: запись без узла легла к узлу, который был в работе)"
+               if any(e["by_time"] for e in wl) else ""))
+        for e in wl[-10:]:
+            print(f"    {_hw(e['ts']):<16} {e['type']:<10} {'~ ' if e['by_time'] else ''}{e['text'][:90]}")
+        if len(wl) > 10:
+            print(f"    … и ещё {len(wl) - 10} раньше")
+    else:
+        print("\n  ход работы · пусто — el log \"<что сделал>\" по ходу ложится сюда"
+              + (" (узел в работе)" if st == "active" else ""))
     if gaps:
         print(f'\nзаполнить  el plan set {nid.lower()} <поле> "<текст>"')
     return 0
@@ -1079,8 +1096,10 @@ def ready_line(tdir):
     return "открытых листьев нет — родители закрываются после детей: el plan done <родитель>"
 
 
-def plan_start(root, task, tdir, words, force=False):
-    """Name THE node in work. One at a time: starting another steps the previous back to open.
+def plan_start(root, task, tdir, words, force=False, switch=None):
+    """Name THE node in work. One at a time — and the previous one is never dropped in
+    silence (owner, 2026-08-25: «начал делать, пошёл дальше, а work package так и не закрыл»):
+    close it, put it to wait, park it, or switch WITH a reason that goes into the journal.
     A node waiting for the owner is not stepped over — his word comes first."""
     if not words:
         print("el plan start s1 wp1", file=sys.stderr)
@@ -1122,8 +1141,18 @@ def plan_start(root, task, tdir, words, force=False):
         return 1
     cur = active_node(tdir)
     if cur and cur["id"] != nid and node_status(cur) == "active":
+        if not (switch or "").strip():
+            low = cur["id"].lower()
+            print(f"{cur['id']} в работе — бросить молча нельзя. Сначала скажи, что с ним:",
+                  file=sys.stderr)
+            print(f'  закрыть: el plan done {low} "<результат>" · ждать владельца: el plan wait {low} "…"',
+                  file=sys.stderr)
+            print(f'  отложить: el plan park {low} --why "…" · сменить с причиной: '
+                  f'el plan start {nid.lower()} --switch "<почему>"', file=sys.stderr)
+            return 1
         _set_status(root, task, tdir, cur, "open", {"started_at": None, "waiting_note": None},
-                    "node-pause", f"уступил место {nid}")
+                    "node-pause", f"уступил место {nid}: {switch.strip()}")
+        print(f"открыт    {cur['id']} снова — уступил место {nid}: {switch.strip()}")
     for w in waiting_nodes(tdir):
         if w["id"] != nid:
             print(f"эстафета  {w['id']} по-прежнему у владельца — не трогай его сценарий; "
@@ -1134,6 +1163,8 @@ def plan_start(root, task, tdir, words, force=False):
     touch(root, task)
     kids = sorted((n for n in nodes_all(tdir) if n.get("parent") == nid), key=lambda x: x["id"])
     print(f"в работе  {nid} · {node.get('name','')}")
+    print(f"ход       всё, что пишешь el log, ложится к {nid} — по ходу, не в конце · закрыть: "
+          f'el plan done {nid.lower()} "<результат>"')
     result = [l for l in (node["_fields"].get("result") or "").splitlines() if l.strip()]
     if result:
         print(f"результат {wrap(result[0].lstrip('- ').strip(), indent='          ')}")
