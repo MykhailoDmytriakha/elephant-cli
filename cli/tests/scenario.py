@@ -820,6 +820,12 @@ def scenario(ws):
     add(S(["plan", "set", "s1", "sync", "показываю: x · увидишь: y · потрогать: z · "
            "от тебя: решение"], label="plan set sync: the four parts on ONE line"))
     add(S(["sync"], label="sync: how a one-line stop is classified"))
+    add(S(["plan", "set", "s1", "sync", "--replace",
+           "показываю: экран\nувидишь: кнопку\nпотрогать: нажать\nот тебя: ничего"],
+          label="plan set sync --replace IN THE MIDDLE: the flag between the words (feedback 2026-08-24)"))
+    add(S(["plan", "s1"], label="plan s1: sync replaced, four lines, no echo"))
+    add(S(["plan", "set", "s1", "result", "--bogus", "x"], rc=2,
+          label="plan set: an unknown flag still fails loudly, not as field text"))
     add(S(["plan"]))
     add(S(["left"]))
     add(S(["where"]))

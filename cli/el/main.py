@@ -392,6 +392,48 @@ def cmd_help(args):
     return 0
 
 
+
+def _hoist_options(ap, argv):
+    """Let a flag sit ANYWHERE in the line — `el plan set s1 sync --replace "<text>"` included.
+
+    argparse reads one `nargs="*"` positional in a single gulp: the words up to the first
+    flag are the list, and whatever follows the flag is «unrecognized arguments» — printed
+    back verbatim, exit 2, nothing written. An agent read that echo as success and filed the
+    stop field as broken (feedback pool, 2026-08-24: «печатает переданный текст обратно,
+    поле остаётся ✗»). The words were fine; only the flag stood between them.
+
+    So before parsing, the flags the addressed (sub)command KNOWS — with their values —
+    are moved up front and the words keep their order. Unknown `--flags` stay where they
+    were, so a typo still fails loudly instead of landing inside a field as text."""
+    parser, depth = ap, 0
+    while depth < len(argv):
+        subs = [a for a in parser._actions if isinstance(a, argparse._SubParsersAction)]
+        nxt = subs[0]._name_parser_map.get(argv[depth]) if subs else None
+        if nxt is None:
+            break
+        parser, depth = nxt, depth + 1
+    if depth == 0:
+        return argv
+    takes_value = {}
+    for a in parser._actions:
+        for flag in a.option_strings:
+            takes_value[flag] = a.nargs != 0          # store_true → nargs == 0
+    opts, words = [], []
+    i = depth
+    while i < len(argv):
+        w = argv[i]
+        name = w.split("=", 1)[0]
+        if name in takes_value:
+            opts.append(w)
+            if takes_value[name] and "=" not in w and i + 1 < len(argv):
+                i += 1
+                opts.append(argv[i])
+        else:
+            words.append(w)
+        i += 1
+    return argv[:depth] + opts + words
+
+
 def main():
     # `el ctx | head` must not end in a traceback: let a closed pipe end the process quietly.
     if hasattr(signal, "SIGPIPE"):
@@ -623,7 +665,7 @@ def main():
     if "-h" in argv or "--help" in argv:
         return cmd_help(None)
 
-    args = ap.parse_args(argv)
+    args = ap.parse_args(_hoist_options(ap, argv))
     # A LITERAL "\n" typed inside a shell string — the common case when an agent writes a
     # four-line stop or a bullet list in one argument — becomes a real newline in every text
     # argument (owner, 2026-08-22: «тестами\nпотрогать: N/A — перенос строк не работает»).
