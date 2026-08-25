@@ -720,7 +720,8 @@ def plan_new(root, task, tdir, words, force=False):
             {"parent": parent})
     touch(root, task)
     print(f"узел {nid} · {meta['level']} · {meta['name']}")
-    print(f"дальше   el plan {nid.lower().replace('.', ' ')} — какие из восьми полей пусты")
+    print(f"дальше   el plan {nid.lower().replace('.', ' ')} — какие из восьми полей пусты · "
+          f"el plan start {nid.lower()} — ДО работы, не после (контракт допишешь до закрытия)")
     return 0
 
 

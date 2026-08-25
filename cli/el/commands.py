@@ -248,8 +248,8 @@ def cmd_log(args):
               f"(el plan done {act['id'].lower()}), поставь ждать (el plan wait), отложи "
               f"(el plan park --why) или смени: el plan start {extra['node'].lower()} --switch \"<почему>\"")
     elif not extra.get("node") and not free and task_meta(root, task).get("phase") == "execute":
-        print("⚠ запись без узла — на execute работа идёт по узлам: el plan start <узел>; "
-              "осознанно мимо узлов: --free")
+        print("⚠ запись без узла — на execute работа идёт по узлам: сначала узел (el plan new · "
+              "el plan start), потом работа; осознанно мимо узлов: --free")
     return 0
 
 
@@ -1352,6 +1352,8 @@ def cmd_onboard(_args):
     if root:
         cur = current_task(root)
         ph = task_meta(root, cur).get("phase") if cur else None
+    print("\n  порядок        план раньше работы: узел заводится ДО первого шага (el plan new → "
+          "el plan start), не после — бумаги задним числом видны по штампам")
     print("\n  читать по порядку — каждая ступень влезает в один экран:")
     print("    1. el blueprint            big picture: 8 фаз, гейты, правила — один раз, первым")
     if ph:

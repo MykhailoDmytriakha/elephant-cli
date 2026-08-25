@@ -702,7 +702,7 @@ PHASE_MAP = {
                 "'somewhere' · (6) inputs required from the parent or neighbours · (7) "
                 "dependencies and order, acyclic · (8) who executes it. The move out of plan "
                 "needs the owner's explicit yes — not an assumption."),
-        "gate": ("есть хотя бы один узел и у каждого заполнены все девять полей · ЦЕЛОСТНОСТЬ МАРШРУТА: за каждым пунктом чек-листа приёмки и каждой крупной частью пути стоит узел или объявленное место раскрытия (el plan integrity) · слово "
+        "gate": ("узлы заведены ДО работы, не после (план — не бумаги задним числом); есть хотя бы один узел и у каждого заполнены все девять полей · ЦЕЛОСТНОСТЬ МАРШРУТА: за каждым пунктом чек-листа приёмки и каждой крупной частью пути стоит узел или объявленное место раскрытия (el plan integrity) · слово "
                  "владельца над планом (acceptance.md) · plan.md — проекция дерева, есть всегда, когда есть узлы"),
         "cmds": ['el plan new s1 "<этап>"', 'el plan set s1 <поле> "<текст>"', "el sync",
                  'el accept "<его «да» над планом>"',
@@ -847,7 +847,7 @@ PHASE_BEATS = {
     ],
     "execute": [
         ("назван активный узел — один", "agent", "status: active в nodes/<узел>.md", "light",
-         "работа идёт узел за узлом: start → делать и писать el log (ложится к узлу) → критерии по ходу → следы к узлу → остановка "
+         "СНАЧАЛА УЗЕЛ, ПОТОМ РАБОТА — узел заводится и стартует ДО первого шага, не после (владелец, 2026-08-25: агенты делали работу, а потом заводили узлы и заполняли бумаги; по штампам узел жил 40 секунд и «сделал» час работы). Увидел новую работу — el plan new, потом делай; контракт допишешь до закрытия, но узел существует раньше работы. Дальше узел за узлом: start → делать и писать el log (ложится к узлу) → критерии по ходу, не пачкой в конце → следы к узлу → остановка "
          "(wait) → done; активный узел один — по нему el next ведёт доску",
          "el plan start s1"),
         ("критерии узла отвечаются по ходу, доказательство — файлом", "agent", "validation.md", "soft",
@@ -957,7 +957,7 @@ PHASE_BRIEF = {
     "init":     "из разговора родилась задача: хранилище · проект · запрос человека дословно",
     "context":  "собрать картину: вопросы человеку · границы · требования · ИФР · свёртка — и его слово над картиной",
     "think":    "думать как инженер: кто и зачем · форма · ядро · идеалы · исследование · варианты с ценой · развилки его словами · кристалл",
-    "plan":     "сетевой план и узлы с контрактом; остановки назначены заранее; его слово над планом",
+    "plan":     "сетевой план и узлы с контрактом — ДО работы, не после; остановки назначены заранее; его слово над планом",
     "execute":  "узел за узлом: активный один · el log ложится к нему · критерии по ходу · следы к узлу · остановки по плану · эстафета",
     "validate": "матрёшка сошлась: вердикт по каждому критерию каждого узла, свёртка вверх до самой задачи, чек-лист ИФР; показано так, что можно потрогать; приёмка его словами",
     "reflect":  "урок применён — правило, флажок, инструмент; не заметка",
@@ -995,7 +995,7 @@ def phase_beats(ph):
 NEXT_MOVE = {
     "context":  "collect context and write it into context/; then: el forward --why \"<what is established>\"",
     "think":    "name the options and their cost, let the crystal ripen record by record (el think crystal), close the forks; then: el forward --why \"...\"",
-    "plan":     "write the order of steps and how the result is measured; then: el forward --why \"...\"",
+    "plan":     "write the order of steps and how the result is measured — BEFORE the work, never after it; then: el forward --why \"...\"",
     "execute":  "node by node: el plan start → do → criteria as you go (el validate … --evidence) → traces --node → el plan wait at the stop → el plan done; then: el forward --why \"...\"",
     "validate": "attach proof to evidence/ and compare against the before-measurement; then: el forward --why \"...\"",
     "reflect":  "work through the mistakes: fix what stopped you, file the lessons — el lesson \"<урок>\"; the TOOL tripped you — el feedback \"<что>\"; then: el forward --why \"...\"",
