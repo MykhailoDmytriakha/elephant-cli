@@ -163,7 +163,13 @@ def run_recorded(fn, argv):
     """Run the CLI body under the recorder: count the screen, time it, catch argparse's
     exit (rc 2 — «did not understand the call» — is exactly the kind of call worth keeping),
     and write the line. The original streams come back whatever happens."""
-    out, err = Counter(sys.stdout), Counter(sys.stderr)
+    # REFUSALS ON STDOUT (feedback 2026-08-25, Copilot: «el validate → пустой вывод», «el done →
+    # без вывода» — eight refusals that day had 2–19 lines on stderr and none on stdout, and
+    # that harness shows the agent stdout only). The tool talks to an agent, not to a pipe:
+    # everything it says goes to ONE stream, the exit code still says failure. The recorder
+    # keeps counting the two apart. ELEPHANT_STDERR=keep restores the split.
+    keep = os.environ.get("ELEPHANT_STDERR", "").lower() in ("keep", "1", "yes")
+    out, err = Counter(sys.stdout), Counter(sys.stderr if keep else sys.stdout)
     sys.stdout, sys.stderr = out, err
     t0 = time.monotonic()
     try:
@@ -177,6 +183,6 @@ def run_recorded(fn, argv):
             out.flush(); err.flush()
         except Exception:
             pass
-        sys.stdout, sys.stderr = out.stream, err.stream
+        sys.stdout, sys.stderr = out.stream, (err.stream if keep else sys.__stderr__)
     record(argv, rc if rc is not None else 0, out, err, ms)
     return rc

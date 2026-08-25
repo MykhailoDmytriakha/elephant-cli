@@ -73,7 +73,10 @@
   .g { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted);
        margin-left: 6px; font-size: .9em; }
   .ph .g { margin-left: 5px; font-size: 12px; }
-  .ph.current .g, .ph.finish .g, .hpill .g { color: rgba(255,255,255,.82); }
+  .ph.current .g, .ph.finish .g, .hpill .g, .ph.auto-badge.halt .g, .ph.owe-badge.stand .g,
+  .ph.owe-badge:hover .g, .ph.amend-badge:hover .g { color: rgba(255,255,255,.85); }
+  .ph { white-space: nowrap; line-height: 1.45; display: inline-flex; align-items: baseline; }
+  .ph .t { font-size: 13px; }
   .hpill .g { font-size: 12px; }
   .band-h .bname .g { font-size: 13px; font-weight: 400; }
   details.node > summary .lvl .g, .exrow .lvl .g, .crit .v .g, .vtree summary .v .g, .vroot .v .g,
@@ -171,8 +174,10 @@
   .owe-row .fsub { font-size: 13px; color: var(--muted); margin-left: 2px; }
   .owe-row.closed { opacity: .72; }
   .owe-row .over { color: var(--bad); font-weight: 600; }
-  .halt { background: var(--card); border: 2px solid var(--bad); border-radius: 12px;
-          padding: 14px 18px; }
+  /* the halt SECTION box — div only: the strip's «halt» badge is a span with the same class name
+     and used to inherit this padding (owner, 2026-08-25: the badge stood twice as tall) */
+  div.halt { background: var(--card); border: 2px solid var(--bad); border-radius: 12px;
+             padding: 14px 18px; }
   .halt .hh { color: var(--bad); font-weight: 700; font-size: 13px; text-transform: uppercase;
               letter-spacing: .04em; margin-bottom: 4px; }
   .halt .hmeta { color: var(--muted); font-size: 13px; margin-top: 6px; }
@@ -682,7 +687,7 @@ window.ELEPHANT_OVERVIEW = null;
   ORDER.forEach(function (ph, i) {
     var el = document.createElement("span");
     el.className = "ph" + (closed ? " passed" : i < cur ? " passed" : i === cur ? " current" : "");
-    el.innerHTML = (i + 1) + " · " + phT(ph);
+    el.innerHTML = (i + 1) + "\u00a0·\u00a0" + phT(ph);
     strip.appendChild(el);
   });
   /* АВТОНОМИЯ в полосе: выдана · остановлена · долг слова — то же, что печатает el status. */
@@ -701,15 +706,17 @@ window.ELEPHANT_OVERVIEW = null;
   var nOwe = owOpen.length + ownerForks.length + baton.length;
   var nStand = owOpen.filter(function (x) { return x.stands && x.stands.length; }).length +
                (d.phase === "think" ? ownerForks.length : 0);
-  if (au && au.grant) {
+  /* ЗАКРЫТЫЙ проект (владелец, 2026-08-25: «halt рядом с ✓ done — странно»): автономия — история,
+     не тревога; бейджи гранта/остановки не показываем, долг слова — да, он и после закрытия долг. */
+  if (au && au.grant && !closed) {
     var ab = document.createElement("span"), g0 = au.grant;
     if (au.halt) {
       ab.className = "ph auto-badge halt";
-      ab.innerHTML = term("halt", "автономия остановлена") + " · " + when(au.halt.ts);
+      ab.innerHTML = term("halt", "автономия остановлена") + "\u00a0· " + when(au.halt.ts);
       ab.title = au.halt.text || "";
     } else if (au.active) {
       ab.className = "ph auto-badge";
-      ab.innerHTML = term("grant", "автономия выдана") + " · " + when(g0.ts);
+      ab.innerHTML = term("grant", "автономия выдана") + "\u00a0· " + when(g0.ts);
       ab.title = "«" + (g0.text || "") + "»" + (g0.until ? " · до: " + g0.until : "") +
                  (g0.no ? " · нельзя: " + g0.no : "");
     } else {
@@ -717,10 +724,12 @@ window.ELEPHANT_OVERVIEW = null;
       ab.innerHTML = term("grant", "автономия была");
     }
     strip.appendChild(ab);
+  }
+  if (au && au.grant) {
     if (nDebt) {
       var lb = document.createElement("span");
       lb.className = "ph loan-badge";
-      lb.innerHTML = term("debt", "долг слова") + ": " + nDebt;
+      lb.innerHTML = term("debt", "долг слова") + ":\u00a0" + nDebt;
       lb.title = "слов, которые агент занял за человека и его слово ещё не покрыло";
       strip.appendChild(lb);
     }
@@ -730,7 +739,7 @@ window.ELEPHANT_OVERVIEW = null;
   if (nOwe) {
     var ob = document.createElement("span");
     ob.className = "ph owe-badge" + (nStand ? " stand" : "");
-    ob.innerHTML = term("owed", "за тобой") + ": " + nOwe + (nStand ? " · стоим: " + nStand : "");
+    ob.innerHTML = term("owed", "за тобой") + ":\u00a0" + nOwe + (nStand ? " · стоим: " + nStand : "");
     ob.title = "ответы, которые есть только у тебя, и их пока нет — клик: к списку";
     ob.setAttribute("data-jump", "owed");
     strip.appendChild(ob);
@@ -738,7 +747,7 @@ window.ELEPHANT_OVERVIEW = null;
   if (d.amendments) {
     var am = document.createElement("span");
     am.className = "ph amend-badge";
-    am.innerHTML = "⟲ " + term("amend", "поправок") + ": " + d.amendments +
+    am.innerHTML = "⟲\u00a0" + term("amend", "поправок") + ":\u00a0" + d.amendments +
                      (nPend ? " · ждёт подтверждения: " + nPend : "");
     am.title = "что изменили в документах уже пройденных этапов — клик: к списку";
     am.setAttribute("data-jump", "amend");
@@ -775,7 +784,7 @@ window.ELEPHANT_OVERVIEW = null;
   var h = "";
   /* ОСТАНОВКА — первой: открыв страницу, человек сразу видит, где агент встал и что от него
      нужно. Задача при этом открыта — это не «done». */
-  if (au && au.halt) {
+  if (au && au.halt && !closed) {
     h += sec("halt", term("halt", "автономия остановлена здесь"),
              '<div class="halt"><div class="hh">⛔ кредит слова дальше не распространяется</div>' +
              '<div class="txt">' + inl(au.halt.text || "") + "</div>" +

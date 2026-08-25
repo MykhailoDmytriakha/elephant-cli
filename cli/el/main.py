@@ -289,7 +289,10 @@ the parser that registers the commands sit together and cannot drift apart.
 #   el done "<result>" [--as KIND]    close a task WITH a result · kinds: completed |
 #                                     closed (understood, no action needed) | dropped | blocked
 #                                     completed is refused while any `el todo` remains open ·
-#                                     closing puts the task DOWN: nothing is picked up in its place
+#                                     closing puts the task DOWN: nothing is picked up in its place ·
+#                                     --dirty "<почему без коммита>" closes over an uncommitted
+#                                     worktree ON PURPOSE (the close gate asks for it) ·
+#                                     --why "<его слова>" when closing from a phase before close
 import argparse, os, re, signal, sys
 from .term import emit
 from .protocol import MECHANICS
@@ -338,7 +341,10 @@ def help_blocks():
 def cmd_help(args):
     """`el help` — the whole map (one screen, the head says if it cannot be); `el help <группа>`
     — one group; `el help <команда>` — the entries of one command (owner, 2026-08-22)."""
-    topic = (getattr(args, "topic", None) or "").strip().lower()
+    topic = getattr(args, "topic", None) or ""
+    if isinstance(topic, list):
+        topic = " ".join(topic)          # `el help plan cover` — a two-word command
+    topic = topic.strip().lower()
     blocks = help_blocks()
     out = []
     if not topic:
@@ -676,7 +682,7 @@ def _dispatch(argv):
     p.add_argument("words", nargs="*"); p.add_argument("--from", dest="from_")
     p.add_argument("--about"); p.add_argument("--by"); p.add_argument("--file")
     p.set_defaults(fn=cmd_feedback)
-    p = sub.add_parser("help", add_help=False); p.add_argument("topic", nargs="?"); p.set_defaults(fn=cmd_help)
+    p = sub.add_parser("help", add_help=False); p.add_argument("topic", nargs="*"); p.set_defaults(fn=cmd_help)
 
     # `-h` / `--help` cannot be subcommand NAMES: argparse reads a leading dash as an option
     # on the top parser and errors out before it ever dispatches. They are intercepted here
@@ -685,7 +691,13 @@ def _dispatch(argv):
     if not argv:
         return cmd_onboard(None)
     if "-h" in argv or "--help" in argv:
-        return cmd_help(None)
+        # `el done --help` asks about DONE, not about everything (recorder 2026-08-25: the
+        # whole 25 000-character map came back twice in one session)
+        topic = " ".join(a for a in argv if not a.startswith("-"))
+        return cmd_help(argparse.Namespace(topic=topic))
+    # `context big-parts` — the file is big-parts.md, the section key is `parts`; both work
+    if len(argv) >= 2 and argv[0] in ("context", "ctx") and argv[1] == "big-parts":
+        argv = [argv[0], "parts"] + argv[2:]
 
     args = ap.parse_args(_hoist_options(ap, argv))
     # A LITERAL "\n" typed inside a shell string — the common case when an agent writes a
