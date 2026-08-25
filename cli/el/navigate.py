@@ -11,7 +11,7 @@ from .protocol import (AREA_KEYS, CONTEXT_FILES, CONTEXT_MIN, CONTEXT_STEPS, MOD
                        OUTCOME_RU, PHASE_MAP, PHASE_MODE, PHASE_RU, PHASES, QA_AREAS, SCOPE_KEYS,
                        THINK_STEPS, required_in)
 from . import autonomy, owe
-from .state import (CLI_ENTRY, brief_read, current_task, find_root, journal, journal_path, open_tasks,
+from .state import (CLI_ENTRY, SKILL_ROOT, brief_read, current_task, find_root, journal, journal_path, open_tasks,
                     phase_no, phase_state, pick_task, request_line, task_mode,
                     project_root, require_root, resolve_task, task_meta, task_state,
                     todo_items, todo_line,
@@ -86,6 +86,43 @@ def node_board(root, task, tdir, node, verdicts):
         kd = sum(1 for k in kids if node_status(k) == "done")
         print(f"внутри    {kd}/{len(kids)} закрыто: " + " ".join(
             f"{STATUS_MARK.get(node_status(k), '·')}{k['id']}" for k in kids))
+
+
+def return_lines(root, task):
+    """THE RETURN (feedback 2026-08-25, the owner's words: «ожидал, что агент сначала рассмотрит
+    проект, даст статус, расскажет, что дальше, и спросит, готовы ли приступать; вместо этого
+    хватался за всё»). The recorder knows when the previous call was; the journal knows whether
+    this run has left a trace yet. Silence longer than RETURN_GAP and no trace since — the agent
+    has just come back, and the first move after a break is a REPORT to the human, not an action.
+    Printed by `el`, `el status`, `el next` until the first trace (taking the task in hand is
+    not one). Under a standing grant the report is one line and the work goes on."""
+    if not task:
+        return []
+    try:
+        from .calls import session_start
+        from .state import last_trace_ts
+        start, pause = session_start(root)
+        if not start:
+            return []
+        last = last_trace_ts(root, task, skip=("hold",))
+        if last:
+            from datetime import datetime
+            if datetime.fromisoformat(last) >= datetime.fromisoformat(start):
+                return []
+    except Exception:
+        return []
+    h = pause // 3600
+    p = f"{h // 24} дн." if h >= 48 else (f"{h} ч" if h >= 1 else f"{pause // 60} мин")
+    out = [f"возврат   пауза {p} с прошлого вызова el · следов этой сессии ещё нет"]
+    if autonomy.on(root, task):
+        out.append("          грант стоит — доложи человеку одной строкой (где мы · что дальше) "
+                   "и продолжай")
+    else:
+        out.append("          первый ход — доклад человеку: где мы · что дальше · что за ним — и "
+                   "вопрос,")
+        out.append("          приступать ли; до его слова только читай: el status · el next · "
+                   "el context")
+    return out
 
 
 def ctx_line(root, task=None):
@@ -280,6 +317,8 @@ def cmd_status(args):
         print(f"current   {task} · phase {phase_no(ph)}/8 {ph}"
               + ("" if st == "active" else f" · {st.upper()}"))
         print(f"          {meta.get('name', '')[:70]}")
+        for l in return_lines(root, task):
+            print(l)
         # AUTONOMY FIRST (owner, 2026-08-22): whether the grant stands or stopped here is
         # what the agent, the harness judge and the returning owner all need before anything
         # else — so it is printed, not implied.
@@ -357,6 +396,12 @@ def cmd_status(args):
             print("current   — no tasks yet")
     print(f"tasks     {len(tasks_of(root))}")
     print(f"cli       {cli}")
+    # WHERE THE TOOL LIVES (feedback 2026-08-25: an agent had to find detect.sh
+    # through its own env var): the clone, the entry, the probe — measured from the package.
+    tool = os.path.join(SKILL_ROOT, "cli", "el.py")
+    if os.path.realpath(tool) != os.path.realpath(str(cli)):
+        print(f"tool      {tool}")
+    print(f"probe     bash {os.path.join(SKILL_ROOT, 'cli', 'detect.sh')} — есть ли Elephant здесь")
     # THE SHEET (owner, 2026-08-22): brief.md — what a returning agent must know, printed
     # whole; it is bounded, so it always fits.
     if task:
@@ -492,7 +537,8 @@ def left_lines(root, task, tdir, owed=True):
 
     openq = [it for it in todo_items(tdir) if it["open"]]
     if openq:
-        out.append(f"вопросы   {len(openq)} отложенных — el todo · закрыть: el todo --done N")
+        out.append(f"на потом  {len(openq)} — обещания к фазам, не ход · el todo · "
+                   "закрыть: el todo --done N")
         for it in openq[:4]:
             out.append(f"          {todo_line(it, width=72)}")
         if len(openq) > 4:
@@ -840,6 +886,8 @@ def cmd_next(args):
     if auto and auto["halt"]:
         print("         дальше без человека нельзя — остановись; его слово снимает остановку")
     auto_on = bool(auto and auto["active"])
+    for l in return_lines(root, task):
+        print(l)
     b_line = brief_read(tdir).splitlines()
     if b_line:
         print(f"листок   {b_line[0][:80]} … · el brief — целиком (читай первым после обрыва)")
@@ -852,12 +900,6 @@ def cmd_next(args):
         print("init ✗   этап 0 не закрыт: init/request.md не записан — сырые слова человека")
         print("         дословно. Попроси повторить запрос и дозапиши:")
         print(f'         el boot "<задача>" --id {task} --raw "<слова дословно>"')
-    # Parked work surfaces WHEN ITS PHASE ARRIVES. A note that is written but never shown at
-    # the right moment is indistinguishable from a forgotten one.
-    for it in todo_items(tdir):
-        if it["open"] and it["phase"] == phase:
-            print(f"отложено {wrap(todo_line(it), indent='         ')}"
-                  f"  → el todo --done {it['n']} \"<чем доказано>\"")
     if have:
         print("have     " + " · ".join(f"✓ {r}" for r, _, _ in have))
     for rel, what, required in missing:
@@ -1095,6 +1137,16 @@ def cmd_next(args):
                     'думание закрыто; дальше: el forward --why "<что решено и чем обосновано>"')
 
     print(f"next     {wrap(move)}")
+    # PARKED WORK surfaces when its phase arrives — BELOW the move and without a command
+    # (feedback 2026-08-25: «отложено … → el todo --done» stood first with a ready command,
+    # and the agent went to Jira instead of the active node). A promise kept when its time
+    # comes, not the next move; a reminder (⟳) is not even a step.
+    parked = [it for it in todo_items(tdir) if it["open"] and it["phase"] == phase]
+    if parked:
+        for it in parked:
+            print(f"на потом {wrap(todo_line(it, width=72), indent='         ')}")
+        print("         это не ход — обещание к этой фазе; закрыть, когда сделано: "
+              "el todo --done N \"<чем доказано>\"")
     # --short: the move and the commands, without the teaching prose. On the first call of a
     # session the «why» and the «how» are what an agent needs; on the third they are noise it
     # scrolls past (agent retro, 2026-08-23).

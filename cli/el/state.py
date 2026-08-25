@@ -238,6 +238,7 @@ def task_meta(root, task):
       owes        every `owe` · `owe-holds` · `owe-paid` · `owe-drop` event, in order — the
                   owner's debt is computed from them (owe.ledger)
       updated_at  the journal file's mtime — ORDERING tasks needs no read at all
+      created_at  the `created` event's stamp — the birth, for the human's page (2026-08-25)
     """
     jp = journal_path(root, task)
     try:
@@ -293,6 +294,7 @@ def task_meta(root, task):
                 meta["events"] += 1
                 if kind == "created" and rec.get("text"):
                     meta["name"] = rec["text"]
+                    meta.setdefault("created_at", rec.get("ts", ""))
                 elif kind in ("advance", "reroute"):
                     tail = (rec.get("text") or "").rsplit("→", 1)[-1].strip()
                     if tail in PHASES:
@@ -594,15 +596,21 @@ def todo_items(tdir):
         if s.startswith("- [ ]") or s.startswith("- [x]"):
             is_open = s.startswith("- [ ]")
             body = s[5:].strip()
-            m = re.match(r"\*\*(\S+)\*\*\s*·\s*(.*)$", body)
-            phase, text = (m.group(1), m.group(2)) if m else ("", body)
+            m = re.match(r"\*\*([^*]+)\*\*\s*·\s*(.*)$", body)
+            phase, text = (m.group(1).strip(), m.group(2)) if m else ("", body)
+            # A REMINDER (2026-08-25): «**execute ⟳ каждый день** · обновлять Jira» — a standing
+            # duty, not a step: it never counts as an unfinished promise at `el done`.
+            every = ""
+            if " ⟳ " in phase:
+                phase, every = (x.strip() for x in phase.split(" ⟳ ", 1))
             closed = ""
             if not is_open and "  ← " in text:
                 text, closed = text.split("  ← ", 1)
             if is_open:
                 n += 1
             items.append({"n": n if is_open else None, "open": is_open, "phase": phase,
-                          "text": text.strip(), "closed": closed.strip(), "why": ""})
+                          "every": every, "text": text.strip(), "closed": closed.strip(),
+                          "why": ""})
         elif s.startswith("зачем:") and items:
             items[-1]["why"] = s[6:].strip()
     return items
@@ -612,8 +620,58 @@ def todo_line(it, width=90):
     """«3. [ ] [validate] проверить на телефоне» — the number is what --done takes."""
     head = f"{it['n']}. [ ]" if it["open"] else "   [x]"
     ph = f"[{it['phase']}] " if it["phase"] else ""
+    if it.get("every"):
+        ph += f"⟳ {it['every']} · "
     tail = f"  ← {it['closed']}" if it["closed"] else ""
     return f"{head} {ph}{it['text'][:width]}{tail}"
+
+
+def last_trace_ts(root, task, skip=()):
+    """When the task's journal was last written to — the newest event whose type is not in
+    `skip`. `hold` is skipped by the return beat: taking a task in hand is not work done."""
+    best = ""
+    try:
+        with open(journal_path(root, task), encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if rec.get("type") in skip:
+                    continue
+                ts = rec.get("ts") or ""
+                if ts > best:
+                    best = ts
+    except OSError:
+        pass
+    return best
+
+
+# ── paths named in text — measured, never believed ───────────────────────────────
+# Feedback 2026-08-25: an artifact was declared missing over a wrong nested path, and a
+# lesson had to be written about exactly that. Every path-looking token in a node's
+# artifacts/storage field or in a proof gets looked up — from the project root, from the
+# task folder, and as written — and the screen says «на месте» or «нет по этому пути».
+PATHISH = re.compile(r"(?<![\w/.:])((?:~|\.{1,2})?/?[\w@.\-]+(?:/[\w@.\-]+)+)")
+
+
+def path_marks(tdir, text):
+    """[(path, found)] for every path-looking token in `text`; [] when there is none."""
+    out, seen = [], set()
+    for tok in PATHISH.findall(text or ""):
+        cand = tok.rstrip(".,;:)")
+        if cand in seen or "." not in cand.split("/")[-1] and not cand.endswith("/") \
+                and len(cand.split("/")) < 3:
+            continue          # «S1/WP2»-like tokens are ids, not files
+        seen.add(cand)
+        p = os.path.expanduser(cand)
+        bases = [""] if os.path.isabs(p) else [project_root(), tdir, os.getcwd()]
+        found = any(os.path.exists(os.path.join(b, p) if b else p) for b in bases)
+        out.append((cand, found))
+    return out
 
 
 def brief_path(tdir):

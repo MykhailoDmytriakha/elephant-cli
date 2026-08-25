@@ -172,7 +172,7 @@ window.ELEPHANT_INDEX = null;
   function isDone(p) { return !!p.outcome || (p.status && p.status !== "active"); }
   function needsMe(p) {
     var au = p.autonomy;
-    return !!(au && (au.halt || au.debt)) || !!(p.owed && p.owed.open);
+    return !!(au && (au.halt || au.debt)) || !!(p.owed && p.owed.open) || !!(p.baton && p.baton.length);
   }
   function card(p) {
     var a = document.createElement("a");
@@ -191,10 +191,14 @@ window.ELEPHANT_INDEX = null;
       if (au.debt)
         badge += '<span class="badge loan">долг слова: ' + au.debt + "</span>";
     }
-    if (p.owed && p.owed.open)
-      badge += '<span class="badge owe' + (p.owed.standing ? " stand" : "") +
-               '" title="ответы, которые есть только у тебя, и их пока нет">за тобой: ' + p.owed.open +
-               (p.owed.standing ? " · стоим: " + p.owed.standing : "") + "</span>";
+    /* «за тобой» = долг владельца (ответы) + эстафета (узлы, ждущие его рук) — 2026-08-25 */
+    var oweN = (p.owed ? p.owed.open : 0) + (p.baton ? p.baton.length : 0);
+    if (oweN)
+      badge += '<span class="badge owe' + (p.owed && p.owed.standing ? " stand" : "") +
+               '" title="ответы и сценарии, которые есть только у тебя' +
+               (p.baton && p.baton.length ? " · эстафета: " + esc(p.baton.map(function (b) { return b.id; }).join(", ")) : "") +
+               '">за тобой: ' + oweN +
+               (p.owed && p.owed.standing ? " · стоим: " + p.owed.standing : "") + "</span>";
     /* ЛЕНТА ФАЗ — восемь делений: пройденное залито бледным, текущее ярким, закрытая
        задача — вся зелёным. Видно с одного взгляда, далеко ли уехали. */
     /* ФАЗА ПО СЛЕДАМ (его случай 2026-08-23: completed · узлы 12/12 · проверка 69/69 —

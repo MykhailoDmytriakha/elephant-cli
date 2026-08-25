@@ -18,6 +18,7 @@ marker line before it:
 version is not repeated on every line.
 """
 import json, os, platform, sys, time
+from datetime import datetime, timezone
 from .state import SKILL_ROOT, current_task, find_root, now_iso
 
 CALLS_FILE = "calls.jsonl"
@@ -45,6 +46,48 @@ def version():
     except OSError:
         pass
     return "?"
+
+
+RETURN_GAP = 30 * 60      # seconds of silence after which the next call is a RETURN
+
+
+def session_start(root, gap=RETURN_GAP):
+    """(iso, pause_seconds) — when the current run of calls began, and how long the tool had
+    been silent before it; (None, 0) with no recorder or no pause of `gap` seconds in it.
+
+    The one fact the recorder can honestly add (2026-08-25): calls come in runs, and a run
+    that starts after a long silence is an agent coming BACK. The line for the current call
+    is not written yet, so the newest line is the previous call: silent for longer than the
+    gap → this call opens the run (start = now); otherwise walk back to the gap."""
+    path = os.path.join(root, "metadata", CALLS_FILE)
+    try:
+        lines = open(path, encoding="utf-8").read().splitlines()
+    except OSError:
+        return None, 0
+    stamps = []
+    for line in reversed(lines):
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if rec.get("type") == "version" or not rec.get("ts"):
+            continue
+        stamps.append(rec["ts"])
+        if len(stamps) > 500:
+            break
+    if not stamps:
+        return None, 0
+    try:
+        newer = datetime.now(timezone.utc)
+        for i, s in enumerate(stamps):
+            t = datetime.fromisoformat(s)
+            pause = (newer - t).total_seconds()
+            if pause >= gap:
+                return (now_iso() if i == 0 else stamps[i - 1]), int(pause)
+            newer = t
+    except ValueError:
+        return None, 0
+    return None, 0
 
 
 class Counter:

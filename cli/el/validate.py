@@ -4,6 +4,7 @@ field) and can only be given a verdict here, one at a time; the text is never ed
 import os, re, sys
 from .protocol import CONTEXT_FILES
 from .state import current_task, journal, pick_task, require_root, resolve_task, touch, write
+from .state import path_marks
 from .plan import STATUS_RU, node_open, node_status, nodes_all, path_to_id
 from .amend import word_given_on
 
@@ -402,7 +403,11 @@ def cmd_validate(args):
                     mark = "⇢"          # a pointer: the verdict is read from another node
                 print(f"  {mark} {i}. {c[:90]}")
                 if proof:
-                    print(f"       → {proof[:88]}")
+                    # a proof that names a file — «… [evidence/x.png]» — is measured
+                    marks = path_marks(tdir, proof)
+                    tail = "".join(f"  {'✓' if ok else '✗ нет файла:'} {p}" for p, ok in marks
+                                   if not ok or len(marks) == 1)
+                    print(f"       → {proof[:88]}{tail}")
             kids = [info[i] for i in order
                     if rec and info[i]["parent"] == node["id"]] if rec else []
             if kids:

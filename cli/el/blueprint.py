@@ -191,7 +191,8 @@ def rules_block(mode, W):
     w = max(len(k) for k in OUTCOMES)
     for kind in OUTCOMES:
         out.append(" " * I2 + f"{kind:<{w}}  {OUTCOME_RU.get(kind, OUTCOMES[kind])}")
-    out.append(para("completed запрещён, пока открыт хотя бы один el todo", I2, W))
+    out.append(para("completed запрещён, пока открыт хотя бы один el todo (напоминание --every "
+                    "не в счёт)", I2, W))
     out.append("")
     out.append(" " * I1 + "команды для человека — только читают, ничего не меняют, безопасны всегда")
     for c, what in (("el status", "где мы: какой проект, какая фаза, что заполнено"),

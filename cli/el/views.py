@@ -7,7 +7,7 @@ the command touched (state._DIRTY). A broken view must never break the bookkeepi
 """
 import json, os
 from .protocol import CONTEXT_FILES, IFR_PARTS, NODE_FIELDS, SCOPE_FRAME, THINK_STEPS
-from .state import _DIRTY, SKILL_ROOT, now_iso, task_meta, tasks_of, write
+from .state import _DIRTY, SKILL_ROOT, current_task, now_iso, task_meta, tasks_of, todo_items, write
 from .context import qa_read, scope_notes, scope_read
 from .think import forks_read
 from .amend import pending_word, split_amendments, word_given_on
@@ -299,10 +299,24 @@ def render_views(root, only=None):
         meta_dir = os.path.join(root, "metadata")
         sync_page("index.html", os.path.join(root, "index.html"))
         projects = []
+        in_hand = current_task(root)
         for t in tasks_of(root):
             sync_page("overview.html", os.path.join(root, t, "overview.html"))
             meta = dict(task_meta(root, t))
             meta["dir"] = t
+            # THE PASSPORT (owner, 2026-08-25): the page's header names where the project
+            # lives so the human can copy the folder — and hand it to an agent in a new
+            # session — without a terminal; `in_hand` says whether the agent holds it now.
+            meta["path"] = os.path.abspath(os.path.join(root, t))
+            meta["root"] = os.path.abspath(root)
+            meta["store"] = os.path.basename(os.path.abspath(root))
+            meta["in_hand"] = (t == in_hand)
+            meta["todos"] = todo_items(os.path.join(root, t))   # «на потом» on the page
+            # THE BATON (2026-08-25): nodes waiting for the owner's hands — his debt of the kind
+            # «потрогать и сказать»; the index badge counts it with the rest of «за тобой».
+            meta["baton"] = [{"id": n["id"], "name": n.get("name", ""),
+                              "note": n.get("waiting_note") or ""}
+                             for n in waiting_nodes(os.path.join(root, t))]
             meta["autonomy"] = autonomy_view(root, t)   # index badge + overview ledger
             meta["owed"] = owed_view(root, t)           # «за тобой» — badge + section
             meta.update(card_extras(os.path.join(root, t)))

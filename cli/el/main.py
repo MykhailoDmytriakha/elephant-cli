@@ -38,7 +38,10 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     in; the hand does not move (no write ever moves it)
 #   el beat <name> [--ref FILE]       mark a beat that leaves no file of its own · --task <id>
 #   el todo "<what>" --when <phase>   park work that belongs to a LATER phase; `el next`
-#                                     surfaces it when that phase arrives · bare / --list: the
+#                                     surfaces it when that phase arrives — BELOW the move,
+#                                     as «на потом» (a promise, not the next step) · --every
+#                                     "<how often>": a standing REMINDER (⟳) — never a step,
+#                                     never holds completion · bare / --list: the
 #                                     OPEN items, NUMBERED — N is what --done takes (open items
 #                                     in file order); closed ones fold away, --all shows them ·
 #                                     --done N with an optional note to close item N
@@ -622,6 +625,7 @@ def _dispatch(argv):
 
     p = sub.add_parser("todo", add_help=False)
     p.add_argument("text", nargs="?"); p.add_argument("--when"); p.add_argument("--why")
+    p.add_argument("--every")   # a reminder: «каждый день» — a standing duty, not a step
     p.add_argument("--list", action="store_true"); p.add_argument("--done", type=int)
     p.add_argument("--all", action="store_true")   # closed items too
     p.add_argument("--task"); p.set_defaults(fn=cmd_todo)

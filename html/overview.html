@@ -8,13 +8,13 @@
   :root {
     --bg: #f7f6f3; --card: #ffffff; --ink: #1d1d1f; --muted: #6e6e73;
     --line: #e3e2de; --accent: #3b6ea5; --done: #4a7c59; --bad: #b0563e;
-    --warn: #b07d2e; --loan: #b45309;
+    --warn: #b07d2e; --loan: #b45309; --closed: #8a8a8e;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #1c1c1e; --card: #26262a; --ink: #ececee; --muted: #98989d;
       --line: #3a3a3e; --accent: #7aa5d2; --done: #85b795; --bad: #d08770;
-      --warn: #d0a35c; --loan: #e0a35c;
+      --warn: #d0a35c; --loan: #e0a35c; --closed: #7c7c80;
     }
   }
   * { box-sizing: border-box; margin: 0; }
@@ -26,10 +26,48 @@
   a { color: var(--accent); }
   .back { color: var(--muted); text-decoration: none; font-size: 14px; }
   .back:hover { color: var(--accent); }
-  h1 { font-size: 24px; margin: 14px 0 4px; }
-  .sub { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
-  .sub code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
-  .phases { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 26px; align-items: center; }
+  /* ШАПКА — паспорт проекта (владелец, 2026-08-25): статус словом, даты с годом и «сколько
+     назад», сколько в работе, режим, узлы; id и папка копируются одной кнопкой; полоса фаз —
+     последняя строка той же карточки. */
+  .htop { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+          flex-wrap: wrap; }
+  .hgen { color: var(--muted); font-size: 13px; }
+  .hgen code { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
+  .hstatus { display: flex; align-items: center; gap: 10px; margin-top: 16px; flex-wrap: wrap;
+             font-size: 13px; color: var(--muted); }
+  .hpill { display: inline-flex; align-items: center; padding: 3px 11px; border-radius: 99px;
+           font-size: 13px; font-weight: 600; color: #fff; background: var(--accent); line-height: 1.45;
+           white-space: nowrap; }
+  .hpill.done { background: var(--done); }
+  .hpill.closed { background: var(--closed); }
+  .hpill.bad { background: var(--bad); }
+  h1 { font-size: 24px; line-height: 1.3; margin: 6px 0 0; }
+  .hcard { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+           margin: 12px 0 26px; }
+  .hrow { padding: 12px 18px; border-top: 1px solid var(--line); }
+  .hrow:first-child { border-top: none; }
+  .hident { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 11px 18px; }
+  .hwhere { overflow-wrap: anywhere; min-width: 0; }
+  .hwhere code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .hwhere .hpath { color: var(--muted); font-size: 12.5px; }
+  .hwhere .hid { font-weight: 600; }
+  .hbtns { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+  .cbtn { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line);
+          background: var(--card); color: var(--muted); border-radius: 8px; font: inherit;
+          font-size: 12.5px; line-height: 1.2; padding: 4px 9px; cursor: pointer; white-space: nowrap; }
+  .cbtn:hover { border-color: var(--accent); color: var(--accent); }
+  .cbtn.ok { border-color: var(--done); color: var(--done); }
+  .cbtn.bad { border-color: var(--bad); color: var(--bad); }
+  .cbtn.ok svg, .cbtn.bad svg { display: none; }
+  .hfacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px;
+            padding: 12px 18px 13px; }
+  .fact .k { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .fact .v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 1px; }
+  .fact .v.done { color: var(--done); }
+  .fact .v.closed { color: var(--closed); }
+  .fact .v.bad { color: var(--bad); }
+  .fact .s { font-size: 12.5px; color: var(--muted); }
+  .phases { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 12px 18px 14px; }
   .ph {
     padding: 5px 12px; border-radius: 99px; font-size: 13px;
     border: 1px solid var(--line); color: var(--muted); background: var(--card);
@@ -267,10 +305,14 @@
 </style>
 </head>
 <body>
-<a class="back" href="../index.html">← все проекты</a>
+<div class="htop"><a class="back" href="../index.html">← все проекты</a><span class="hgen" id="hgen"></span></div>
+<div class="hstatus" id="hstatus"></div>
 <h1 id="name">Проект</h1>
-<div class="sub" id="sub"></div>
-<div class="phases" id="phases"></div>
+<div class="hcard" id="hcard" hidden>
+  <div class="hrow hident" id="hident"></div>
+  <div class="hrow hfacts" id="hfacts"></div>
+  <div class="hrow phases" id="phases"></div>
+</div>
 <div id="main"></div>
 <div id="second"></div>
 
@@ -400,12 +442,167 @@ window.ELEPHANT_OVERVIEW = null;
   }
   document.title = d.name || d.dir || "Проект";
   document.getElementById("name").textContent = d.name || d.dir || "Проект";
-  document.getElementById("sub").innerHTML =
-    '<code>' + esc(d.dir || "") + "</code>" +
-    (d.updated_at ? " · обновлено " + when(d.updated_at) : "");
 
+  /* ШАПКА — ПАСПОРТ ПРОЕКТА (владелец, 2026-08-25: «дату создания, дату обновления, информацию
+     о проекте, что можно было скопировать»). Дата рождения — штамп `created` из журнала
+     (created_at; у старых файлов данных — первая запись журнала). Папка — из данных (path),
+     а со старого файла данных — из адреса самой страницы. */
   var cur = ORDER.indexOf(d.phase);
   var closed = !!(d.outcome || (d.status && d.status !== "active"));
+  var MON = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+  var WD = ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
+  var OUT = { completed: ["✓ доехали", "done"], closed: ["закрыто", "closed"],
+              dropped: ["отброшено", "closed"], blocked: ["заблокировано", "bad"] };
+  var MODE = { light: ["лёгкий", "мало обязательного"], soft: ["мягкий", "костяк обязателен"],
+               strict: ["строгий", "каждый такт обязателен"] };
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function full(iso) {
+    var t = new Date(iso);
+    if (!iso || isNaN(t)) return esc(iso || "");
+    return t.getDate() + " " + MON[t.getMonth()] + " " + t.getFullYear() + " · " +
+           pad(t.getHours()) + ":" + pad(t.getMinutes());
+  }
+  function isoShort(iso) {
+    var t = new Date(iso);
+    return (!iso || isNaN(t)) ? String(iso || "") : t.getFullYear() + "-" + pad(t.getMonth() + 1) + "-" +
+           pad(t.getDate()) + " " + pad(t.getHours()) + ":" + pad(t.getMinutes());
+  }
+  function plural(n, one, few, many) {
+    var a = n % 10, b = n % 100;
+    return n + " " + (a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 10 || b >= 20) ? few : many);
+  }
+  /* a span of time in two units at most: «13 ч 29 мин» · «4 дня 9 ч» · «2 месяца 3 дня» */
+  function dur(ms) {
+    var m = Math.floor(Math.max(0, ms) / 60000), h = Math.floor(m / 60), dd = Math.floor(h / 24);
+    if (m < 1) return "меньше минуты";
+    if (h < 1) return plural(m, "минута", "минуты", "минут");
+    if (dd < 1) return plural(h, "час", "часа", "часов") + (m % 60 ? " " + (m % 60) + " мин" : "");
+    if (dd < 30) return plural(dd, "день", "дня", "дней") + (h % 24 ? " " + (h % 24) + " ч" : "");
+    var mo = Math.floor(dd / 30);
+    return plural(mo, "месяц", "месяца", "месяцев") + (dd % 30 ? " " + plural(dd % 30, "день", "дня", "дней") : "");
+  }
+  /* how long ago, one unit: «только что» · «3 часа назад» · «вчера» · «4 дня назад» */
+  function ago(iso) {
+    var t = new Date(iso);
+    if (!iso || isNaN(t)) return "";
+    var m = Math.floor((Date.now() - t) / 60000), h = Math.floor(m / 60), dd = Math.floor(h / 24);
+    if (m < 1) return "только что";
+    if (h < 1) return plural(m, "минуту", "минуты", "минут") + " назад";
+    if (dd < 1) return plural(h, "час", "часа", "часов") + " назад";
+    if (dd === 1) return "вчера";
+    if (dd < 30) return plural(dd, "день", "дня", "дней") + " назад";
+    return plural(Math.floor(dd / 30), "месяц", "месяца", "месяцев") + " назад";
+  }
+  var createdIso = d.created_at ||
+    (((d.journal || []).filter(function (e) { return e.type === "created"; })[0] || {}).ts || "");
+  var absPath = d.path || (location.protocol === "file:" ?
+    decodeURIComponent(location.pathname).replace(/\/[^\/]*$/, "") : "");
+  var rootPath = d.root || (absPath ? absPath.replace(/\/[^\/]*$/, "") : "");
+  var storeName = d.store || (rootPath ? rootPath.split("/").pop() : "");
+  function homeish(p) { return p.replace(/^\/(Users|home)\/[^\/]+\//, "~/"); }
+
+  /* top right — which storage, and when this page's data was gathered (same words as index) */
+  document.getElementById("hgen").innerHTML =
+    (storeName ? "хранилище <code>" + esc(storeName) + "</code> · " : "") +
+    (d.generated ? "страница собрана " + when(d.generated) : "");
+
+  /* status in a word: в работе · доехали · закрыто · отброшено · заблокировано */
+  var hOut = OUT[d.outcome] || [esc(d.outcome || d.status || ""), "closed"];
+  document.getElementById("hstatus").innerHTML = closed
+    ? '<span class="hpill ' + hOut[1] + '">' + hOut[0] + "</span><span>закрыт" +
+      (d.closed_at ? " " + full(d.closed_at) : "") +
+      (cur >= 0 ? " · с этапа " + (cur + 1) + " · " + RU[d.phase] : "") + "</span>"
+    : '<span class="hpill">в работе</span><span>' +
+      (cur >= 0 ? "этап " + (cur + 1) + " из 8 · " + RU[d.phase] : "") +
+      (d.in_hand ? " · в руке у агента" + (d.held_at ? " с " + when(d.held_at) : "") : "") + "</span>";
+
+  /* where it lives — and the copy buttons */
+  var ICON = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+             'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+             '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"></rect>' +
+             '<path d="M10.5 5.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"></path></svg>';
+  var ident = document.getElementById("hident");
+  ident.innerHTML =
+    '<span class="hwhere">' +
+    (absPath ? '<code class="hpath" title="' + esc(absPath) + '">' + esc(homeish(rootPath) + "/") + "</code>" : "") +
+    '<code class="hid">' + esc(d.dir || "") + "</code></span>" +
+    '<div class="hbtns"><button class="cbtn" data-copy="id" title="имя папки проекта">' + ICON + "<span>id</span></button>" +
+    (absPath ? '<button class="cbtn" data-copy="path" title="полный путь к папке проекта">' + ICON + "<span>путь</span></button>" : "") +
+    '<button class="cbtn" data-copy="card" title="название · папка · статус · даты · как продолжить — вставь агенту">' +
+    ICON + "<span>карточка для агента</span></button></div>";
+
+  /* the facts: created · updated (· closed · took) · mode · plan nodes */
+  function fact(k, v, s, cls) {
+    return '<div class="fact"><div class="k">' + k + '</div><div class="v' + (cls ? " " + cls : "") + '">' +
+           v + "</div>" + (s ? '<div class="s">' + s + "</div>" : "") + "</div>";
+  }
+  var hBorn = new Date(createdIso), hClosedAt = new Date(d.closed_at || "");
+  var hNodes = d.nodes || [0, 0], hVal = d.val || [0, 0];
+  var hf = fact("создан", createdIso ? full(createdIso) : "—",
+               createdIso && !isNaN(hBorn) ? WD[hBorn.getDay()] + " · " + ago(createdIso) : "");
+  if (closed) {
+    hf += fact("закрыт", d.closed_at ? full(d.closed_at) : "—", esc(d.outcome || ""), hOut[1]);
+    if (!isNaN(hBorn) && !isNaN(hClosedAt)) hf += fact("заняло", dur(hClosedAt - hBorn), "от создания до закрытия");
+    hf += fact("обновлён", d.updated_at ? full(d.updated_at) : "—",
+              d.updated_at ? "последний след · " + ago(d.updated_at) : "");
+  } else {
+    hf += fact("обновлён", d.updated_at ? full(d.updated_at) : "—", ago(d.updated_at));
+    if (!isNaN(hBorn)) hf += fact("в работе", dur(Date.now() - hBorn), "от создания до сейчас");
+    if (MODE[d.mode]) hf += fact("режим", MODE[d.mode][0], MODE[d.mode][1]);
+  }
+  hf += fact("узлы плана", hNodes[1] ? hNodes[0] + " / " + hNodes[1] : "—",
+            hNodes[1] ? (hVal[1] ? "критерии сошлись " + hVal[0] + " / " + hVal[1] : "") : "плана пока нет");
+  document.getElementById("hfacts").innerHTML = hf;
+  document.getElementById("hcard").hidden = false;
+
+  /* КАРТОЧКА ДЛЯ АГЕНТА — то, что человек вставляет в новую сессию: что за проект, где лежит,
+     в каком состоянии и одна команда, чтобы взять его в руку (или прочитать закрытый). */
+  function cardText() {
+    var lines = ["Проект: " + (d.name || d.dir || "")];
+    if (absPath) lines.push("Папка: " + absPath);
+    lines.push("Статус: " + (closed ? hOut[0].replace(/^✓ /, "") + (d.closed_at ? " · закрыт " + isoShort(d.closed_at) : "")
+                                    : "в работе") +
+               (cur >= 0 ? " · этап " + (cur + 1) + " · " + RU[d.phase] : "") +
+               (MODE[d.mode] ? " · режим " + MODE[d.mode][0] : ""));
+    lines.push("Создан: " + (createdIso ? isoShort(createdIso) : "—") +
+               " · обновлён: " + (d.updated_at ? isoShort(d.updated_at) : "—"));
+    if (hNodes[1]) lines.push("Узлы плана: " + hNodes[0] + "/" + hNodes[1] +
+                             (hVal[1] ? " · критерии: " + hVal[0] + "/" + hVal[1] : ""));
+    if (rootPath && d.dir) lines.push((closed ? "Прочитать: " : "Продолжить: ") + 'cd "' + rootPath +
+                                      '" && el ' + (closed ? "context --task " : "use ") + d.dir);
+    return lines.join("\n");
+  }
+  function copyLegacy(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.setAttribute("readonly", "");
+    ta.style.position = "fixed"; ta.style.top = "-1000px";
+    document.body.appendChild(ta); ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) {}
+    document.body.removeChild(ta);
+    return ok ? Promise.resolve() : Promise.reject();
+  }
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).catch(function () { return copyLegacy(text); });
+    }
+    return copyLegacy(text);
+  }
+  ident.addEventListener("click", function (ev) {
+    var b = ev.target.closest ? ev.target.closest("[data-copy]") : null;
+    if (!b || b.getAttribute("data-busy")) return;
+    var what = b.getAttribute("data-copy");
+    var text = what === "id" ? (d.dir || "") : what === "path" ? absPath : cardText();
+    var label = b.querySelector("span"), old = label.textContent;
+    b.setAttribute("data-busy", "1");
+    copyText(text).then(function () { b.classList.add("ok"); label.textContent = "✓ скопировано"; },
+                        function () { b.classList.add("bad"); label.textContent = "не вышло"; });
+    setTimeout(function () {
+      b.classList.remove("ok"); b.classList.remove("bad"); label.textContent = old;
+      b.removeAttribute("data-busy");
+    }, 1600);
+  });
+
   var strip = document.getElementById("phases");
   ORDER.forEach(function (ph, i) {
     var el = document.createElement("span");
@@ -413,14 +610,6 @@ window.ELEPHANT_OVERVIEW = null;
     el.textContent = (i + 1) + " · " + RU[ph];
     strip.appendChild(el);
   });
-  if (d.mode) {
-    var mb = document.createElement("span");
-    mb.className = "ph mode-badge";
-    mb.textContent = "режим: " + d.mode;
-    mb.title = { light: "лёгкий — мало обязательного", soft: "мягкий — костяк обязателен",
-                 strict: "строгий — каждый такт обязателен" }[d.mode] || "";
-    strip.appendChild(mb);
-  }
   /* АВТОНОМИЯ в полосе: выдана · остановлена · долг слова — то же, что печатает el status. */
   var au = d.autonomy || null;
   var nDebt = au ? (au.debt || 0) : 0;
@@ -431,7 +620,10 @@ window.ELEPHANT_OVERVIEW = null;
   var owOpen = owItems.filter(function (x) { return x.status === "open"; });
   var ownerForks = (d.forks || []).filter(function (f) {
     return !f.decision && String(f.who || "").toLowerCase() === "owner"; });
-  var nOwe = owOpen.length + ownerForks.length;
+  /* ЭСТАФЕТА (2026-08-25): узел «ждёт владельца» — сценарий в его руках; это тот же долг
+     владельца вида «потрогать и сказать», и он стоит здесь, а не только на доске исполнения. */
+  var baton = ((d.exec || {}).nodes || []).filter(function (n) { return n.status === "waiting"; });
+  var nOwe = owOpen.length + ownerForks.length + baton.length;
   var nStand = owOpen.filter(function (x) { return x.stands && x.stands.length; }).length +
                (d.phase === "think" ? ownerForks.length : 0);
   if (au && au.grant) {
@@ -523,7 +715,7 @@ window.ELEPHANT_OVERVIEW = null;
      по себе: работа идёт; держит только то, к чему привязан, — и там работа СТОИТ. Стоит второй
      после остановки: открыв страницу, человек видит, что от него нужно. Раскрыта, пока есть
      открытое; оплаченное и снятое — ниже, приглушённо. */
-  if (owItems.length || ownerForks.length) {
+  if (owItems.length || ownerForks.length || baton.length) {
     var orows = "";
     owOpen.forEach(function (it) {
       var st = (it.stands && it.stands.length) ? ["stand", "стоим"] :
@@ -552,6 +744,14 @@ window.ELEPHANT_OVERVIEW = null;
                (f.options && f.options.length ? " · вариантов: " + f.options.length : "") +
                "</div></div>";
     });
+    baton.forEach(function (n) {
+      orows += '<div class="owe-row"><span class="v held">эстафета</span>' +
+               '<span class="kind">потрогать и сказать</span>' + esc(n.id) + " · " + inl(n.name) +
+               '<div class="fsub">' + (n.note ? inl(n.note) + " · " : "") +
+               "устройство и сценарий в твоих руках — агент этот узел не трогает; твоё слово " +
+               "возвращает эстафету" +
+               ' <a class="jump" href="#" data-jump="exec.now">→</a></div></div>';
+    });
     owItems.filter(function (x) { return x.status !== "open"; }).forEach(function (it) {
       orows += '<div class="owe-row closed"><span class="v ' + (it.status === "paid" ? "paid" : "drop") + '">' +
                (it.status === "paid" ? "ответ есть" : "снято") + "</span>" +
@@ -560,7 +760,7 @@ window.ELEPHANT_OVERVIEW = null;
                                                              : "<b>почему снято:</b> " + inl(it.why || "")) +
                " · " + when(it.paid_ts) + "</div></div>";
     });
-    h += sec("owed", 'За тобой — выяснить и решить <span class="n">' + nOwe +
+    h += sec("owed", 'За тобой — выяснить · решить · принять <span class="n">' + nOwe +
              (nStand ? " · стоим: " + nStand : "") + "</span>",
              '<div class="plain">' +
              (nOwe ? "" : '<div class="owe-row"><span class="fsub">открытого нет — всё, что было за тобой, принесено или снято</span></div>') +
@@ -602,6 +802,27 @@ window.ELEPHANT_OVERVIEW = null;
   }
   /* ПОПРАВКИ ОДНИМ СПИСКОМ — стоят здесь, над лентами; собираются ниже, когда известны
      подписи документов (FRAME · IFRP · лестница думания), и вставляются на это место. */
+  /* НА ПОТОМ (2026-08-25): обещания агента, отложенные до названной фазы, и напоминания ⟳ —
+     человеку видно, что не забыто, без шума: заголовок со счётчиком, список свёрнут. */
+  var todos = d.todos || [];
+  var tOpen = todos.filter(function (t) { return t.open; });
+  var tDone = todos.filter(function (t) { return !t.open; });
+  if (todos.length) {
+    var trows = "";
+    tOpen.forEach(function (t) {
+      trows += '<div class="owe-row"><span class="v ' + (t.every ? "free" : "held") + '">' +
+               (t.every ? "⟳ " + esc(t.every) : "к фазе: " + esc(RU[t.phase] || t.phase || "любой")) +
+               "</span>" + inl(t.text) +
+               (t.why ? '<div class="fsub"><b>зачем:</b> ' + inl(t.why) + "</div>" : "") + "</div>";
+    });
+    tDone.forEach(function (t) {
+      trows += '<div class="owe-row closed"><span class="v paid">сделано</span>' + inl(t.text) +
+               (t.closed ? '<div class="fsub">' + inl(t.closed) + "</div>" : "") + "</div>";
+    });
+    h += sec("todos", 'На потом — отложено агентом <span class="n">' + tOpen.length +
+             (tDone.length ? " · сделано " + tDone.length : "") + "</span>",
+             '<div class="plain">' + trows + "</div>", false);
+  }
   h += "<!--AMEND-->";
 
   /* ЛЕНТЫ ЭТАПОВ — каждая секция стоит под полосой своего этапа, и полоса ЛИПКАЯ: пока

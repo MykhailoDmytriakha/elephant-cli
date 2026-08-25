@@ -5,6 +5,7 @@ The field set is protocol.NODE_FIELDS.
 """
 import json, os, re, sys
 from .protocol import NODE_FIELDS, NODE_KEYS, NODE_KEYS_OPTIONAL, PLAN_LEVELS
+from .state import path_marks
 from . import autonomy
 from .state import (pick_task, current_task, fm_read, fm_write, journal, now_iso, require_root,
                     resolve_task, task_mode, touch, write)
@@ -617,6 +618,14 @@ def plan_one(tdir, nid):
             for line in val.splitlines():
                 if line.strip():
                     print(f"      {wrap(line.strip(), indent='        ')}")
+            if key in ("artifacts", "storage"):
+                # paths are MEASURED (feedback 2026-08-25): «на месте» / «нет по этому пути»
+                pm = path_marks(tdir, val)
+                for pth, ok in pm:
+                    print(f"        {'✓ на месте' if ok else '✗ нет по этому пути'}: {pth}")
+                if any(not ok for _p, ok in pm):
+                    from .state import project_root
+                    print(f"        искал от: {project_root()} · {tdir} · {os.getcwd()}")
     kids = [n for n in nodes_all(tdir) if n.get("parent") == nid]
     if kids:
         print("\n  внутри:")

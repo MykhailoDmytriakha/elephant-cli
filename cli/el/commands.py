@@ -6,6 +6,8 @@ that teach: blueprint (the whole contract) and onboard (bare `el`).
 """
 import argparse, json, os, re, shutil, sys
 from .protocol import BRIEF_CHARS, BRIEF_LINES, CONTEXT_FILES, MODE_RU, MODES, OUTCOMES, PHASES
+from .navigate import return_lines
+from .state import SKILL_ROOT
 from . import autonomy, owe
 from .blueprint import PARTS, render, resolve_part
 from .state import (MARKER, RESERVED_EVENTS, STORAGE_DIR, brief_path, brief_read, current_task, feedback_dir,
@@ -475,7 +477,8 @@ def cmd_todo(args):
                 else:
                     print(f"закрыто   {len(closed_items)} — показать: el todo --all")
         if not args.text:
-            print('\nзапись   el todo "<что сделать>" --when <фаза> · закрыть: el todo --done N "<чем доказано>"')
+            print('\nзапись   el todo "<что сделать>" --when <фаза> [--every "<как часто>" — напоминание ⟳] · '
+                  'закрыть: el todo --done N "<чем доказано>"')
         return 0
     # Closing a parked item was impossible until now: `el next` kept surfacing work already
     # done, and a reminder that will not go away stops being read. Found on the first live use.
@@ -514,14 +517,20 @@ def cmd_todo(args):
         return 1
     body = open(path, encoding="utf-8").read() if os.path.exists(path) else \
         "# Открытые вопросы и отложенное\n\n"
-    body += f"\n- [ ] **{when or 'когда угодно'}** · {args.text.strip()}"
+    every = (getattr(args, "every", None) or "").strip()
+    body += f"\n- [ ] **{when or 'когда угодно'}{' ⟳ ' + every if every else ''}** · {args.text.strip()}"
     if getattr(args, "why", None):
         body += f"\n      зачем: {args.why.strip()}"
     body += "\n"
     write(path, body)
     journal(root, task, "todo", args.text.strip()[:120], {"when": when or None})
     touch(root, task)
-    print(f"отложено  open-questions.md · всплывёт на фазе {when or 'любой'}")
+    if every:
+        print(f"напоминание  open-questions.md · ⟳ {every} · всплывает на фазе {when or 'любой'} "
+              "под ходом, не как ход; закрытию проекта не мешает")
+    else:
+        print(f"отложено  open-questions.md · всплывёт на фазе {when or 'любой'} — под ходом, "
+              "как обещание к фазе")
     return 0
 
 
@@ -628,18 +637,12 @@ def cmd_done(args):
         print("         el context — the big picture, to write the result from", file=sys.stderr)
         return 1
     tdir = os.path.join(root, task)
-    todo_path = os.path.join(tdir, "open-questions.md")
-    open_todos = []
-    if os.path.exists(todo_path):
-        open_todos = [
-            line.strip()[5:].strip()
-            for line in open(todo_path, encoding="utf-8")
-            if line.strip().startswith("- [ ]")
-        ]
+    # a reminder (⟳) is a standing duty, not a promise — it does not hold completion
+    open_todos = [it for it in todo_items(tdir) if it["open"] and not it.get("every")]
     if args.outcome == "completed" and open_todos:
         print("completion refused — open el todo items are unfinished promises:", file=sys.stderr)
-        for index, item in enumerate(open_todos, 1):
-            print(f"  {index}. {item[:100]}", file=sys.stderr)
+        for it in open_todos:
+            print(f"  {todo_line(it, width=100)}", file=sys.stderr)
         print('finish and close them first: el todo --done N "<what proved it>"', file=sys.stderr)
         return 1
     open_nodes = [n for n in nodes_all(tdir) if node_open(n)]
@@ -1093,8 +1096,14 @@ def harness_guess():
     """Who is writing — by the environment, when the agent did not say (--by)."""
     if os.environ.get("CLAUDECODE"):
         return "Claude Code"
-    if any(k.startswith("CODEX") for k in os.environ):
-        return "Codex"
+    env = os.environ
+    for prefix, name in (("CODEX", "Codex"), ("COPILOT", "Copilot"), ("GITHUB_COPILOT", "Copilot"),
+                         ("CURSOR", "Cursor"), ("GEMINI", "Gemini CLI"), ("WINDSURF", "Windsurf"),
+                         ("AIDER", "Aider")):
+        if any(k.startswith(prefix) for k in env):
+            return name
+    if env.get("TERM_PROGRAM") == "vscode":
+        return "VS Code terminal"
     return "unknown harness"
 
 
@@ -1158,7 +1167,10 @@ def cmd_feedback(args):
             return 1
         os.remove(os.path.join(fdir, fid + ".md"))
         left = feedback_ids()
-        print(f"удалён    {fid} — разобран; история осталась в git скилла")
+        # feedback/ is outside git (.gitignore, 2026-08-24): once removed, the text lives only
+        # in the meta-session that read it — say so instead of promising a history.
+        print(f"удалён    {fid} — разобран; папка feedback/ вне git, текст остался только у "
+              "мета-сессии, которая его прочла")
         print("          если это было решение — строка в ideas.md «Решённые»")
         print(f"в pool    {len(left)}" + (": " + ", ".join(left) if left else " — пусто"))
         return 0
@@ -1207,6 +1219,8 @@ def cmd_feedback(args):
         fm_write(path, meta, text)
         print(f"записан   {stem}")
         print(f"          {path}")
+        if meta["by"] == "unknown harness":
+            print('          кто ты — не определилось по окружению; в следующий раз: --by "<harness>"')
         print(f"в pool    {len(ids) + 1} · читает и чинит мета-сессия над скиллом: el feedback")
         thin = feedback_nudge(text) if who == "agent" else []
         if thin:
@@ -1268,6 +1282,8 @@ def cmd_onboard(_args):
             print(f"                 {cm.get('name', '')[:70]}")
             for l in autonomy.lines(root, cur):
                 print(f"  {l}")
+            for l in return_lines(root, cur):
+                print(f"  {l}")
             # THE SHEET FIRST (owner, 2026-08-22): a returning agent reads brief.md before
             # anything else — baseline, best, what not to repeat, what is now.
             b = brief_read(os.path.join(root, cur))
@@ -1283,6 +1299,8 @@ def cmd_onboard(_args):
             else:
                 print('  в руке         ничего — открытых задач нет · новая: el boot "<задача>" --id <имя>')
         print("  список         el projects — все проекты; взять в руку: el use <id>")
+        print(f"  где el         {os.path.join(SKILL_ROOT, 'cli', 'el.py')} · замер: "
+              f"bash {os.path.join(SKILL_ROOT, 'cli', 'detect.sh')}")
         lessons = lessons_read(root)
         if lessons:
             print(f"\n  уроки ({len(lessons)}) — на этом месте уже спотыкались; прочитай, прежде чем работать:")
