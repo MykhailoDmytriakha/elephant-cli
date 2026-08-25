@@ -437,9 +437,18 @@ def _hoist_options(ap, argv):
 
 
 def main():
+    """The door: run the command under the flight recorder (el/calls.py) — every call
+    leaves one line in the storage's metadata/calls.jsonl, including the ones argparse
+    refused (rc 2). The body is _dispatch; the recorder wraps it so the screen is counted
+    and the line is written whatever the command did."""
     # `el ctx | head` must not end in a traceback: let a closed pipe end the process quietly.
     if hasattr(signal, "SIGPIPE"):
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    from .calls import run_recorded
+    return run_recorded(_dispatch, sys.argv[1:])
+
+
+def _dispatch(argv):
     ap = argparse.ArgumentParser(prog="el", add_help=False)
     sub = ap.add_subparsers(dest="cmd")
 
@@ -663,7 +672,6 @@ def main():
     # on the top parser and errors out before it ever dispatches. They are intercepted here
     # instead, and anywhere in the line — there are no per-command help pages, so asking for
     # help must never be able to fail.
-    argv = sys.argv[1:]
     if not argv:
         return cmd_onboard(None)
     if "-h" in argv or "--help" in argv:

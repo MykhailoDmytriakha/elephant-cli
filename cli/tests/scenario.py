@@ -1164,6 +1164,12 @@ _PATTERNS = [
     (re.compile(r"\d{4}-\d{2}-\d{2}"), "<DATE>"),
     (re.compile(r"(сегодня|вчера) \d{2}:\d{2}"), r"\1 <HM>"),
     (re.compile(r'"_mtime": [0-9.]+'), '"_mtime": <F>'),
+    # the flight recorder (metadata/calls.jsonl): durations and the tool's git hash vary
+    # run to run; the calls themselves must not.
+    (re.compile(r'"ms": \d+'), '"ms": <MS>'),
+    (re.compile(r'"chars": \d+'), '"chars": <CH>'),     # screens carry the temp path: length varies
+    (re.compile(r'"el": "[0-9a-f?]+"'), '"el": "<EL>"'),
+    (re.compile(r'"python": "[0-9.]+", "platform": "\w+"'), '"python": "<PY>", "platform": "<OS>"'),
 ]
 
 

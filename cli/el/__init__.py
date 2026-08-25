@@ -28,8 +28,11 @@ THE ROOMS — a module is a PHASE or a LAYER, never a "utils" (owner, 2026-08-21
   commands   bookkeeping and lifecycle: init · new · boot · use · log · beat · artifact ·
              accept · todo · spawn · reopen · done · lesson · ui · feedback · blueprint ·
              onboard
+  calls      the flight recorder: one line of facts per `el` call in metadata/calls.jsonl,
+             a version marker when the tool changed — read by the meta-session, never
+             interpreted by the tool (owner, 2026-08-24)
   main       the command map, the parser, the dispatcher, `el help`
 
 Imports flow one way — protocol ← state ← term ← amend · autonomy ← context · think · plan ←
-validate ← views ← navigate ← commands ← main — so no module needs a module above it.
+validate ← views ← navigate ← commands ← calls ← main — so no module needs a module above it.
 """
