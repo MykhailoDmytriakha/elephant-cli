@@ -7,13 +7,14 @@ the parser that registers the commands sit together and cannot drift apart.
 #   el init [--dir PATH]              create the .projects storage at the project root
 #   el new "<description>" --id NAME  create a task; up to 5 words, the date is prepended:
 #                                     2026-08-20-harvest-dislikes-and-dataset.
-#                                     --raw "<verbatim>" records the human's raw request
-#                                     WORD FOR WORD into init/request.md. THE SAME TASK AGAIN
-#                                     is refused: words of the new one against name + request of
-#                                     every open task — continue that one (el use) or --force
+#                                     --raw "<his words>" records the user's request IN HIS
+#                                     WORDS — only what is about the task, side talk left out —
+#                                     into init/request.md. THE SAME TASK AGAIN is refused: words
+#                                     of the new one against name + request of every open task —
+#                                     continue that one (el use) or --force
 #   el boot "<description>" --id NAME idempotent: init if missing + new if missing + status line ·
 #                                     --mode light|soft|strict sets the task's TIGHTNESS at birth ·
-#                                     --raw on an EXISTING task appends «Повтор запроса» verbatim
+#                                     --raw on an EXISTING task appends «Повтор запроса» in his words
 #   el use <id>                       TAKE a task in hand — the one commands act on without
 #                                     --task (a `hold` event; `el done` puts it down → idle)
 #   el projects | el ls               list of tasks: phase, last touched, description, and the
@@ -22,7 +23,7 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     with a note of where it came from; the task in hand stays
 #                                     current. Neither swallowed nor lost. The test for a task
 #                                     rather than a later stage: does it need its OWN context?
-#                --raw "<verbatim>"    the human's words WORD FOR WORD into init/request.md —
+#                --raw "<his words>"   the user's request in HIS words into init/request.md —
 #                                     a wish is born IN the conversation, so its wording is
 #                                     right there and is the first thing lost by retelling
 #                --depends-on <task>   a DEPENDENT project: own context, but standing on that
@@ -61,6 +62,11 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     what it printed> · ожидал: <instead> · обошёл: <how you went
 #                                     on> · помогло: <what worked> — a thin review is taken, but
 #                                     told it is thin
+#                                     el feedback prompt [tool|concept] — THE PROMPT for the human:
+#                                     printed and put on the clipboard (pbcopy · wl-copy · xclip ·
+#                                     xsel · clip; ELEPHANT_CLIPBOARD=off), pasted into an agent's
+#                                     chat → a long review: the tool (findings with evidence) ·
+#                                     the concept (model, layers, what to keep), filed by --file
 #
 # look — the three questions and the map
 #   el status                         where we are: project, task, and the phase strip —
@@ -519,7 +525,7 @@ def _dispatch(argv):
         r.add_argument("--task"); r.set_defaults(fn=cmd_areas)
     p = sub.add_parser("blueprint", add_help=False); p.add_argument("part", nargs="?"); p.add_argument("--mode"); p.set_defaults(fn=cmd_blueprint)
     p = sub.add_parser("mode", add_help=False); p.add_argument("mode", nargs="?"); p.add_argument("--why"); p.add_argument("--task"); p.set_defaults(fn=cmd_mode)
-    p = sub.add_parser("status", add_help=False); p.set_defaults(fn=cmd_status)
+    p = sub.add_parser("status", add_help=False); p.add_argument("--short", action="store_true"); p.set_defaults(fn=cmd_status)
     for nm in ("projects", "ls"):
         sub.add_parser(nm, add_help=False).set_defaults(fn=cmd_projects)
     for nm in ("validate", "check"):

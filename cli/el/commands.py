@@ -97,18 +97,21 @@ def cmd_new(args):
     # a progress indicator: a project abandoned at context HOLDS only init/ and context/,
     # and an empty evidence/ can no longer pretend anything happened there.
     os.makedirs(tdir, exist_ok=True)
-    # The raw request, WORD FOR WORD (guide §2): the agent's reformulation can lose a
-    # detail, the verbatim record is the insurance one can always come back to.
+    # The user's request IN HIS WORDS (guide §2). Not a transcript any more (owner,
+    # 2026-08-26: «не то что слово в слово, но чуть-чуть собраннее; что не относится к
+    # запросу — не записывать»): what is about the task stays, side talk and speech-recognition
+    # noise are left out, the shape is tidied just enough to read as a request. Still not the
+    # agent's reformulation — that can lose a detail; his own wording is the insurance.
     raw = (getattr(args, "raw", None) or "").strip()
     if raw:
         write(os.path.join(tdir, "init", "request.md"),
-              f"# Запрос — слово в слово\n\n_записано {now_iso()[:16].replace('T', ' ')}_\n\n{raw}\n")
+              f"# Запрос пользователя\n\n_записано {now_iso()[:16].replace('T', ' ')}_\n\n{raw}\n")
     # NOT created any more (owner, 2026-08-20 — stage 0 creates only what the guide names):
     #   project.md          — the card is DERIVED from the journal (task_meta); a stored
     #                         card was a second written copy of what the events already say
     #   BIG-PICTURE.md      — its aggregator role went to overview.html (the human's page)
     #                         and `el status` (the agent's view)
-    #   context/task.draft.md — was the verbatim request; init/request.md IS that record now
+    #   context/task.draft.md — was the user's request; init/request.md IS that record now
     #   open-questions.md   — `el defer` creates it the moment something is actually parked
     # The `created` event below is load-bearing: it is the FIRST journal line and the
     # derived card reads the task's name from it.
@@ -118,7 +121,7 @@ def cmd_new(args):
     if getattr(args, "hand", True):
         journal(root, tid, "hold", "взята в руку: рождение")
     if raw:
-        journal(root, tid, "request", "сырой запрос записан слово в слово",
+        journal(root, tid, "request", "запрос пользователя записан — его словами",
                 {"ref": "init/request.md"})
     # The mode at birth — by the task's weight (light · soft · strict); default soft.
     mode0 = (getattr(args, "mode", None) or "").strip().lower()
@@ -146,22 +149,22 @@ def cmd_boot(args):
         existing = resolve_task(root, args.id)
         if existing:
             # A late --raw completes stage 0 on an existing task: the request was not
-            # recorded at birth, the human repeated it, it lands verbatim now.
+            # recorded at birth, the human repeated it, it lands now — in his words.
             raw = (getattr(args, "raw", None) or "").strip()
             req = os.path.join(root, existing, "init", "request.md")
             if raw and not os.path.exists(req):
-                write(req, f"# Запрос — слово в слово\n\n_записано "
+                write(req, f"# Запрос пользователя\n\n_записано "
                            f"{now_iso()[:16].replace('T', ' ')}_\n\n{raw}\n")
                 journal(root, existing, "request",
-                        "сырой запрос дозаписан слово в слово", {"ref": "init/request.md"})
+                        "запрос пользователя дозаписан — его словами", {"ref": "init/request.md"})
                 made.append("request")
             elif raw:
                 # THE REQUEST REPEATED (owner, 2026-08-22): the same task asked again, in
-                # other words, another day — appended verbatim under its date, never
+                # other words, another day — appended under its date, in his words, never
                 # overwriting the first: how he put it each time is history worth keeping.
                 with open(req, "a", encoding="utf-8") as fh:
                     fh.write(f"\n## Повтор запроса · {now_iso()[:16].replace('T', ' ')}\n\n{raw}\n")
-                journal(root, existing, "request", "запрос повторён — дозаписан слово в слово",
+                journal(root, existing, "request", "запрос повторён — дозаписан его словами",
                         {"ref": "init/request.md", "repeat": True})
                 made.append("request-repeat")
             hold(root, existing, "взята в руку: el boot")
@@ -297,6 +300,11 @@ def cmd_put(args):
         return 1
     put = []
     for src in files:
+        # a path the agent wrote from inside the task («research/x.md») resolves from the task
+        # folder too (recorder 2026-08-25: `el artifact research/*.md` failed and was retried
+        # with the full .history/<task>/ prefix)
+        if not os.path.exists(src) and os.path.exists(os.path.join(tdir, src)):
+            src = os.path.join(tdir, src)
         if not os.path.exists(src):
             print(f"нет файла: {src}", file=sys.stderr)
             return 1
@@ -581,7 +589,7 @@ def cmd_spawn(args):
         return 1
     # The raw request travels WITH the spawn: a wish that surfaced mid-conversation has the
     # human's own wording available at the very moment it is written down, and stage 0 is not
-    # closed until init/request.md exists (guide §2). Without this the freshest verbatim in
+    # closed until init/request.md exists (guide §2). Without this the freshest wording in
     # the whole protocol was the one the CLI dropped. (2026-08-22, live task.)
     rc = cmd_new(argparse.Namespace(description=args.description, id=args.id, mode=None,
                                     raw=getattr(args, "raw", None), hand=False,
@@ -1154,6 +1162,98 @@ FEEDBACK_FORMAT = [
 ]
 
 
+# THE REVIEW PROMPT FOR THE HUMAN (owner, 2026-08-26: «когда мне нужен отзыв от агента по
+# работе системы, мне нужен промпт, который я могу скопировать и вставить; когда прошу
+# своими словами — выходит то одно, то другое; а руками выпрошенный развёрнутый — понравился»).
+# `el feedback prompt` prints it and puts it on the clipboard; the human pastes it into the
+# agent's chat, the agent writes the long review and files it with `el feedback --file`.
+# Two parts — the TOOL (how `el` behaved on this task: findings with evidence) and the
+# CONCEPT (how Elephant should be built: model, layers, what to keep) — because the review
+# he liked had exactly these two, and a bare «напиши отзыв» yields neither in full.
+PROMPT_HEAD = """\
+Ты работал над задачей с Elephant — бухгалтерией больших задач: CLI `el`, хранилище .projects,
+фазы context → close, страницы overview.html. Напиши развёрнутый отзыв об Elephant по итогам
+ЭТОЙ работы — не заметку, а разбор, по которому мета-сессия сможет чинить инструмент и
+пересматривать концепцию, не видя твоего экрана.
+
+Пиши подробно: тезис одним абзацем сверху, дальше развёртка. Конкретика — из этой задачи:
+команды дословно, вывод как есть, пути файл:строка. Свидетельство, а не пересказ guide."""
+
+PROMPT_TOOL = """\
+ЧАСТЬ 1 — ОБ ИНСТРУМЕНТЕ: как `el` вёл себя на работе
+- Главный вывод: что Elephant делает хорошо и где слаб — 2–4 предложения.
+- Findings — по убыванию риска (критический · высокий · средний · низкий). Каждый:
+  что наблюдал (команда → вывод, файл:строка) · что ожидал · причина, если нашёл её в коде
+  (путь:строка) · чем это грозит человеку или агенту. Сначала посмотри pool `el feedback`:
+  что уже зафиксировано — сошлись на id, не дублируй.
+- Что было ясно — что сработало и помогло; это тоже ценно.
+- Что было трудно — где терял время, что сверял вручную, где искал источник истины.
+- Границы ответственности: что дефект Elephant/CLI · что протокола и документации · что
+  процесса агента (что ты сам должен был сделать иначе) · что специфика самой задачи, а
+  не Elephant.
+- Приоритетные улучшения — конкретно: команда, поле, правило; нумерованным списком."""
+
+PROMPT_CONCEPT = """\
+ЧАСТЬ 2 — О КОНЦЕПЦИИ: как Elephant должен быть устроен
+- Что в ядре правильно и трогать не нужно.
+- Главная проблема модели: какие понятия смешаны, чего не хватает — с примерами из этой
+  задачи (файл:строка).
+- Какой должна быть основа: слои, состояния, что из чего выводится — и как должен выглядеть
+  идеальный ответ инструмента на «что истинно сейчас, что блокирует, какой следующий
+  безопасный шаг»: покажи пример экрана.
+- Что изменить в концепции — нумерованно, каждое с «почему» и «как».
+- Что оставить без изменений — списком.
+- Приоритет изменений: P0 · P1 · P2 · P3.
+- Итог одним абзацем: менять ли концепцию, что убрать, что исчезнет само как следствие."""
+
+PROMPT_RULES = """\
+ПРАВИЛА
+- Развёрнуто: не сжимай ради краткости — лучше длинно и точно. Не смягчай: сломано — так и
+  пиши, с доказательством.
+- Разделяй «что исторически было», «что истинно сейчас» и «что агент имел право делать»;
+  где инструмент это смешивает — это и есть finding.
+- Не предлагай замену концепции целиком, если ядро работает — говори, что оставить.
+- Язык — тот, на котором идёт разговор; термины и команды — как есть.
+
+КУДА
+Покажи отзыв целиком в чате. Затем сохрани его в файл и положи в pool инструмента:
+  el feedback --file <путь> --about {about}
+Проверь, что `el feedback` показывает записанное."""
+
+PROMPT_KINDS = {"all": "tool-and-concept", "tool": "tool", "concept": "concept"}
+
+
+def feedback_prompt(kind="all"):
+    """The review prompt, whole: head · the parts asked for · rules with the filing line."""
+    parts = [PROMPT_HEAD]
+    if kind in ("all", "tool"):
+        parts.append(PROMPT_TOOL)
+    if kind in ("all", "concept"):
+        parts.append(PROMPT_CONCEPT)
+    parts.append(PROMPT_RULES.format(about=PROMPT_KINDS[kind]))
+    return "\n\n".join(parts) + "\n"
+
+
+def clipboard_put(text):
+    """Text → the system clipboard. Returns the tool that took it, or None: no tool found,
+    or ELEPHANT_CLIPBOARD=off (the differential test sets it — a test run must not touch
+    the human's clipboard). Never raises: the prompt is printed anyway."""
+    if os.environ.get("ELEPHANT_CLIPBOARD", "").strip().lower() in ("off", "0", "no", "none"):
+        return None
+    import subprocess
+    for cmd in (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"],
+                ["xsel", "--clipboard", "--input"], ["clip"]):
+        if not shutil.which(cmd[0]):
+            continue
+        try:
+            subprocess.run(cmd, input=text.encode("utf-8"), check=True, timeout=5,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return cmd[0]
+        except Exception:
+            continue
+    return None
+
+
 def feedback_nudge(text):
     """[] when the review carries what a fix needs; else the lines that say what is missing.
     Never refuses — a thin review is better than none — but says out loud that it is thin."""
@@ -1186,10 +1286,32 @@ def cmd_feedback(args):
       el feedback "<his words>" --from user         the owner's verdict, verbatim
       el feedback --file <path>                     a long letter written elsewhere
       el feedback <id>                              one review in full
-      el feedback done <id>                         remove it — after the fix"""
+      el feedback done <id>                         remove it — after the fix
+      el feedback prompt [tool|concept]             THE PROMPT for the human: printed and put on
+                                                    the clipboard, pasted into an agent's chat"""
     words = list(getattr(args, "words", None) or [])
     fdir = feedback_dir()
     ids = feedback_ids()
+    if words and words[0] == "prompt":
+        kind = (words[1] if len(words) > 1 else "all").strip().lower()
+        if len(words) > 2 or kind not in PROMPT_KINDS:
+            print("el feedback prompt [tool|concept] — об инструменте · о концепции · без слова: обе части",
+                  file=sys.stderr)
+            return 1
+        text = feedback_prompt(kind)
+        took = clipboard_put(text)
+        if took:
+            print(f"в буфере  ✓ скопировано ({took}) — вставь агенту в чат; он напишет отзыв и положит "
+                  "его в pool: el feedback")
+        elif os.environ.get("ELEPHANT_CLIPBOARD", "").strip().lower() in ("off", "0", "no", "none"):
+            print("в буфере  нет — ELEPHANT_CLIPBOARD=off; скопируй текст ниже с экрана")
+        else:
+            print("в буфере  нет — не нашёл pbcopy · wl-copy · xclip · xsel · clip; скопируй текст ниже с экрана")
+        print(f"части     {'об инструменте + о концепции' if kind == 'all' else ('об инструменте' if kind == 'tool' else 'о концепции')}"
+              " · только одна: el feedback prompt tool | concept")
+        print()
+        print(text, end="")
+        return 0
     if words and words[0] == "done":
         if len(words) < 2:
             print("el feedback done <id>", file=sys.stderr)
@@ -1268,6 +1390,8 @@ def cmd_feedback(args):
         for l in FEEDBACK_FORMAT:
             print(l)
         print("          --from user — слова человека дословно · --file <путь> — длинное письмо")
+        print("промпт    человеку: el feedback prompt [tool|concept] — в буфер обмена, вставить агенту в чат →"
+              " развёрнутый отзыв об инструменте и о концепции")
         return 0
     print(f"POOL      {len(ids)} отзыв(ов) об инструменте · {fdir}")
     for fid in ids:
@@ -1278,6 +1402,7 @@ def cmd_feedback(args):
               f" · о: {meta.get('about', '—')} · задача: {meta.get('task', '—')}")
         print(f"    {first[:110]}")
     print('читать    el feedback <id> · разобрал и починил: el feedback done <id> · новый: el feedback "<текст>"')
+    print("промпт    человеку: el feedback prompt [tool|concept] — в буфер обмена, вставить агенту в чат")
     return 0
 
 
@@ -1299,8 +1424,8 @@ def cmd_onboard(_args):
         print(f"                 (искал маркер .elephant вверх от {os.getcwd()}; если harness")
         print("                 сбрасывает cwd между вызовами — `cd <проект> && el` одной строкой,")
         print("                 либо ELEPHANT_DIR=<путь к .projects>)")
-        print('  начать         el boot "<задача>" --id <имя-3-5-слов> --raw "<слова человека')
-        print('                 дословно>" — заведёт хранилище и первый проект')
+        print('  начать         el boot "<задача>" --id <имя-3-5-слов> --raw "<его слова о')
+        print('                 задаче>" — заведёт хранилище и первый проект')
     else:
         tasks = tasks_of(root)
         metas = [task_meta(root, t) for t in tasks]

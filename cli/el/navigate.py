@@ -188,6 +188,13 @@ def cmd_ctx(args):
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         rc = print_context_full(root, task, tdir, getattr(args, "section", None))
+    # THE COST OF A BOOT (recorder 2026-08-25: twelve session starts in an afternoon, each
+    # reading the whole picture — 54 000 characters a time): after a break the return needs
+    # `el status` · `el next`; the whole picture is for when the picture is the question.
+    from .term import SCREEN_BUDGET as _budget
+    if len(buf.getvalue()) > _budget:
+        print("после обрыва целиком читать не обязательно: el status · el next — где мы и ход; "
+              "el context --section <раздел> — один раздел; целиком — когда вопрос в самой картине")
     emit(buf.getvalue(), parts="el ctx --section <раздел> · разделы: " +
          " · ".join(k for k, _r, _t in ctx_sections(tdir)))
     return rc
@@ -357,6 +364,13 @@ def cmd_status(args):
                           ("~" + p if k <= r_i else "·" + p)))
                          for k, p in enumerate(PHASES))
         print(f"phases    {strip}" + ("   ~ следы есть, фаза не объявлена" if r_i > i else ""))
+        # THE GATE in one line (feedback 2026-08-25): checklist and transition are two facts
+        if st == "active":
+            g_open, g_why = gate_verdict(root, task, tdir, ph)
+            print("gate      " + ("открыт — el forward --why \"…\"" if g_open else f"закрыт — {g_why} · подробно: el next"))
+        if getattr(args, "short", False):
+            print(f"cli       {cli}")
+            return 0
         if r_i > i and st == "active":
             try:
                 from .plan import node_status as _ns, nodes_all as _na
@@ -649,7 +663,7 @@ def progress_lines(root, task, part=None):
                 out.append(bs)
             out.append("")
     if want("init"):
-        out += _file_block(tdir, "init/request.md", "0 · запрос — слово в слово", "init")
+        out += _file_block(tdir, "init/request.md", "0 · запрос пользователя", "init")
     if want("context"):
         out += _file_block(tdir, CONTEXT_FILES["clarified"], "1 · задача после уточнений", "context")
         out += _file_block(tdir, CONTEXT_FILES["summary"], "1 · свёртка контекста", "context")
@@ -806,11 +820,15 @@ def cmd_projects(args):
         req_have = len([x for x in have if x[2]])
         req_all = req_have + len([x for x in missing if x[2]])
         ready = req_all and req_have == req_all
+        # «готова к переходу» is the GATE's word, not the checklist's (feedback 2026-08-25):
+        # a full checklist over open nodes says so, and names the door that is shut
+        g_open, g_why = gate_verdict(root, tid, tdir, ph)
+        label = ("   готова к переходу" if g_open
+                 else (f"   чек-лист готов · переход закрыт: {g_why}" if ready else ""))
         mark = "▶" if tid == cur else " "
         phase_txt = f"{phase_no(ph)}/8 {PHASE_RU.get(ph, ph)}"
         print(f"\n{mark} {short(tid):<{w}}  {phase_txt:<14} {bar(req_have, req_all)} "
-              f"{req_have}/{req_all:<3} {human_when(m.get('updated_at', ''))}"
-              + ("   готова к переходу" if ready else ""))
+              f"{req_have}/{req_all:<3} {human_when(m.get('updated_at', ''))}" + label)
         name = (m.get("name", "") or "").strip()
         if name:
             print(f"  {'':<{w}}  {wrap(name, indent=' ' * (w + 4), width=92)}")
@@ -910,13 +928,13 @@ def cmd_next(args):
             print(bs)
     elif auto_on:
         print('листок   brief.md пуст — заведи: el brief "<baseline · замер · лучшее · не повторять · сейчас>"')
-    # Stage 0 closes with the tree on disk AND the raw request recorded (owner, 2026-08-21):
+    # Stage 0 closes with the tree on disk AND the user's request recorded (owner, 2026-08-21):
     # by the time any phase is worked, init/request.md must already exist. Not a context
     # trace — a nag that stays until initialization is actually finished.
     if not os.path.exists(os.path.join(tdir, "init", "request.md")):
-        print("init ✗   этап 0 не закрыт: init/request.md не записан — сырые слова человека")
-        print("         дословно. Попроси повторить запрос и дозапиши:")
-        print(f'         el boot "<задача>" --id {task} --raw "<слова дословно>"')
+        print("init ✗   этап 0 не закрыт: init/request.md не записан — запрос пользователя его")
+        print("         словами, только о задаче. Попроси повторить запрос и дозапиши:")
+        print(f'         el boot "<задача>" --id {task} --raw "<его слова о задаче>"')
     if have:
         print("have     " + " · ".join(f"✓ {r}" for r, _, _ in have))
     for rel, what, required in missing:
@@ -1237,6 +1255,40 @@ def cmd_next(args):
     else:
         print('gate     open — el forward --why "<what is closed and what proves it>"')
     return 0
+
+
+def gate_verdict(root, task, tdir, phase):
+    """(open, reason) — THE SAME answer the gate gives in `el next` and `el forward`, in one
+    line, for the places that only have room for one: the projects list and status.
+    Feedback 2026-08-25 (Copilot): `el projects` said «готова к переходу» from the trace
+    checklist alone while `el next` refused with open nodes — two answers to one question.
+    The checklist is one door of the gate, not the gate. Mirrors cmd_next's chain; the
+    differential test keeps them equal."""
+    have, missing = phase_state(tdir, phase)
+    req_missing = [r for r, _w, req in missing if req]
+    if phase == "context" and not os.path.exists(os.path.join(tdir, CONTEXT_FILES["approval"])):
+        return False, "нет слова владельца"
+    pend = pending_word(root, task)
+    if pend:
+        return False, "поправки без его слова"
+    if phase == "think":
+        left = [f for f in forks_read(tdir) if not f["decision"]]
+        if left:
+            return False, f"развилок без выбора: {len(left)}"
+    if phase in ("execute", "validate"):
+        left_n = [n for n in nodes_all(tdir) if node_open(n)]
+        if left_n:
+            return False, "узлы не закрыты: " + ", ".join(n["id"] for n in left_n[:4]) + \
+                          (" …" if len(left_n) > 4 else "")
+    if req_missing:
+        return False, f"следов не хватает: {len(req_missing)}"
+    if phase == "validate":
+        _n, _v, open_n, failed_n, _d, unver_n = validation_state(tdir)
+        if open_n or failed_n or unver_n:
+            return False, f"критериев без вердикта: {open_n + failed_n + unver_n}"
+        if not word_given_on(root, task, "validate"):
+            return False, "приёмки нет"
+    return True, ""
 
 
 def gate_doors(phase):

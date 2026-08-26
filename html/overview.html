@@ -855,7 +855,7 @@ window.ELEPHANT_OVERVIEW = null;
              (d.outcome ? "<b>" + esc(d.outcome) + "</b> — " : "") + esc(d.result || "") + "</div>");
   }
   if (d.request) {
-    h += sec("request", term("request", "запрос — слово в слово"), '<div class="plain txt">' +
+    h += sec("request", term("user request", "запрос пользователя — с чем он пришёл"), '<div class="plain txt">' +
              esc(d.request).replace(/\\n/g, "\n") + "</div>");
   }
   /* АВТОНОМИЯ — КРЕДИТ СЛОВА: грант (его слова дословно) · остановка · леджер займов — что агент
@@ -1549,7 +1549,7 @@ window.ELEPHANT_OVERVIEW = null;
     ["close", "фаза 8 — закрытие", "el done"],
     ["forward", "перейти на следующую фазу с основанием", "el forward --why"],
     ["mode · light / soft / strict", "режим строгости: лёгкий · мягкий · строгий", "el mode"],
-    ["request", "запрос человека, слово в слово", "init/request.md"],
+    ["user request", "запрос пользователя — его словами, только о задаче", "init/request.md"],
     ["qa", "вопросы и ответы по областям", "el context qa"],
     ["scope · 5W+1H", "рамка задачи: что · зачем · кто · где · когда · как", "context/5w-h.md"],
     ["requirements · constraints · limitations", "требования · ограничения снаружи · пределы", "el context add"],

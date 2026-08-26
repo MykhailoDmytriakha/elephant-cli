@@ -978,6 +978,10 @@ def scenario(ws):
     add(S(["feedback"], label="feedback: the pool"))
     add(S(["feedback", "001"], label="feedback <id>: one in full"))
     add(S(["feedback", "done"], rc=1))
+    # the review prompt for the human — printed; the clipboard is off under test
+    add(S(["feedback", "prompt"], label="feedback prompt: both parts, clipboard off"))
+    add(S(["feedback", "prompt", "concept"], label="feedback prompt concept: one part"))
+    add(S(["feedback", "prompt", "bogus"], rc=1))
     add(S(["feedback", "done", "nope"], rc=1))
     add(S(["feedback", "done", "001"]))
     add(S(["feedback"], label="feedback: after one removed"))
@@ -1241,7 +1245,7 @@ def run(args):
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": ws["home"],
            "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "PYTHONIOENCODING": "utf-8",
            "TZ": os.environ.get("TZ", "America/Los_Angeles"), "PYTHONDONTWRITEBYTECODE": "1",
-           "ELEPHANT_FEEDBACK_DIR": ws["F"]}
+           "ELEPHANT_FEEDBACK_DIR": ws["F"], "ELEPHANT_CLIPBOARD": "off"}
     repl = [(work, "<WS>"), (bin_path, "<EL>"), (SKILL, "<SKILL>")]
     repl.sort(key=lambda kv: -len(kv[0]))
 
