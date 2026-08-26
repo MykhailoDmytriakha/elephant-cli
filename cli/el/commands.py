@@ -392,40 +392,46 @@ def cmd_accept(args):
     if not scope:
         scope = {"context": "context", "plan": "plan", "validate": "final",
                  "think": "design"}.get(phase) or (f"node:{act['id']}" if act else "note")
+    # THE LAYOUT OF A STAGE (owner, 2026-08-26): his word over how a stage was cut into
+    # packages — recorded over the stage, and the packages start only after it.
+    if scope.lower().startswith("stage:"):
+        scope = "stage:" + path_to_id([scope.split(":", 1)[1]])
     rel = CONTEXT_FILES["approval"] if phase == "context" else "acceptance.md"
     path = os.path.join(tdir, rel)
     body = open(path, encoding="utf-8").read() if os.path.exists(path) else \
         "# Слово владельца\n\n_Дословно. Не пересказ._\n"
-    # A BORROWED WORD (owner, 2026-08-22: autonomy = a credit of the word). The agent writes
-    # what it takes for his word and why — marked in the file, an `assume` event in the
-    # journal; the gates read the file as they always did, so the borrowed word opens them
-    # ONLY under a standing grant (autonomy.guard refuses otherwise). The final word is never
-    # borrowed: an autonomous run ends at «готово, жду приёмки», not at completed.
+    # A DECISION IN HIS PLACE (owner, 2026-08-22 · 2026-08-26). The agent writes what it
+    # takes for his word and why — marked in the file, an `assume` event in the journal under
+    # the standing grant; the gates read the file as they always did, so the decision opens
+    # them ONLY under a grant (autonomy.guard refuses otherwise). No debt and no rollback: a
+    # decision is history he will read; the final word is never decided for him — an
+    # autonomous run ends at «готово, жду приёмки», not at completed.
     assumed = (getattr(args, "assumed", None) or "").strip()
     if assumed:
         if scope == "final":
-            print("последнее слово не занимают: приёмку даёт только человек. Остановись: "
+            print("последнее слово за него не решают: приёмку даёт только человек. Остановись: "
                   'el halt "готово, жду приёмки: <что показать>"', file=sys.stderr)
             return 1
         if not autonomy.guard(root, task):
             return 1
-        body += (f"\n## {now_iso()[:16]} · фаза {phase} · {scope} · ЗАЙМ СЛОВА (предположено агентом)\n\n"
+        body += (f"\n## {now_iso()[:16]} · фаза {phase} · {scope} · РЕШЕНИЕ АГЕНТА (в его место, под грантом)\n\n"
                  f"> {args.words.strip()}\n\nпочему так принял: {assumed}\n")
         write(path, body)
         journal(root, task, "assume", args.words.strip(),
                 {"phase": phase, "for": scope, "why": assumed})
         touch(root, task)
-        n = len(autonomy.debt(task_meta(root, task)))
-        print(f"занято    слово над {scope} — записано в {rel} как займ · долг слова {n} (el review)")
-        print('          его слово потом: el accept "<его слова>" --for ' + scope.split(":")[0]
-              + (" — покрывает все займы контекста" if scope == "context" else ""))
+        st_a = autonomy.state(root, task)
+        g_a = st_a["grant"] if st_a else {}
+        print(f"решение   агента над {scope} — записано в {rel} под грантом «{g_a.get('name', '')}» · "
+              f"решений под ним {len(g_a.get('decisions', []))} (el review)")
+        print("          он прочтёт, вернувшись; не согласится — скажет, и дальше по его слову")
         if scope.lower().startswith("node:"):
             nid = path_to_id([scope.split(":", 1)[1]])
             node = node_read(tdir, nid)
             if node and node_status(node) == "waiting":
                 node_resume(root, task, tdir, node)
                 print(f"эстафета  снова у агента — {nid}")
-        print('gate      открыт займом — el forward --why "<что закрыто и чем доказано>"')
+        print('gate      открыт решением агента — el forward --why "<что закрыто и чем доказано>"')
         return 0
     # --close PROMISES «его слово и узел закрыт» — so the question «can it close?» is asked
     # BEFORE the word is written, and a «no» writes nothing (feedback pool, 2026-08-24: the
@@ -451,6 +457,13 @@ def cmd_accept(args):
     journal(root, task, "accepted", args.words.strip(), {"phase": phase, "for": scope})
     touch(root, task)
     print(f"recorded  {rel} · {scope}")
+    if scope.startswith("stage:"):
+        sid = scope.split(":", 1)[1]
+        kids_s = sorted((n for n in nodes_all(tdir) if n.get("parent") == sid and node_open(n)),
+                        key=lambda x: x["id"])
+        print(f"раскладка этапа {sid} принята его словом" +
+              (f" — стартуй пакет: el plan start {kids_s[0]['id'].lower()}" if kids_s
+               else f' — пакетов ещё нет: el plan new {sid.lower()} wp1 "<пакет работ>"'))
     mark = change_mark(args.words)
     if mark:
         # Acceptance does not edit the contract: what he ADDED goes the amendment way, which
@@ -461,11 +474,6 @@ def cmd_accept(args):
               'чек-лист приёмки: el context checklist "…" --why "…"')
         print("          затем: затронутые узлы — el plan set … · их вердикты устарели — el validate … · "
               "листок — el brief; поправка сама попросит его свежее слово")
-    paid = [a for a in task_meta(root, task).get("assumes", [])
-            if autonomy.pays(scope, a.get("for") or "")]
-    if paid:
-        left = len(autonomy.debt(task_meta(root, task)))
-        print(f"оплачено  его словом займов над {scope}: {len(paid)} · долг слова теперь {left}")
     if scope.lower().startswith("node:"):
         nid = path_to_id([scope.split(":", 1)[1]])
         node = node_read(tdir, nid)
@@ -713,17 +721,6 @@ def cmd_done(args):
     if meta.get("status", "active") != "active":
         print(f"already closed as {meta['status']} on {meta.get('closed_at', '?')[:10]}")
         return 0
-    # A borrowed word is a DEBT, and «destination reached» cannot stand on debts: the owner
-    # has not read the assumptions the result rests on (owner, 2026-08-22).
-    owed = autonomy.debt(meta)
-    if args.outcome == "completed" and owed:
-        print(f"НЕ ЗАКРОЮ как completed — долг слова: {len(owed)} займ(ов) не оплачены его словом.",
-              file=sys.stderr)
-        print("  леджер: el review · его слово: el accept \"<его слова>\" --for context | plan | "
-              "design:<id> | node:<id>", file=sys.stderr)
-        print('  без него — остановись: el halt "готово, жду приёмки и слова над займами"',
-              file=sys.stderr)
-        return 1
     # THE OWNER'S DEBT (2026-08-24): an answer he never brought is either still needed — then
     # «completed» is a guess — or never came due — then say so: el owe drop.
     open_owed = owe.open_items(root, task)
@@ -1022,39 +1019,92 @@ def cmd_doctor(args):
 
 
 def cmd_grant(args):
-    """His word that opens autonomy — recorded verbatim (owner, 2026-08-22: «работай сам» и есть
-    грант). Bare: the state. The agent does not grant itself anything: the command wants his
-    words, and the gates read borrowed words only while a grant stands."""
+    """His word that opens autonomy — a GRANT, recorded verbatim (owner, 2026-08-22: «работай
+    сам» и есть грант; 2026-08-26: a grant is a period with a start and an end). Bare: the
+    state. `el grant change "<его слова>" --hours 4` — his correction of the standing grant's
+    conditions, the same grant. `el grant end "<чем доказано>"` — the natural end: the
+    condition or the term reached. The agent does not grant itself anything: the command
+    wants his words, and decisions in his place are read only while a grant stands."""
     root = require_root()
     if not root:
         return 1
     task = pick_task(root, getattr(args, "task", None))
     if not task:
         return 1
-    words = (getattr(args, "words", None) or "").strip()
-    if not words:
+    words = [w for w in (getattr(args, "words", None) or []) if w is not None]
+    sub = words[0].strip().lower() if words and words[0].strip().lower() in ("change", "end") else ""
+    text = " ".join(words[1:] if sub else words).strip()
+    extra = {}
+    for k in ("until", "no", "name"):
+        v = getattr(args, k, None)
+        if v:
+            extra[k] = v.strip()
+    hours = getattr(args, "hours", None)
+    if hours is not None:
+        try:
+            extra["hours"] = float(hours)
+            if extra["hours"] <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            print("--hours <число> — срок гранта в часах, больше нуля", file=sys.stderr)
+            return 1
+    st = autonomy.state(root, task)
+    if sub == "change":
+        if not (st and st["active"]):
+            print("менять нечего — действующего гранта нет; новый: el grant \"<его слова>\"", file=sys.stderr)
+            return 1
+        if not text or not extra:
+            print('el grant change "<его слова>" --hours N | --until "…" | --no "…" | --name "…" — '
+                  "его слова и что изменилось", file=sys.stderr)
+            return 1
+        g0 = st["grant"]
+        ru = {"hours": "срок", "until": "до", "no": "нельзя", "name": "название"}
+        def _v(k, v):
+            return autonomy.hours_text(v) if k == "hours" and v not in (None, "") else (v if v not in (None, "") else "—")
+        what = " · ".join(f"{ru[k]}: {_v(k, g0.get(k))} → {_v(k, v)}" for k, v in extra.items())
+        journal(root, task, "grant-change", text, dict(extra, what=what))
+        touch(root, task)
+        print(f"грант     «{g0['name']}» изменён владельцем — {what}")
+        print(f"          «{text}»")
+        return 0
+    if sub == "end":
+        if not (st and st["active"]):
+            print("завершать нечего — действующего гранта нет", file=sys.stderr)
+            return 1
+        if not text:
+            print('el grant end "<чем доказано, что условие или срок гранта достигнуты>"', file=sys.stderr)
+            return 1
+        g0 = st["grant"]
+        journal(root, task, "grant-end", text, {"decisions": len(g0["decisions"])})
+        touch(root, task)
+        print(f"грант     «{g0['name']}» завершён — дошёл: «{text}»")
+        print(f"          шёл {autonomy.span_text(g0['elapsed'])} · решений агента {len(g0['decisions'])} · "
+              f"{autonomy.work_text(g0['work'])}")
+        print("дальше    автономии нет: на остановках ждём его слово · продолжить — его словом: el grant")
+        return 0
+    if not text:
         for l in autonomy.lines(root, task, full=True) or ["автономии нет — человек её не выдавал"]:
             print(l)
-        print('выдать    el grant "<его слова: работай сам · продолжай>" [--until "<до какой остановки>"] '
-              '[--no "<чего не делать>"]')
+        print('выдать    el grant "<его слова: работай сам · продолжай>" [--name "<коротко>"] [--hours N] '
+              '[--until "<до какой остановки>"] [--no "<чего не делать>"]')
+        print('править   el grant change "<его слова>" --hours N | --until | --no · завершить: el grant end "<чем доказано>"')
         return 0
-    extra = {}
-    if getattr(args, "until", None):
-        extra["until"] = args.until.strip()
-    if getattr(args, "no", None):
-        extra["no"] = args.no.strip()
-    was = autonomy.state(root, task)
+    was_active = bool(st and st["active"])
     # His words WHOLE — the conditions live at the end («пока не срежешь 2 ГБ»); a cut grant is
     # a different grant (owner, 2026-08-23: «не обрезать ни в коем случае, даже если очень длинный»).
-    journal(root, task, "grant", words, extra)
+    journal(root, task, "grant", text, extra)
     touch(root, task)
-    print(("автономия выдана" if not (was and was["halt"]) else "автономия продолжена")
+    st = autonomy.state(root, task)
+    g = st["grant"]
+    print(("грант     «" + g["name"] + "» выдан" if not was_active else
+           "грант     «" + g["name"] + "» выдан — прежний заменён")
+          + (f" · срок {autonomy.hours_text(g['hours'])}" if g["hours"] else "")
           + (f" · до: {extra['until']}" if extra.get("until") else "")
           + (f" · нельзя: {extra['no']}" if extra.get("no") else ""))
-    print(f"          «{words}»")
-    print('займ      там, где нужен он: el accept … --assumed "<почему>" · el context qa … --assumed · '
-          'el think decide … --assumed --undo · леджер: el review')
-    print('граница   el halt "<почему дальше без человека нельзя · что нужно>" — и стоп, не «done»')
+    print(f"          «{text}»")
+    print('в его место  el accept … --assumed "<почему>" · el context qa … --assumed · '
+          'el think decide … --assumed --undo · решения: el review')
+    print('конец     дошёл — el grant end "<чем доказано>" · дальше без него нельзя — el halt "<почему · что нужно>"')
     if brief_read(os.path.join(root, task)):
         print("листок    brief.md написан ДО этого гранта — его «жди владельца» больше не действует; "
               "перепиши под грант: el brief \"<baseline · замер · лучшее · не повторять · сейчас>\"")
@@ -1064,9 +1114,10 @@ def cmd_grant(args):
 
 
 def cmd_halt(args):
-    """«Мой кредит дальше не распространяется» — autonomy stops HERE, with the reason and what
-    is needed from the owner. Not «done»: the task stays open and in hand; `el status` prints
-    the halt first, so the agent stops, the harness judge sees it, the owner reads it."""
+    """The emergency exit of a grant — HOLD: autonomy stops HERE, with the reason and what is
+    needed from the owner. Not «done»: the task stays open and in hand; `el status` prints
+    the halt first, so the agent stops, the harness judge sees it, the owner reads it.
+    `--by user` — his own «стоп»: the grant is taken back by the owner (2026-08-26)."""
     root = require_root()
     if not root:
         return 1
@@ -1074,25 +1125,32 @@ def cmd_halt(args):
     if not task:
         return 1
     why = (getattr(args, "why", None) or "").strip()
+    by_user = (getattr(args, "by", None) or "").strip().lower() == "user"
     if not why:
-        print('el halt "<почему дальше без человека нельзя · что нужно от него>"', file=sys.stderr)
+        print('el halt "<почему дальше без человека нельзя · что нужно от него>" · его «стоп»: '
+              'el halt "<его слова>" --by user', file=sys.stderr)
         return 1
     st = autonomy.state(root, task)
     if not st:
         print("автономии не было — останавливать нечего: просто жди человека (его слово — el accept).",
               file=sys.stderr)
         return 1
-    if st["halt"]:
-        print(f"уже остановлена: {(st['halt'].get('text') or '')}")
+    if not st["active"]:
+        e = st["end"] or {}
+        print(f"грант уже кончился — {autonomy.END_RU.get(e.get('kind'), '?')}: {(e.get('text') or '')}")
         return 0
-    journal(root, task, "halt", why, {"phase": task_meta(root, task).get("phase", "context"),
-                                            "debt": len(st["debt"])})
+    g = st["grant"]
+    journal(root, task, "halt", why, dict({"phase": task_meta(root, task).get("phase", "context"),
+                                            "decisions": len(g["decisions"])},
+                                           **({"by": "user"} if by_user else {})))
     touch(root, task)
-    print(f"АВТОНОМИЯ ОСТАНОВЛЕНА ЗДЕСЬ — {why}")
-    print(f"долг слова {len(st['debt'])} · el review · задача открыта и в руке: "
-          f"{task} · фаза {task_meta(root, task).get('phase', 'context')}")
-    print('дальше    решает человек: el accept "<его слова>" --for … · продолжить автономию: '
-          'el grant "<его слова>"')
+    if by_user:
+        print(f"АВТОНОМИЯ СНЯТА ВЛАДЕЛЬЦЕМ — «{why}»")
+    else:
+        print(f"АВТОНОМИЯ ОСТАНОВЛЕНА ЗДЕСЬ (hold) — {why}")
+    print(f"грант     «{g['name']}» шёл {autonomy.span_text(g['elapsed'])} · решений агента {len(g['decisions'])} · "
+          f"el review · задача открыта и в руке: {task}")
+    print('дальше    решает человек: el accept "<его слова>" --for … · новый грант — его словом: el grant "<его слова>"')
     return 0
 
 
@@ -1177,8 +1235,8 @@ def cmd_brief(args):
 
 
 def cmd_review(args):
-    """The ledger of borrowed words — what the agent took for the owner's word, why, and which
-    of them his later words have paid. First thing the owner reads when he comes back."""
+    """The grants and the agent's decisions under them — what it decided in his place and
+    why, grant by grant, newest first. First thing the owner reads when he comes back."""
     root = require_root()
     if not root:
         return 1

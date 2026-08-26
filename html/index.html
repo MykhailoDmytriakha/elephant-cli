@@ -42,7 +42,7 @@
   .badge.completed { color: var(--done); border-color: var(--done); }
   .badge.closed, .badge.dropped { color: var(--closed); }
   .badge.blocked { color: var(--bad); border-color: var(--bad); }
-  /* АВТОНОМИЯ — тот же язык, что на обзоре: выдана · остановлена (залита) · долг слова */
+  /* АВТОНОМИЯ — тот же язык, что на обзоре: грант активен · hold (залит) · новые решения агента */
   .badge.auto { color: var(--accent); border-color: var(--accent); }
   .badge.halt { color: #fff; background: var(--bad); border-color: var(--bad); font-weight: 600; }
   .badge.loan { color: var(--loan); border-color: var(--loan); }
@@ -172,7 +172,8 @@ window.ELEPHANT_INDEX = null;
   function isDone(p) { return !!p.outcome || (p.status && p.status !== "active"); }
   function needsMe(p) {
     var au = p.autonomy;
-    return !!(au && (au.halt || au.debt)) || !!(p.owed && p.owed.open) || !!(p.baton && p.baton.length);
+    var hold = !!(au && au.grants && !au.active && au.end && au.end.kind === "hold");
+    return hold || !!(au && au.new) || !!(p.owed && p.owed.open) || !!(p.baton && p.baton.length);
   }
   function card(p) {
     var a = document.createElement("a");
@@ -182,14 +183,16 @@ window.ELEPHANT_INDEX = null;
     if (p.outcome) badge = '<span class="badge ' + esc(p.outcome) + '">' + esc(p.outcome) + "</span>";
     else if (p.status && p.status !== "active")
       badge = '<span class="badge">' + esc(p.status) + "</span>";
-    var au = p.autonomy;
+    var au = (p.autonomy && p.autonomy.grants) ? p.autonomy : null;
     if (au && au.grant) {
-      if (au.halt)
-        badge += '<span class="badge halt" title="' + esc(au.halt.text || "") + '">halt · автономия остановлена</span>';
-      else if (au.active)
-        badge += '<span class="badge auto" title="' + esc(au.grant.text || "") + '">grant · автономия</span>';
-      if (au.debt)
-        badge += '<span class="badge loan">debt · долг слова: ' + au.debt + "</span>";
+      var g = au.grant, e = g.end || null;
+      if (g.active)
+        badge += '<span class="badge auto" title="' + esc(g.text || "") + '">grant · ' + esc(g.name || "") +
+                 (g.hours ? " · " + esc(g.elapsed_text || "") + " из " + esc(String(g.hours)) + " ч" : "") + "</span>";
+      else if (e && e.kind === "hold")
+        badge += '<span class="badge halt" title="' + esc(e.text || "") + '">hold · автономия остановлена</span>';
+      if (au.new)
+        badge += '<span class="badge loan">decisions · новых решений: ' + au.new + "</span>";
     }
     /* «за тобой» = долг владельца (ответы) + эстафета (узлы, ждущие его рук) — 2026-08-25 */
     var oweN = (p.owed ? p.owed.open : 0) + (p.baton ? p.baton.length : 0);

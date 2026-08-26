@@ -16,8 +16,9 @@ THE ROOMS — a module is a PHASE or a LAYER, never a "utils" (owner, 2026-08-21
              card, the hand (hold / current / idle), the render-dirty set, git as a
              measurement, the tool's own inbox (feedback/ in the skill)
   term       how text is shaped for the agent's eye: wrap · human_when · bar
-  autonomy   the credit of the owner's word: grant · borrowed words (--assumed) · debt ·
-             halt — derived from the journal, printed first by status and next
+  autonomy   grants as periods (start · change · end: done / hold / owner / replaced / closed)
+             and the agent's decisions under them (--assumed) — derived from the journal,
+             printed first by status and next
   context    phase 1 — the ladder: Q/A pairs, the 5W+1H boundary, the frame, research
   think      phase 2 — forks, the decision, the open box of instruments, a recorded skip
   plan       phase 3 — the fractal of nodes, the eight fields, the stops along the road

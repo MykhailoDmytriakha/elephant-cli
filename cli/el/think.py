@@ -310,7 +310,7 @@ def cmd_decide(args):
               file=sys.stderr)
         print('  el think decide %s "<вариант>" --words "<что он сказал>"' % cur["id"],
               file=sys.stderr)
-        print('  его нет, автономия выдана — займи слово: --assumed "<почему так>" --undo "<как откатить>"',
+        print('  его нет, автономия выдана — реши в его место: --assumed "<почему так>" --undo "<как откатить>"',
               file=sys.stderr)
         print("  решил сам вопреки пометке — перезаведи развилку с --who agent и объясни почему",
               file=sys.stderr)
@@ -319,17 +319,17 @@ def cmd_decide(args):
     # stands — the agent chooses, says why, and says how to reverse it: in autonomy the
     # reversible path is preferred, and the reversal is written at the moment of choice.
     if assumed:
-        if not autonomy.guard(root, task, "займ решения"):
+        if not autonomy.guard(root, task, "решение в его место"):
             return 1
         if not undo:
-            print('займ решения требует --undo "<как откатить, если он решит иначе>"', file=sys.stderr)
+            print('решение в его место требует --undo "<как откатить, если он решит иначе>"', file=sys.stderr)
             return 1
     if len(cur["options"]) < 3 and not getattr(args, "narrow", False):
         print(f"у развилки {cur['id']} только {len(cur['options'])} вариант(ов).", file=sys.stderr)
         print("  меньше трёх значит поле не открыто — доложи варианты,", file=sys.stderr)
         print('  либо закрой сознательно: --narrow "<почему остальные отпали>"', file=sys.stderr)
         return 1
-    by = "владелец" if getattr(args, "words", None) else ("агент (ЗАЙМ СЛОВА)" if assumed else "агент")
+    by = "владелец" if getattr(args, "words", None) else ("агент (РЕШЕНИЕ В ЕГО МЕСТО)" if assumed else "агент")
     just = (f'«{args.words.strip()}»' if getattr(args, "words", None)
             else (assumed or (args.why or "").strip() or "без объяснения"))
     cur["decision"] = f"{args.choice.strip()} — {by}: {just}" + (f" · откат: {undo}" if undo else "")
@@ -354,7 +354,7 @@ def cmd_decide(args):
         piece = (f"\n## Решение владельца по {cur['id']} — {stamp}\n\n> {args.words.strip()}\n\n"
                  f"Выбрано: {args.choice.strip()}\n")
     elif assumed:
-        piece = (f"\n## Решение по {cur['id']} — {stamp} (агент · ЗАЙМ СЛОВА)\n\n"
+        piece = (f"\n## Решение по {cur['id']} — {stamp} (агент · в его место, под грантом)\n\n"
                  f"{args.choice.strip()} — почему так принял: {assumed}\n\nОткат: {undo}\n")
     else:
         piece = (f"\n## Решение по {cur['id']} — {stamp} (агент)\n\n{args.choice.strip()} — "

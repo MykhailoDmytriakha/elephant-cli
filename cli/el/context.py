@@ -284,11 +284,11 @@ def cmd_qa(args):
     # question it would have asked and the answer it assumes, marked; the pair counts for
     # coverage like any other, and the assumption is a debt his word over the picture pays.
     assumed = (getattr(args, "assumed", None) or "").strip()
-    if assumed and not autonomy.guard(root, task, "займ ответа"):
+    if assumed and not autonomy.guard(root, task, "ответ в его место"):
         return 1
     body += f"\nQ [{area}]: {args.question.strip()}\nA: {args.answer.strip()}\n"
     if assumed:
-        body += f"  _предположено агентом (займ слова) — почему: {assumed}_\n"
+        body += f"  _предположено агентом в его место (под грантом) — почему: {assumed}_\n"
     write(path, body)
     journal(root, task, "qa", args.question.strip()[:80], {"round": rnd, "area": area,
                                                          **({"assumed": True} if assumed else {})})
@@ -301,7 +301,7 @@ def cmd_qa(args):
     cov = area_coverage(tdir)
     blank = [a for a in AREA_KEYS if not cov[a]]
     print(f"recorded in round {rnd} · {qs[1]} pair(s) · area {area}"
-          + (" · ЗАЙМ — его слово над картиной потом оплатит (el review)" if assumed else ""))
+          + (" · РЕШЕНИЕ АГЕНТА в его место — он прочтёт, вернувшись (el review)" if assumed else ""))
     if blank:
         owner_side = [a for a in blank
                       if dict((k, v) for k, _d, v in QA_AREAS)[a] == "owner"]

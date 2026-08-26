@@ -107,25 +107,36 @@ the parser that registers the commands sit together and cannot drift apart.
 #
 # owner — his word · autonomy
 #   el accept "<his words>"           THE OWNER'S WORD, verbatim — condition 3 of the gate.
-#                                     --assumed "<why>" BORROWS it under a grant (el grant): what
-#                                     you take for his word, marked as a loan; never --for final.
+#                                     --assumed "<why>" DECIDES IN HIS PLACE under a grant (el grant):
+#                                     what you take for his word, marked; never --for final.
 #                                     Context does not open without it, and --waive does not
 #                                     excuse it: a checklist may not stand in for a human ·
 #                                     --for <scope> says what the word is OVER: context · design:<fork>
-#                                     · plan · node:<id> · observation:<id> · final (unscoped =
-#                                     the phase's natural scope; only `final` counts on validate)
+#                                     · plan · stage:<id> (the LAYOUT of a stage into packages —
+#                                     the packages start after it) · node:<id> · observation:<id>
+#                                     · final (unscoped = the phase's natural scope; only `final`
+#                                     counts on validate)
 #                                     · --close with node:<id> closes that node with his words
 #   el ack "<trace|area:x>" --why     leave a past-phase tail as is, on purpose — «за спиной»
 #                                     stops repeating it
-#   el grant "<his words>"            AUTONOMY — his word that opens it («работай сам»), verbatim;
-#                                     bare: the state · --until · --no "<what not to touch>". While
-#                                     it stands a missing word is BORROWED (--assumed); never the
-#                                     final word · el blueprint autonomy — the whole law
-#   el review                         the ledger of borrowed words — paid or DEBT; his el accept
-#                                     over the same scope pays; completed is refused with a debt
-#   el halt "<why · what is needed>"  autonomy stops HERE — the grant reaches no further. Not
-#                                     «done»: task open, in hand; status prints it first; a new
-#                                     el grant («продолжай») or his word lifts it
+#   el grant "<his words>"            AUTONOMY — a GRANT, his word that opens it («работай сам»),
+#                                     verbatim; a PERIOD: it starts here and ends by `grant end`
+#                                     · `halt` · his stop · a new grant · the task closing. Bare:
+#                                     the state · --name "<short>" · --hours N (the term; status
+#                                     says «срок вышел») · --until · --no "<what not to touch>".
+#                                     While it stands a missing word is DECIDED IN HIS PLACE
+#                                     (--assumed); never the final word · el blueprint autonomy
+#                el grant change "<his words>" --hours 4 | --until | --no | --name
+#                                     he corrected the standing grant — the SAME grant, changed
+#                el grant end "<what proves it>"   the natural end: condition or term reached
+#   el review                         the grants, newest first, each with the agent's decisions
+#                                     under it (what · why · NEW since his last word) and the
+#                                     work done under it. No debt, no rollback: he reads, and
+#                                     says otherwise if he wants — from the current state
+#   el halt "<why · what is needed>"  HOLD — the emergency exit: autonomy stops HERE, the grant
+#                                     ends. Not «done»: task open, in hand; status prints it
+#                                     first; only a new el grant («продолжай») opens it again ·
+#                                     --by user — his own «стоп»: the grant taken back by him
 #   el owe "<question>" --how "<who/where>"
 #                                     THE OWNER'S DEBT — an answer only he can bring and does
 #                                     not have yet (who signs, who the third party is, which
@@ -252,7 +263,11 @@ the parser that registers the commands sit together and cannot drift apart.
 #   el plan start s1 wp1              THE NODE IN WORK — one at a time (the previous steps back
 #                                     to open); prints its contract and what to do next. Work on
 #                                     EXECUTE goes node by node: start → do → criteria as you go
-#                                     → traces --node → wait at the stop → done
+#                                     → traces --node → wait at the stop → done. A STAGE does not
+#                                     start by itself (owner, 2026-08-26): lay it out into packages
+#                                     (el plan new s1 wp1 …), show the layout, record his word
+#                                     (el accept … --for stage:s1), start a package; light warns,
+#                                     soft/strict refuse; --force — on purpose, into the journal
 #   el plan wait s1 wp1 "<shown>"     the baton goes to the owner: shown, waiting for his word —
 #                                     the agent does not drive on; his word: el accept --for node:…
 #                                     deps is read as ORDER: «после S1» / «after S1» — S1 is a
@@ -658,14 +673,14 @@ def _dispatch(argv):
     p.add_argument("--for", dest="for_"); p.add_argument("--close", action="store_true")
     p.add_argument("--assumed")
     p.set_defaults(fn=cmd_accept)
-    # the autonomy layer: his word that opens it · the ledger of borrowed words · the stop
+    # the autonomy layer: the grant · his changes and the natural end · the hold · the review
     p = sub.add_parser("grant", add_help=False)
-    p.add_argument("words", nargs="?"); p.add_argument("--until"); p.add_argument("--no")
+    p.add_argument("words", nargs="*"); p.add_argument("--until"); p.add_argument("--no")
+    p.add_argument("--name"); p.add_argument("--hours")
     p.add_argument("--task"); p.set_defaults(fn=cmd_grant)
     p = sub.add_parser("halt", add_help=False)
-    p.add_argument("why", nargs="?"); p.add_argument("--task"); p.set_defaults(fn=cmd_halt)
-    for nm in ("review", "debt"):
-        p = sub.add_parser(nm, add_help=False); p.add_argument("--task"); p.set_defaults(fn=cmd_review)
+    p.add_argument("why", nargs="?"); p.add_argument("--by"); p.add_argument("--task"); p.set_defaults(fn=cmd_halt)
+    p = sub.add_parser("review", add_help=False); p.add_argument("--task"); p.set_defaults(fn=cmd_review)
     # the owner's debt: an answer only he can bring and does not have yet (2026-08-24)
     p = sub.add_parser("owe", add_help=False)
     p.add_argument("words", nargs="*"); p.add_argument("--how"); p.add_argument("--kind")

@@ -913,8 +913,8 @@ def cmd_next(args):
     have, missing = phase_state(tdir, phase, mode)
     spec = PHASE_MAP.get(phase, {})
     print(f"task     {task} · phase {phase_no(phase)}/8 {phase} · {st} ({st_human}) · mode {mode}")
-    # AUTONOMY (owner, 2026-08-22): the grant, the debt, the stop — before the navigator
-    # speaks, because it changes what «спроси его» means below: no owner → borrow the word,
+    # AUTONOMY (owner, 2026-08-22): the grant, the decisions, the stop — before the navigator
+    # speaks, because it changes what «спроси его» means below: no owner → decide in his place,
     # mark it, go on; the grant reaches no further → el halt, not «done».
     auto = autonomy.state(root, task)
     for l in autonomy.lines(root, task, full=True):
@@ -1004,7 +1004,7 @@ def cmd_next(args):
         print(f'         запиши дословно: el accept "<его слова>" --for node:{w_n["id"].lower()}'
               "  ·  принял и закрываем: --close")
         if auto_on:
-            print(f'         автономия: его нет — займи: el accept "<что принимаешь>" --for node:'
+            print(f'         автономия: его нет — реши в его место: el accept "<что принимаешь>" --for node:'
                   f'{w_n["id"].lower()} --assumed "<почему>" · необратимое без гранта — el halt')
 
     # THE NAVIGATOR. On context the answer is not "what is missing" but four things at once:
@@ -1088,10 +1088,15 @@ def cmd_next(args):
                 move = 'покажи план владельцу (el plan) и запиши его «да»: el accept "<слова>"'
             else:
                 move = 'план принят; дальше: el forward --why "<что решено>"'
+        print("правило  на плане — ЭТАПЫ: крупность разумная (обычно 3–7); первый содержит первичную "
+              "подготовку (что есть, чего нет), последний — итоговую проверку; имена — любые. "
+              "Пакеты работ — при старте этапа на исполнении; крупная задача — можно и здесь")
+        print("правило  владельцу показать нарезку на этапы с пометкой: каждый этап будет разложен на "
+              "пакеты при старте — его «да» над планом (el accept --for plan) это слово над нарезкой")
         print("правило  план раньше работы: узел заводится, когда работа стала видна, а не когда сделана — "
               "бумаги задним числом видны по штампам (узел моложе своих следов)")
         print("правило  разворачиваем ТОЛЬКО текущий уровень: этап → его пакеты работ → их "
-              "задачи. Разложить всё вперёд — это то, что убило v1 (§5)")
+              "задачи → подзадачи. Разложить всё вперёд — это то, что убило v1 (§5)")
 
     elif phase == "execute":
         # THE LIVE BOARD (owner, 2026-08-22): EXECUTE used to say «artifacts/ and evidence/
@@ -1128,13 +1133,16 @@ def cmd_next(args):
                       + ("" if not blocked_e else " · ждут: " + "; ".join(
                           f"{k} ← {', '.join(v)}" for k, v in list(blocked_e.items())[:5])))
             gaps_f = node_gaps(ready_e[0], mode) if ready_e else []
-            move = ("в работе никого — " + ready_line(tdir)
+            move = ("в работе никого — " + ready_line(tdir, root, task)
                     + (f" (сначала заполни: {', '.join(gaps_f)})" if gaps_f else ""))
         elif not nodes_e:
             move = ('плана нет — узлы заводятся на плане: el phase plan --why "…" · '
                     'el plan new s1 "<этап>"')
         else:
             move = 'все узлы закрыты — проверь следы и дальше: el forward --why "<что исполнено и чем доказано>"'
+        print("правило  ЭТАП РАСКЛАДЫВАЕТСЯ ПЕРЕД СТАРТОМ: пакеты работ → работы → подзадачи, только "
+              "ближайший уровень; раскладку показать владельцу и записать его слово над этапом "
+              '(el accept "…" --for stage:<id>) — стартуют пакеты, не этап; в light — предупреждение')
         print("правило  СНАЧАЛА УЗЕЛ, ПОТОМ РАБОТА: узел заводится и стартует до первого шага, не после — "
               "бумаги задним числом видны по штампам (узел моложе своих следов, вердикты пачкой)")
         print("         дальше узел за узлом: start → делать и писать el log (ложится к узлу) → критерии по ходу, "
@@ -1212,8 +1220,8 @@ def cmd_next(args):
         print("gate     ЗАКРЫТ НАГЛУХО — нет слова владельца. Предъяви ему собранное "
               "содержимым (el context), потом: el accept \"<его слова дословно>\"")
         if auto_on:
-            print('         автономия: его нет — займи слово над картиной: el accept "<что принимаешь '
-                  'за его да>" --assumed "<почему>" (долг оплатит его слово потом)')
+            print('         автономия: его нет — реши в его место над картиной: el accept "<что принимаешь '
+                  'за его да>" --assumed "<почему>" (он прочтёт, вернувшись)')
         if req_missing:
             print(f"         и ещё {len(req_missing)} след(а) не написано")
     elif pend:
@@ -1228,7 +1236,7 @@ def cmd_next(args):
             print(f"         из них решает ВЛАДЕЛЕЦ: {', '.join(owner_left)} — "
                   "предъяви ему варианты с ценой и запиши его слова")
             if auto_on:
-                print('         автономия: его нет — займи: el think decide <id> "<вариант>" '
+                print('         автономия: его нет — реши в его место: el think decide <id> "<вариант>" '
                       '--assumed "<почему>" --undo "<как откатить>"; предпочти обратимый путь')
         print('         el think forks — состояние · el think decide <id> "<вариант>"')
     elif phase in ("execute", "validate") and [n for n in nodes_all(tdir) if node_open(n)]:
@@ -1379,8 +1387,9 @@ def cmd_resume(args):
     if auto and auto["halt"]:
         rule = "стоп стоит — дальше без человека нельзя: доложи и жди его слова"
     elif auto and auto["active"]:
-        rule = ("грант стоит — доложи одной строкой и продолжай; недостающее слово занимай и помечай "
-                "(--assumed), ответ владельца (за тобой) не занимается, необратимое — el halt")
+        rule = ("грант стоит — доложи одной строкой и продолжай; недостающее слово решай в его место и "
+                "помечай (--assumed), ответ владельца (за тобой) не решается за него, необратимое — el halt; "
+                "дошёл до условия или срока — el grant end")
     else:
         rule = ("гранта нет — доложи человеку (где мы · что дальше · что за ним) и спроси, приступать ли; "
                 "до его слова только чтение: ни записи, ни el forward")

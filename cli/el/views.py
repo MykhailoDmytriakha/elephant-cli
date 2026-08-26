@@ -150,16 +150,26 @@ def amend_list(root, task, entries):
 
 def autonomy_view(root, task):
     """Autonomy as the pages show it — the SAME state the CLI prints (autonomy.state), so the
-    page and `el status` can never disagree on whether the word is borrowed or paid. Each
-    borrowed word carries `paid`; `debt` is the count (owner, 2026-08-22: «когда совсем ничего
-    не видно — тоже нехорошо»). None when no grant was ever given."""
+    page and `el status` can never disagree. Grants as periods, oldest first, each with its
+    changes, end, decisions (with `new`), work and term (owner, 2026-08-26). None when no
+    grant was ever given."""
     st = autonomy.state(root, task)
     if not st:
         return None
-    unpaid = {id(a) for a in st["debt"]}
-    return {"grant": st["grant"], "halt": st["halt"], "active": st["active"],
-            "assumes": [dict(a, paid=id(a) not in unpaid) for a in st["assumes"]],
-            "debt": len(unpaid)}
+    gl = []
+    for g in st["grants"]:
+        gl.append({"ts": g.get("ts", ""), "name": g["name"], "text": g.get("text", ""),
+                   "until": g.get("until"), "no": g.get("no"), "hours": g["hours"],
+                   "changes": [{"ts": c.get("ts", ""), "text": c.get("text", ""), "what": c.get("what", "")}
+                               for c in g["changes"]],
+                   "end": g.get("end"), "active": g["active"], "overrun": g["overrun"],
+                   "elapsed": int(g["elapsed"]), "elapsed_text": autonomy.span_text(g["elapsed"]),
+                   "decisions": [{"ts": d.get("ts", ""), "for": d.get("for", ""), "text": d.get("text", ""),
+                                  "why": d.get("why", ""), "new": d["new"]} for d in g["decisions"]],
+                   "new": g["new"], "work": g["work"], "work_text": autonomy.work_text(g["work"])})
+    last = gl[-1]
+    return {"grants": gl, "active": st["active"], "end": last["end"], "grant": last,
+            "decisions": sum(len(g["decisions"]) for g in gl), "new": st["new"]}
 
 
 def owed_view(root, task):
@@ -490,12 +500,15 @@ def render_views(root, only=None):
             # and the CLI can never disagree on what a field is called.
             plan_nodes = []
             try:
+                from .plan import decomp_state
                 for n in nodes_all(tdir):
                     fields = {k: v for k, v in (n.get("_fields") or {}).items()
                               if v and v != "_пусто_"}
                     plan_nodes.append({"id": n["id"], "level": n.get("level", ""),
                                        "name": n.get("name", ""),
-                                       "status": n.get("status", ""), "fields": fields})
+                                       "status": n.get("status", ""), "fields": fields,
+                                       # the stage's layout: none · pending · accepted (2026-08-26)
+                                       "decomp": decomp_state(root, t, tdir, n) if "." not in n["id"] else ""})
             except Exception:
                 plan_nodes = []
             frame = {k: md_doc(CONTEXT_FILES[k]) for k in SCOPE_FRAME}

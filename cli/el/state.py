@@ -50,7 +50,8 @@ TASK_DIR = re.compile(r"^\d{4}-\d{2}-\d{2}[-_]")
 # `owe` · `owe-holds` · `owe-paid` · `owe-drop` are the owner's debt (el owe): they hold
 # nodes and gates, so they are written only by that command.
 RESERVED_EVENTS = ("created", "advance", "reroute", "done", "reopened", "depends", "hold",
-                   "grant", "halt", "assume", "owe", "owe-holds", "owe-paid", "owe-drop")
+                   "grant", "grant-change", "grant-end", "halt", "assume",
+                   "owe", "owe-holds", "owe-paid", "owe-drop")
 
 
 def now_iso():
@@ -231,10 +232,13 @@ def task_meta(root, task):
       depends_on  the `depends` event
       held_at     the last `hold` event — when this task was last TAKEN IN HAND
       grant       the last `grant` event (his words that opened autonomy) — or absent
+      grants      every grant as a PERIOD (owner, 2026-08-26): the event plus `changes`
+                  (his corrections of its conditions) and `end` — {ts, kind, text}, kind
+                  done · hold · owner · replaced · closed — or None while it stands
       halt        the last `halt` event AFTER that grant — autonomy stopped here — or absent
-      assumes     every `assume` event (borrowed words), in order
-      words       every `accepted` event (his real words), in order — debt is computed from
-                  these two lists (autonomy.debt)
+      assumes     every `assume` event (the agent's decisions in his place), in order
+      words       every `accepted` event (his real words), in order — a decision made after
+                  his last word is «new» to him (autonomy.grants)
       owes        every `owe` · `owe-holds` · `owe-paid` · `owe-drop` event, in order — the
                   owner's debt is computed from them (owe.ledger)
       updated_at  the journal file's mtime — ORDERING tasks needs no read at all
@@ -277,7 +281,7 @@ def task_meta(root, task):
                 except OSError:
                     pass
     meta = {"name": task, "phase": "context", "status": "active", "_mtime": mtime, "mode": "soft",
-            "assumes": [], "words": [], "owes": [], "events": 0,
+            "assumes": [], "words": [], "owes": [], "grants": [], "events": 0,
             "updated_at": datetime.fromtimestamp(mtime, timezone.utc).astimezone()
                                   .isoformat(timespec="milliseconds")}
     try:
@@ -303,6 +307,9 @@ def task_meta(root, task):
                     meta["status"] = meta["outcome"] = rec.get("outcome", "closed")
                     meta["result"] = rec.get("text", "")
                     meta["closed_at"] = rec.get("ts", "")
+                    if meta["grants"] and meta["grants"][-1]["end"] is None:
+                        meta["grants"][-1]["end"] = {"ts": rec.get("ts", ""), "kind": "closed",
+                                                     "text": rec.get("text", "")}
                 elif kind == "reopened":
                     meta["status"] = "active"
                     for k in ("outcome", "result", "closed_at"):
@@ -312,10 +319,30 @@ def task_meta(root, task):
                 elif kind == "hold":
                     meta["held_at"] = rec.get("ts", "")
                 elif kind == "grant":
+                    # A grant over a standing one REPLACES it (owner, 2026-08-26: «стоп, теперь
+                    # другая задача — предыдущий грант снялся, новый выдан»).
+                    if meta["grants"] and meta["grants"][-1]["end"] is None:
+                        meta["grants"][-1]["end"] = {"ts": rec.get("ts", ""), "kind": "replaced",
+                                                     "text": rec.get("text", "")}
+                    meta["grants"].append(dict(rec, changes=[], end=None))
                     meta["grant"] = rec
                     meta.pop("halt", None)      # a new grant («продолжай») lifts a halt
+                elif kind == "grant-change" and meta["grants"] and meta["grants"][-1]["end"] is None:
+                    # His correction of a standing grant's conditions — the SAME grant, changed.
+                    g = meta["grants"][-1]
+                    g["changes"].append(rec)
+                    for k in ("until", "no", "hours", "name"):
+                        if k in rec:
+                            g[k] = rec[k]
+                elif kind == "grant-end" and meta["grants"] and meta["grants"][-1]["end"] is None:
+                    meta["grants"][-1]["end"] = {"ts": rec.get("ts", ""), "kind": "done",
+                                                 "text": rec.get("text", "")}
                 elif kind == "halt" and meta.get("grant"):
                     meta["halt"] = rec
+                    if meta["grants"] and meta["grants"][-1]["end"] is None:
+                        meta["grants"][-1]["end"] = {"ts": rec.get("ts", ""),
+                                                     "kind": "owner" if rec.get("by") == "user" else "hold",
+                                                     "text": rec.get("text", "")}
                 elif kind == "assume":
                     meta["assumes"].append(rec)
                 elif kind == "accepted":

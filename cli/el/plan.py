@@ -554,9 +554,11 @@ def plan_tree(tdir, root=None, task=None):
         sm = sync_mark(n)
         subj = sync_subject(n)
         print(f"{pad}{mark} {n['id']} · {n.get('name','')}  [{n.get('level','?')}]")
+        ds = decomp_state(root, task, tdir, n) if (root and task and "." not in n["id"] and st != "done") else ""
         print(f"{pad}    {state}"
               f"{'  ·  ' + sm if sm else ''}"
-              f"{'  ·  пусто: ' + ', '.join(gaps) if gaps else ''}")
+              f"{'  ·  пусто: ' + ', '.join(gaps) if gaps else ''}"
+              f"{'  ·  ' + DECOMP_RU[ds] if ds else ''}")
         if subj:
             print(f"{pad}      показываю: {subj}")
         note = n.get("result_note")
@@ -1053,7 +1055,7 @@ def plan_done(root, task, tdir, words, force=False, dry=False):
     left = [n["id"] for n in nodes_all(tdir) if node_open(n)]
     print(f"осталось {', '.join(left) if left else '— все узлы закрыты'}")
     if left:
-        print("дальше   " + ready_line(tdir))
+        print("дальше   " + ready_line(tdir, root, task))
     return 0
 
 
@@ -1084,15 +1086,25 @@ def ready_nodes(tdir):
     return ready, blocked
 
 
-def ready_line(tdir):
+def ready_line(tdir, root=None, task=None):
     """One line for `el next` / `el plan done`: the next node by the graph, and why."""
     ready, blocked = ready_nodes(tdir)
     if ready:
         first = ready[0]
+        # THE STAGE LAW first (owner, 2026-08-26): a bare stage is laid out, a laid-out stage
+        # waits for his word over the layout — only then a package starts.
+        if "." not in first["id"]:
+            low = first["id"].lower()
+            return (f"этап {first['id']} не разложен — разложи на пакеты работ: el plan new {low} wp1 "
+                    f'"<пакет>" … → покажи владельцу → el accept "<его слова>" --for stage:{low} → '
+                    f"el plan start {low}.wp1")
         _w, _m, _c, deps = plan_waves(tdir)
         after = [d for d in deps.get(first["id"], []) if d in {n["id"] for n in nodes_all(tdir)}]
         line = (f"el plan start {first['id'].lower()} — по графу готов"
                 + (f" (после {', '.join(after)} — закрыты)" if after else " (предпосылок нет)"))
+        if not stage_word(root, task, stage_of(first["id"])) and task_mode(tdir) != "light":
+            line = (f"раскладка этапа {stage_of(first['id'])} ждёт его слова — покажи и запиши: "
+                    f'el accept "<его слова>" --for stage:{stage_of(first["id"]).lower()} — потом ' + line)
         if len(ready) > 1:
             line += f" · готовы также: {', '.join(n['id'] for n in ready[1:5])}"
         return line
@@ -1101,6 +1113,57 @@ def ready_line(tdir):
             f"{k} ждёт {', '.join(v)}" for k, v in list(blocked.items())[:5])
             + " — закрой предпосылки или поправь порядок: el plan set <узел> deps \"…\"")
     return "открытых листьев нет — родители закрываются после детей: el plan done <родитель>"
+
+
+# ── STAGES FIRST, PACKAGES AT THE START OF A STAGE (owner, 2026-08-26) ──────────────
+# The plan phase draws the STAGES — a reasonable cut, the first holding the initial
+# preparation (what is there, what is missing), the last holding the final check; the
+# owner's «да» over the plan is a word over that cut, told plainly that every stage will
+# be decomposed when it starts. On execute a stage does not start by itself: it is laid
+# out into work packages (→ tasks → subtasks, the nearest level only), the layout is shown
+# to the owner, his word is recorded over THE STAGE (el accept … --for stage:s2), and the
+# packages are what start. A big task may draw packages on the plan already — allowed.
+# In light mode the rule is a warning, not a refusal: light exists for small tasks.
+
+def stage_of(nid):
+    return nid.split(".", 1)[0]
+
+
+def stage_word(root, task, sid):
+    """His word (or the agent's decision in his place) over the layout of stage `sid` — the
+    latest `accepted`/`assume` event with for == stage:<sid>; None when none."""
+    import json as _json
+    from .state import journal_path
+    want = f"stage:{sid}".lower()
+    found = None
+    try:
+        with open(journal_path(root, task), encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = _json.loads(line)
+                except ValueError:
+                    continue
+                if rec.get("type") in ("accepted", "assume") and (rec.get("for") or "").lower() == want:
+                    found = rec
+    except OSError:
+        pass
+    return found
+
+
+def decomp_state(root, task, tdir, node):
+    """A stage's layout: none (no packages) · pending (packages, no word) · accepted."""
+    if node.get("level") != "stage" and "." in node["id"]:
+        return ""
+    kids = [n for n in nodes_all(tdir) if n.get("parent") == node["id"]]
+    if not kids:
+        return "none"
+    return "accepted" if stage_word(root, task, node["id"]) else "pending"
+
+
+DECOMP_RU = {"none": "не разложен", "pending": "раскладка ждёт слова владельца", "accepted": "раскладка принята"}
 
 
 def plan_start(root, task, tdir, words, force=False, switch=None):
@@ -1122,6 +1185,36 @@ def plan_start(root, task, tdir, words, force=False, switch=None):
         print(f"{nid} {STATUS_RU[st]} — вернуть в работу осознанно: el plan start "
               f"{nid.lower()} --force", file=sys.stderr)
         return 1
+    # A STAGE IS WORKED THROUGH ITS PACKAGES (owner, 2026-08-26): lay it out first, show the
+    # layout, record his word over it, start a package. Light mode warns; soft and strict refuse.
+    kids0 = [n for n in nodes_all(tdir) if n.get("parent") == nid]
+    if "." not in nid and not kids0 and not force:
+        low = nid.lower()
+        if mode == "light":
+            print(f"этап     {nid} без пакетов — в light можно вести сам этап; правило — разложить "
+                  f'перед стартом: el plan new {low} wp1 "<пакет работ>"')
+        else:
+            print(f"ЭТАП НЕ РАЗЛОЖЕН — {nid} перед стартом раскладывается на пакеты работ, "
+                  "пакеты — на работы, работы — на подзадачи (только ближайший уровень):", file=sys.stderr)
+            print(f'  el plan new {low} wp1 "<пакет работ>" … → покажи раскладку владельцу → его слово: '
+                  f'el accept "<его слова>" --for stage:{low} → el plan start {low}.wp1', file=sys.stderr)
+            print(f"  под грантом — реши в его место: el accept \"…\" --for stage:{low} --assumed \"<почему>\" · "
+                  f"осознанно вести этап целиком: el plan start {low} --force", file=sys.stderr)
+            return 1
+    elif "." in nid and not force:
+        sid = stage_of(nid)
+        if not stage_word(root, task, sid):
+            low = sid.lower()
+            if mode == "light":
+                print(f"раскладка этапа {sid} без слова владельца — в light допустимо; правило — показать "
+                      f'и записать: el accept "<его слова>" --for stage:{low}')
+            else:
+                print(f"РАСКЛАДКА ЭТАПА {sid} НЕ ПРИНЯТА — покажи её владельцу и запиши его слово: "
+                      f'el accept "<его слова>" --for stage:{low}', file=sys.stderr)
+                print(f'  под грантом — реши в его место: el accept "<что принимаешь>" --for stage:{low} '
+                      f'--assumed "<почему>" · осознанно без слова: el plan start {nid.lower()} --force',
+                      file=sys.stderr)
+                return 1
     gaps = node_gaps(node, mode)
     if gaps and not force:
         print(f"у {nid} пусты поля: {', '.join(gaps)} — сначала контракт, потом работа "
@@ -1139,12 +1232,6 @@ def plan_start(root, task, tdir, words, force=False, switch=None):
                   file=sys.stderr)
         print(f'  ответ: el owe answer <n> "<его ответ>" · не понадобилось: el owe drop <n> --why "…" '
               f"· осознанно без ответа: el plan start {nid.lower()} --force", file=sys.stderr)
-        return 1
-    # STRICT: a stage is worked through its works — decompose before you start it.
-    kids0 = [n for n in nodes_all(tdir) if n.get("parent") == nid]
-    if mode == "strict" and node.get("level") == "stage" and not kids0 and not force:
-        print(f"СТРОГО — этап {nid} перед работой раскладывается на работы: "
-              f'el plan new {nid.lower()} wp1 "<работа>" — и стартуй работу', file=sys.stderr)
         return 1
     cur = active_node(tdir)
     if cur and cur["id"] != nid and node_status(cur) == "active":
@@ -1185,9 +1272,9 @@ def plan_start(root, task, tdir, words, force=False, switch=None):
     if kids:
         print(f"внутри    {', '.join(k['id'] for k in kids)} — крупный узел ведут его дети: "
               f"el plan start {kids[0]['id'].lower()}")
-    elif node.get("level") == "stage":
-        print(f"этап      крупный? разложи перед работой — el plan new {nid.lower()} wp1 "
-              f'"<работа>" — и стартуй работу; мелкий — делай прямо здесь')
+    elif "." not in nid:
+        print(f"этап      ведётся целиком — правило: разложить на пакеты работ (el plan new {nid.lower()} wp1 "
+              f'"<пакет>"), показать владельцу (el accept … --for stage:{nid.lower()}) и стартовать пакет')
     print(f"следы     el artifact <файл> --node {nid.lower()}  ·  el evidence <файл> --node "
           f"{nid.lower()} --check <N>")
     print(f"закрыть   el plan done {nid.lower()} \"<наблюдаемый результат>\"")

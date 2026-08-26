@@ -73,7 +73,7 @@
   .g { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted);
        margin-left: 6px; font-size: .9em; }
   .ph .g { margin-left: 5px; font-size: 12px; }
-  .ph.current .g, .ph.finish .g, .hpill .g, .ph.auto-badge.halt .g, .ph.owe-badge.stand .g,
+  .ph.current .g, .ph.finish .g, .hpill .g, .ph.auto-badge.halt .g, .ph.auto-badge.over .g, .ph.owe-badge.stand .g,
   .ph.owe-badge:hover .g, .ph.amend-badge:hover .g { color: rgba(255,255,255,.85); }
   .ph { white-space: nowrap; line-height: 1.45; display: inline-flex; align-items: baseline; }
   .ph .t { font-size: 13px; }
@@ -153,9 +153,12 @@
   .nfield .md { margin-top: 2px; }
   .ph.amend-badge { color: var(--warn); border-color: var(--warn); }
   .ph.mode-badge { color: var(--muted); border-style: dashed; }
-  /* АВТОНОМИЯ — кредит слова: выдана (синий) · остановлена (красный, залит) · долг (янтарь). */
+  /* АВТОНОМИЯ — грант: активен (синий) · срок вышел (жёлтый, залит) · hold (красный, залит) · завершён (зелёный) · снят (серый). */
   .ph.auto-badge { color: var(--accent); border-color: var(--accent); }
   .ph.auto-badge.halt { color: #fff; background: var(--bad); border-color: var(--bad); font-weight: 600; }
+  .ph.auto-badge.over { color: #fff; background: var(--warn); border-color: var(--warn); font-weight: 600; }
+  .ph.auto-badge.done { color: var(--done); border-color: var(--done); }
+  .ph.auto-badge.gone { color: var(--closed); border-color: var(--closed); }
   .ph.loan-badge { color: var(--loan); border-color: var(--loan); }
   /* ЗА ТОБОЙ — ответы, которые есть только у человека, и их пока нет; «стоим» — залито. */
   .ph.owe-badge { color: var(--warn); border-color: var(--warn); cursor: pointer; }
@@ -181,6 +184,58 @@
   .halt .hh { color: var(--bad); font-weight: 700; font-size: 13px; text-transform: uppercase;
               letter-spacing: .04em; margin-bottom: 4px; }
   .halt .hmeta { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  /* ГРАНТЫ — ПЕРИОДЫ (владелец, 2026-08-26): строка гранта с полосой «точка — полоса — точка»,
+     под ней его слова, условия, поправка владельца, конец; раскрыл — решения агента и сводка
+     работы. Активный: полоса залита на пройденную долю, дальше пунктир и пустая точка. */
+  details.grant { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+                  padding: 12px 18px; margin-bottom: 10px; }
+  details.grant > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline;
+                            gap: 10px; flex-wrap: wrap; }
+  details.grant > summary::-webkit-details-marker { display: none; }
+  details.grant > summary::before { content: "▸"; color: var(--muted); font-size: 12px; }
+  details.grant[open] > summary::before { content: "▾"; }
+  .grant .gname { font-weight: 600; }
+  .grant .gst { font-size: 12.5px; font-weight: 600; padding: 2px 10px; border-radius: 99px; color: #fff;
+                background: var(--accent); white-space: nowrap; line-height: 1.45; }
+  .grant .gst.hold { background: var(--bad); }
+  .grant .gst.done { background: var(--done); }
+  .grant .gst.owner, .grant .gst.replaced, .grant .gst.closed { background: transparent; color: var(--closed);
+                                                                border: 1px solid var(--closed); }
+  .grant .gright { margin-left: auto; color: var(--muted); font-size: 13px; }
+  .grant .gright b { color: var(--accent); }
+  .gline { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+  .gline .dot { width: 11px; height: 11px; border-radius: 99px; flex-shrink: 0; }
+  .gline .dot.hollow { background: var(--card); border: 2px solid var(--accent); box-sizing: border-box; }
+  .gline .bar { flex: 1 1 auto; height: 4px; border-radius: 2px; }
+  .gline .bar.part { display: flex; align-items: center; height: auto; background: none; }
+  .gline .bar.part .fill { height: 4px; border-radius: 2px 0 0 2px; }
+  .gline .bar.part .rest { flex: 1 1 auto; border-top: 3px dashed var(--line); }
+  .gline .short { opacity: .55; }
+  .grant .gtext { margin-top: 8px; font-size: 15px; }
+  .grant .gcond { font-size: 13.5px; margin-top: 4px; display: flex; gap: 18px; flex-wrap: wrap; }
+  .grant .gcond b { color: var(--muted); }
+  .grant .gchange { margin-top: 8px; padding: 8px 12px; border-left: 3px solid var(--warn); background: var(--bg);
+                    border-radius: 0 8px 8px 0; font-size: 13.5px; }
+  .grant .gchange b { color: var(--warn); }
+  .grant .gend { margin-top: 8px; font-size: 13.5px; }
+  .grant .gend b.hold { color: var(--bad); }
+  .grant .gend b.done { color: var(--done); }
+  .grant .gend b.owner, .grant .gend b.replaced, .grant .gend b.closed { color: var(--closed); }
+  .grant .gover { margin-top: 8px; font-size: 13.5px; color: var(--warn); font-weight: 600; }
+  .grant .dhead { margin-top: 14px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em;
+                  color: var(--muted); font-weight: 600; }
+  .grant .dhead span { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .drow { display: flex; gap: 12px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--line); }
+  .drow .dw { font-size: 13px; color: var(--muted); white-space: nowrap; width: 104px; flex-shrink: 0; }
+  .drow .ds { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--accent); white-space: nowrap;
+              width: 132px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; }
+  .drow .dt { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  .grant.hist .drow .dt { color: var(--muted); }
+  .drow .dnew { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 99px; color: #fff;
+                background: var(--accent); margin-left: 8px; white-space: nowrap; }
+  .drow .dwhy { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .grant .gwork { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .grant .gnone { margin-top: 10px; font-size: 13px; color: var(--muted); }
   .loan-row { border-top: 1px solid var(--line); padding: 8px 0; overflow-wrap: anywhere; }
   .loan-row:first-child { border-top: none; }
   .loan-row .v { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 99px;
@@ -712,9 +767,16 @@ window.ELEPHANT_OVERVIEW = null;
     el.innerHTML = (i + 1) + "\u00a0·\u00a0" + phT(ph);
     strip.appendChild(el);
   });
-  /* АВТОНОМИЯ в полосе: выдана · остановлена · долг слова — то же, что печатает el status. */
-  var au = d.autonomy || null;
-  var nDebt = au ? (au.debt || 0) : 0;
+  /* АВТОНОМИЯ в полосе: грант со сроком · hold · завершён · снят · решения агента — то же, что печатает el status. */
+  var au = (d.autonomy && d.autonomy.grants) ? d.autonomy : null;
+  var auLast = au ? au.grant : null, auEnd = auLast ? (auLast.end || null) : null;
+  var auHold = !!(au && !au.active && auEnd && auEnd.kind === "hold");
+  var nNew = au ? (au.new || 0) : 0;
+  function hoursT(h) { return h == null ? "" : (Number.isInteger(h) ? h + " ч" : h + " ч"); }
+  var KIND_RU = {active: "активен", hold: "hold", done: "завершён", owner: "снят владельцем",
+                 replaced: "заменён новым", closed: "задача закрыта"};
+  var KIND_COL = {active: "var(--accent)", hold: "var(--bad)", done: "var(--done)", owner: "var(--closed)",
+                  replaced: "var(--closed)", closed: "var(--closed)"};
   /* ЗА ТОБОЙ (владелец, 2026-08-24): долг владельца — из того же леджера, что печатает el status
      (owe.ledger), плюс открытые развилки, где решает он: это тот же долг вида «решить». */
   var ow = d.owed || null;
@@ -729,30 +791,36 @@ window.ELEPHANT_OVERVIEW = null;
   var nStand = owOpen.filter(function (x) { return x.stands && x.stands.length; }).length +
                (d.phase === "think" ? ownerForks.length : 0);
   /* ЗАКРЫТЫЙ проект (владелец, 2026-08-25: «halt рядом с ✓ done — странно»): автономия — история,
-     не тревога; бейджи гранта/остановки не показываем, долг слова — да, он и после закрытия долг. */
-  if (au && au.grant && !closed) {
-    var ab = document.createElement("span"), g0 = au.grant;
-    if (au.halt) {
-      ab.className = "ph auto-badge halt";
-      ab.innerHTML = term("halt", "автономия остановлена") + "\u00a0· " + when(au.halt.ts);
-      ab.title = au.halt.text || "";
-    } else if (au.active) {
-      ab.className = "ph auto-badge";
-      ab.innerHTML = term("grant", "автономия выдана") + "\u00a0· " + when(g0.ts);
+     не тревога; бейджи гранта/остановки не показываем. */
+  if (au && auLast && !closed) {
+    var ab = document.createElement("span"), g0 = auLast;
+    if (g0.active) {
+      ab.className = "ph auto-badge" + (g0.overrun ? " over" : "");
+      ab.innerHTML = term("grant", g0.name + " · " +
+                          (g0.hours ? g0.elapsed_text + " из " + hoursT(g0.hours) : "идёт " + g0.elapsed_text) +
+                          (g0.overrun ? " — срок вышел, заверши" : ""));
       ab.title = "«" + (g0.text || "") + "»" + (g0.until ? " · до: " + g0.until : "") +
                  (g0.no ? " · нельзя: " + g0.no : "");
-    } else {
-      ab.className = "ph mode-badge";
-      ab.innerHTML = term("grant", "автономия была");
+    } else if (auHold) {
+      ab.className = "ph auto-badge halt";
+      ab.innerHTML = term("hold", "автономия остановлена") + "\u00a0· " + when(auEnd.ts);
+      ab.title = auEnd.text || "";
+    } else if (auEnd && auEnd.kind === "done") {
+      ab.className = "ph auto-badge done";
+      ab.innerHTML = term("grant", "завершён · " + when(auEnd.ts));
+      ab.title = auEnd.text || "";
+    } else if (auEnd && auEnd.kind === "owner") {
+      ab.className = "ph auto-badge gone";
+      ab.innerHTML = term("grant", "снят владельцем · " + when(auEnd.ts));
+      ab.title = auEnd.text || "";
     }
-    strip.appendChild(ab);
-  }
-  if (au && au.grant) {
-    if (nDebt) {
+    if (ab.className) strip.appendChild(ab);
+    if (au.decisions) {
       var lb = document.createElement("span");
-      lb.className = "ph loan-badge";
-      lb.innerHTML = term("debt", "долг слова") + ":\u00a0" + nDebt;
-      lb.title = "слов, которые агент занял за человека и его слово ещё не покрыло";
+      lb.className = "ph auto-badge" + (nNew ? "" : " gone");
+      lb.innerHTML = term("decisions", "решений " + au.decisions + (nNew ? " · новых " + nNew : ""));
+      lb.title = "решения агента в твоё место под грантами" + (nNew ? "; новые — после твоего последнего слова" : "");
+      lb.setAttribute("data-jump", "autonomy");
       strip.appendChild(lb);
     }
   }
@@ -806,15 +874,13 @@ window.ELEPHANT_OVERVIEW = null;
   var h = "";
   /* ОСТАНОВКА — первой: открыв страницу, человек сразу видит, где агент встал и что от него
      нужно. Задача при этом открыта — это не «done». */
-  if (au && au.halt && !closed) {
-    h += sec("halt", term("halt", "автономия остановлена здесь"),
-             '<div class="halt"><div class="hh">⛔ кредит слова дальше не распространяется</div>' +
-             '<div class="txt">' + inl(au.halt.text || "") + "</div>" +
-             '<div class="hmeta">' + when(au.halt.ts) +
-             (au.halt.phase ? " · phase: " + phT(au.halt.phase) : "") +
-             " · долг слова: " + nDebt +
-             " · задача открыта и ждёт слова человека — его слово над той же областью платит займ, " +
-             "его «продолжай» открывает автономию дальше</div></div>");
+  if (auHold && !closed) {
+    h += sec("halt", term("hold", "автономия остановлена здесь"),
+             '<div class="halt"><div class="hh">⛔ грант «' + esc(auLast.name) + '» дальше не действует</div>' +
+             '<div class="txt">' + inl(auEnd.text || "") + "</div>" +
+             '<div class="hmeta">' + when(auEnd.ts) +
+             " · решений агента под грантом: " + auLast.decisions.length +
+             " · задача открыта и ждёт твоего слова — новый грант («продолжай») открывает автономию дальше</div></div>");
   }
   /* ЗА ТОБОЙ — ВЫЯСНИТЬ И РЕШИТЬ (владелец, 2026-08-24): вопрос задан, а ответа нет и у него —
      он пошёл выяснять (кто подписывает, кто третий) или думать (какой вариант). Не тормоз сам
@@ -880,31 +946,60 @@ window.ELEPHANT_OVERVIEW = null;
     h += sec("request", term("user request", "запрос пользователя — с чем он пришёл"), '<div class="plain txt">' +
              esc(d.request).replace(/\\n/g, "\n") + "</div>");
   }
-  /* АВТОНОМИЯ — КРЕДИТ СЛОВА: грант (его слова дословно) · остановка · леджер займов — что агент
-     принял за его слово, почему, как откатить, и оплачено ли это его настоящим словом. Раскрыта,
+  /* АВТОНОМИЯ — ГРАНТЫ КАК ПЕРИОДЫ (владелец, 2026-08-26): каждый грант — строка с названием,
+     состоянием и полосой «точка — полоса — точка»; под ним его слова, условия, поправки, конец;
+     раскрыл — решения агента в его место (новые с его последнего слова помечены) и работа. Раскрыта,
      когда есть долг или остановка; иначе свёрнута — заголовок уже говорит счёт. */
-  if (au && au.grant) {
-    var g1 = au.grant, lr = "";
-    lr += '<div class="loan-row"><span class="v grant">' + term("grant", "грант") + "</span>" + when(g1.ts) +
-          " · «" + inl(g1.text || "") + "»" +
-          (g1.until ? '<div class="fsub"><b>до:</b> ' + inl(g1.until) + "</div>" : "") +
-          (g1.no ? '<div class="fsub"><b>нельзя:</b> ' + inl(g1.no) + "</div>" : "") + "</div>";
-    if (au.halt)
-      lr += '<div class="loan-row"><span class="v halt">' + term("halt", "стоп") + "</span>" + when(au.halt.ts) +
-            " · " + inl(au.halt.text || "") + "</div>";
-    var loans = au.assumes || [];
-    if (!loans.length)
-      lr += '<div class="loan-row"><span class="fsub">займов слова нет — агент ничего не решал за человека</span></div>';
-    loans.forEach(function (a, i) {
-      lr += '<div class="loan-row"><span class="v ' + (a.paid ? "paid" : "debt") + '">' +
-            (a.paid ? term("paid", "оплачен") : term("debt", "долг")) + "</span>" +
-            '<span class="scope">' + esc(a.for || "?") + "</span>" + when(a.ts) + " — " + inl(a.text || "") +
-            (a.why ? '<div class="fsub"><b>почему так принял:</b> ' + inl(a.why) + "</div>" : "") +
-            (a.undo ? '<div class="fsub"><b>откат:</b> ' + inl(a.undo) + "</div>" : "") + "</div>";
+  if (au) {
+    var gh = "", nActive = au.grants.filter(function (g) { return g.active; }).length;
+    au.grants.slice().reverse().forEach(function (g) {
+      var e = g.end || null, kind = g.active ? "active" : (e ? e.kind : "active");
+      var col = KIND_COL[kind] || "var(--closed)", key = "grant:" + g.ts;
+      var right = e ? when(e.ts) + " · " + g.elapsed_text
+                    : (g.hours ? "срок " + hoursT(g.hours) + " · прошло " + g.elapsed_text : "идёт " + g.elapsed_text);
+      var pct = g.active ? (g.hours ? Math.min(100, Math.round(g.elapsed / (g.hours * 3600) * 100)) : 50) : 100;
+      var line = '<div class="gline"><span>' + when(g.ts) + '</span><span class="dot" style="background:' + col + '"></span>' +
+                 (g.active ? '<span class="bar part"><span class="fill" style="width:' + pct + '%;background:' + col + '"></span>' +
+                             '<span class="rest"></span></span><span class="dot hollow" style="border-color:' + col + '"></span>'
+                           : '<span class="bar' + (g.active ? "" : " short") + '" style="background:' + col + '"></span>' +
+                             '<span class="dot" style="background:' + col + '"></span>') +
+                 "<span>" + right + "</span></div>";
+      var body = '<div class="gtext">«' + inl(g.text || "") + "»</div>";
+      if (g.until || g.no)
+        body += '<div class="gcond">' + (g.until ? "<span><b>до:</b> " + inl(g.until) + "</span>" : "") +
+                (g.no ? "<span><b>нельзя:</b> " + inl(g.no) + "</span>" : "") + "</div>";
+      (g.changes || []).forEach(function (c) {
+        body += '<div class="gchange"><b>изменён владельцем</b> ' + when(c.ts) + " · «" + inl(c.text || "") + "»" +
+                (c.what ? " — " + esc(c.what) : "") + "</div>";
+      });
+      if (e) body += '<div class="gend"><b class="' + esc(kind) + '">' + KIND_RU[kind] + " —</b> «" + inl(e.text || "") + "»</div>";
+      if (g.overrun) body += '<div class="gover">срок вышел — агент должен завершить грант (el grant end) или остановиться</div>';
+      var dl = "";
+      if (g.decisions.length) {
+        dl += '<div class="dhead">решения агента под грантом' +
+              (g.active ? "" : " <span>— история: грант закончился, правда — текущее состояние</span>") + "</div><div>";
+        g.decisions.forEach(function (dc) {
+          dl += '<div class="drow"><span class="dw">' + when(dc.ts) + "</span>" +
+                '<span class="ds" title="' + esc(dc.for || "") + '">' + esc(dc.for || "?") + "</span>" +
+                '<div class="dt"><div>' + inl(dc.text || "") + (dc.new ? '<span class="dnew">новое</span>' : "") + "</div>" +
+                (dc.why ? '<div class="dwhy"><b>почему так принял:</b> ' + inl(dc.why) + "</div>" : "") + "</div></div>";
+        });
+        dl += "</div>";
+      } else {
+        dl += '<div class="gnone">решений в твоё место под этим грантом нет</div>';
+      }
+      dl += '<div class="gwork"><b>работа под грантом:</b> ' + esc(g.work_text || "") + "</div>";
+      var open = isOpen(key, g.active || kind === "hold");
+      gh += '<details class="grant' + (g.active ? "" : " hist") + '" data-key="' + esc(key) + '"' + (open ? " open" : "") +
+            "><summary>" + term("grant", "") + '<span class="gname">' + esc(g.name || "") + "</span>" +
+            '<span class="gst ' + esc(kind) + '">' + KIND_RU[kind] + "</span>" +
+            '<span class="gright">решений агента ' + g.decisions.length +
+            (g.new ? " · <b>новых " + g.new + "</b>" : "") + "</span></summary>" + line + body + dl + "</details>";
     });
-    h += sec("autonomy", term("autonomy", "кредит слова") + ' <span class="n">займов ' + loans.length +
-             (nDebt ? " · долг " + nDebt : "") + "</span>",
-             '<div class="plain">' + lr + "</div>", !!(nDebt || au.halt));
+    h += sec("autonomy", term("autonomy", "автономия — гранты и решения агента") +
+             ' <span class="n">грантов ' + au.grants.length + (nActive ? " · активный " + nActive : "") +
+             (nNew ? " · новых решений " + nNew : "") + "</span>",
+             gh, !!(au.active || auHold || nNew));
   }
   /* ПОПРАВКИ ОДНИМ СПИСКОМ — стоят здесь, над лентами; собираются ниже, когда известны
      подписи документов (FRAME · IFRP · лестница думания), и вставляются на это место. */
@@ -979,7 +1074,7 @@ window.ELEPHANT_OVERVIEW = null;
       r.pairs.forEach(function (p) {
         qh += '<div class="qa"><div class="q">' + inl(p.q) +
               (p.area ? '<span class="area">' + esc(p.area) + "</span>" : "") +
-              (p.assumed ? '<span class="area loan" title="' + esc(p.assumed) + '">займ слова — предположено агентом</span>' : "") + "</div>" +
+              (p.assumed ? '<span class="area loan" title="' + esc(p.assumed) + '">решение агента — предположено в его место</span>' : "") + "</div>" +
               (p.a ? '<div class="a">' + md(p.a) + "</div>"
                    : '<div class="a blank">ответа пока нет</div>') +
               (p.assumed ? '<div class="a blank">почему так принял: ' + esc(p.assumed) + "</div>" : "") + "</div>";
@@ -1258,6 +1353,11 @@ window.ELEPHANT_OVERVIEW = null;
                   esc(n.id.toUpperCase()) + '</span><span class="nname">' + esc(n.name) +
                   "</span>" + (LVL[n.level] ? '<span class="lvl">' + LVL[n.level] + "</span>" : "") +
                   stBadge + (ch.length ? '<span class="lvl">внутри ' + ch.length + "</span>" : "") +
+                  /* раскладка этапа (владелец, 2026-08-26): не разложен · ждёт слова · принята */
+                  (n.decomp === "pending" ? '<span class="lvl" style="color: var(--warn); border-color: var(--warn)">раскладка ждёт слова</span>' :
+                   n.decomp === "accepted" ? '<span class="lvl" style="color: var(--done); border-color: var(--done)">раскладка принята</span>' :
+                   (n.decomp === "none" && st !== "done" && ORDER.indexOf(d.phase) >= ORDER.indexOf("execute")) ?
+                     '<span class="lvl">не разложен</span>' : "") +
                   "</summary><div class=\"nbody\">";
         /* суть — первая строка результата, без раскрытия контракта */
         var gist = ((n.fields || {}).result || "").split("\n").filter(function (l) { return l.trim(); })[0] || "";
@@ -1501,7 +1601,7 @@ window.ELEPHANT_OVERVIEW = null;
     var rows = "";
     amList.slice().reverse().forEach(function (a) {
       var st = a.pending ? ["pending", "ждёт подтверждения"] :
-               a.covered_by === "assume" ? ["loan", "принято за тебя — долг"] : ["ok", "подтверждено тобой"];
+               a.covered_by === "assume" ? ["loan", "решено агентом в твоё место"] : ["ok", "подтверждено тобой"];
       rows += '<div class="amrow">' +
               '<span class="v ' + st[0] + '">' + st[1] + "</span>" +
               "⟲ " + (a.late ? "поздний след" : "п" + esc(a.n)) + " · " + when(a.ts) +
@@ -1554,7 +1654,7 @@ window.ELEPHANT_OVERVIEW = null;
   if (!entries.length) jh += '<div class="empty">Записей пока нет.</div>';
   entries.forEach(function (e) {
     jh += '<div class="entry"><div class="top"><span class="type' +
-          (/^(grant|halt|assume|owe|owe-holds|owe-paid|owe-drop)$/.test(e.type || "") ? " loan" : "") + '">' + esc(e.type || "") +
+          (/^(grant|grant-change|grant-end|halt|assume|owe|owe-holds|owe-paid|owe-drop)$/.test(e.type || "") ? " loan" : "") + '">' + esc(e.type || "") +
           "</span><span>" + when(e.ts) + "</span></div>" +
           '<div class="text">' + esc(e.text || e.short || "") +
           (e.detail ? "\n" + esc(e.detail) : "") + "</div></div>";
@@ -1587,7 +1687,7 @@ window.ELEPHANT_OVERVIEW = null;
     ["criteria · verdict: met / failed / open", "критерии и вердикты: сошёлся / не сошёлся / не проверялся", "el validate"],
     ["evidence · artifacts", "доказательства · произведённое", "el evidence <файл> · el artifact <файл>"],
     ["accept", "слово человека — над планом, узлом, результатом", "el accept --for"],
-    ["grant · assume · debt · halt", "автономия: грант · займ слова · долг · остановка", "el grant / el halt"],
+    ["grant · change · end · hold", "автономия: грант — период; его поправка · завершён · hold (аварийный) · снят владельцем; под грантом — решения агента (--assumed)", "el grant / el grant change / el grant end / el halt"],
     ["owed · owe", "за тобой: ответы, которые есть только у тебя", "el owe / el owe answer"],
     ["todo · --every", "на потом: обещание к фазе · напоминание", "el todo"],
     ["log", "ход работы: что сделано по узлу, по ходу", "el log \"…\" → узел в работе · --node · --free"],

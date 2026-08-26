@@ -700,8 +700,14 @@ PHASE_MAP = {
                 "interpretation · (3) resources: people, technical, money, time · (4) artifacts "
                 "the node produces · (5) where each artifact is stored — a concrete path, not "
                 "'somewhere' · (6) inputs required from the parent or neighbours · (7) "
-                "dependencies and order, acyclic · (8) who executes it. The move out of plan "
-                "needs the owner's explicit yes — not an assumption."),
+                "dependencies and order, acyclic · (8) who executes it. THE PLAN DRAWS THE "
+                "STAGES (owner, 2026-08-26): a reasonable cut, usually 3–7; the first stage holds "
+                "the initial preparation (what is there, what is missing), the last holds the "
+                "final check; names are free. Work packages come when a stage STARTS, on execute — "
+                "a big task may draw them here already. Show the owner the cut of stages and say "
+                "plainly that every stage will be laid out when it starts: his yes over the plan "
+                "is a word over that cut. The move out of plan needs the owner's explicit yes — "
+                "not an assumption."),
         "gate": ("узлы заведены ДО работы, не после (план — не бумаги задним числом); есть хотя бы один узел и у каждого заполнены все девять полей · ЦЕЛОСТНОСТЬ МАРШРУТА: за каждым пунктом чек-листа приёмки и каждой крупной частью пути стоит узел или объявленное место раскрытия (el plan integrity) · слово "
                  "владельца над планом (acceptance.md) · plan.md — проекция дерева, есть всегда, когда есть узлы"),
         "cmds": ['el plan new s1 "<этап>"', 'el plan set s1 <поле> "<текст>"', "el sync",
@@ -716,8 +722,11 @@ PHASE_MAP = {
         "how": ("This is the commit point: before it everything replays for free, after it "
                 "the world changed. WORK GOES NODE BY NODE, and the state says whose move it "
                 "is (owner, 2026-08-22): `el plan start <узел>` names THE node in work (one "
-                "at a time) — a big stage is split into works first (el plan new s4 wp1 …) "
-                "and the works are what you start · do it · answer its criteria AS YOU GO "
+                "at a time). A STAGE IS LAID OUT BEFORE IT STARTS (owner, 2026-08-26): work "
+                "packages → tasks → subtasks, the nearest level only; the layout is shown to the "
+                "owner and his word recorded over the stage (el accept … --for stage:s4); the "
+                "packages are what you start, never the stage itself (light mode warns, soft and "
+                "strict refuse) · do it · answer its criteria AS YOU GO "
                 "(el validate <узел> N --met … --evidence <файл>) — the local check, not a "
                 "pile for the end · file artifacts and evidence TO the node (--node) · at the "
                 "node's stop show the human and hand him the baton (el plan wait) — then do "
@@ -821,7 +830,10 @@ PHASE_BEATS = {
         ("сетевой план — проекция дерева", "agent", "plan.md", "soft",
          "не пишется рукой: el строит его из полей узлов — deps (что после чего; волны = что "
          "можно вести параллельно) и sync (где остановки). Почему порядок такой — thinking/order.md. "
-         "Изменить план = изменить узлы (его решение 2026-08-24)",
+         "Изменить план = изменить узлы (его решение 2026-08-24). На плане — ЭТАПЫ (владелец, "
+         "2026-08-26): крупность разумная, первый содержит первичную подготовку (что есть, чего "
+         "нет), последний — итоговую проверку; пакеты — при старте этапа, крупная задача — можно и здесь; "
+         "владельцу показать нарезку с пометкой, что каждый этап будет разложен при старте",
          'el plan — печатает · el plan set s2 deps "после S1" · el plan set s2 sync "…"'),
         ("узлы с контрактом из девяти полей", "agent", "nodes/<узел>.md", "light",
          "узел — единица работы с контрактом: outcome · inputs · outputs · check · sync · "
@@ -833,10 +845,6 @@ PHASE_BEATS = {
          "от тебя) · развилка · разрешение; одна строка без ролей — тоже остановка, её вид CLI "
          "определит сам",
          'el plan set s1 sync "показываю: …\\nувидишь: …\\nпотрогать: …\\nот тебя: …"'),
-        ("этап разложен на работы перед стартом", "agent", "nodes/s1/wp1.md", "strict",
-         "в строгом режиме этап не стартует, пока не разложен на работы — чтобы активный узел "
-         "был размером с день, не с неделю",
-         'el plan new s1 wp1 "<работа>"'),
         ("не меньше пяти критериев у узла", "agent", "поле check узла", "strict",
          "в строгом режиме у узла не меньше пяти критериев: чем он закрыт, видно без автора",
          'el plan set s1 check "…"'),
@@ -846,6 +854,15 @@ PHASE_BEATS = {
          'el accept "<его да>" --for plan'),
     ],
     "execute": [
+        ("этап разложен на пакеты работ перед стартом", "agent", "nodes/s1.wp1.md", "soft",
+         "этап сам не стартует (владелец, 2026-08-26): при старте он раскладывается на пакеты "
+         "работ → работы → подзадачи, только ближайший уровень; крупность — активный узел размером "
+         "с день, не с неделю; в light — предупреждение, в soft и strict — отказ (--force — осознанно)",
+         'el plan new s1 wp1 "<пакет работ>" · el plan new s1 wp1 t1 "<работа>"'),
+        ("слово владельца над раскладкой этапа", "owner", "acceptance.md (for: stage:s1)", "soft",
+         "раскладка показана человеку, его слово записано над этапом — только после него стартует "
+         "первый пакет; под грантом агент решает в его место (--assumed)",
+         'el accept "<его слова>" --for stage:s1 · el plan start s1.wp1'),
         ("назван активный узел — один", "agent", "status: active в nodes/<узел>.md", "light",
          "СНАЧАЛА УЗЕЛ, ПОТОМ РАБОТА — узел заводится и стартует ДО первого шага, не после (владелец, 2026-08-25: агенты делали работу, а потом заводили узлы и заполняли бумаги; по штампам узел жил 40 секунд и «сделал» час работы). Увидел новую работу — el plan new, потом делай; контракт допишешь до закрытия, но узел существует раньше работы. Дальше узел за узлом: start → делать и писать el log (ложится к узлу) → критерии по ходу, не пачкой в конце → следы к узлу → остановка "
          "(wait) → done; активный узел один — по нему el next ведёт доску",
@@ -1094,16 +1111,17 @@ HOW IT WORKS
     move»; what you could not mend, write down — the agent that feels the pain is rarely
     the one that fixes it, and a remark in the chat dies with the session.
 
-  AUTONOMY IS A CREDIT OF THE WORD, NOT ITS ABSENCE (owner, 2026-08-22)
-    el grant "<his words: работай сам>"        his word that opens autonomy — recorded verbatim
-    el accept "<what you take for his word>" --assumed "<why>" [--for <scope>]
-    el context qa "<q>" "<assumed answer>" --assumed "<why>" --area <a>
-    el think decide <fork> "<option>" --assumed "<why>" --undo "<how to reverse>"
-    Every borrowed word is a DEBT: el review lists them, his later el accept over the same
-    scope pays them; `completed` is refused while a debt stands. The last word (final
-    acceptance) is never borrowed. When the grant does not reach the next step — it needs his
-    word, or an irreversible act he did not allow, or you honestly have no move left:
-    el halt "<why it stops here · what is needed from him>"  — and stop. Not «done».
+  AUTONOMY IS A GRANT — A PERIOD WITH A START AND AN END (owner, 2026-08-22 · 2026-08-26)
+    el grant "<his words: работай сам>" [--name "…"] [--hours N] [--until "…"] [--no "…"]
+                                               his word that opens it — recorded verbatim
+    el grant change "<his words>" --hours 4    he corrected the standing grant — the same grant
+    el grant end "<what proves it>"            the condition or the term reached — the natural end
+    el halt "<why · what is needed>"           HOLD, the emergency exit — it cannot go on without him
+    el halt "<his words>" --by user            his own «стоп» — the grant taken back by the owner
+    Under a grant you DECIDE IN HIS PLACE: el accept … --assumed "<why>" · el context qa … --assumed
+    · el think decide … --assumed --undo. A decision is not a debt and is not rolled back —
+    he reads it when he returns (el review), and if he wants it otherwise he says so and the
+    work goes on from the CURRENT state. The final word (acceptance) is never decided for him.
     Keep brief.md (el brief) — the one sheet a returning agent reads first: where the baseline
     lies, what is best, what not to repeat, what is now. Rewritten, bounded, never a chronicle.
     Details: el blueprint autonomy · el blueprint search
@@ -1118,22 +1136,26 @@ HOW IT WORKS
 # Printed by `el blueprint autonomy`. Not a mode on the light/soft/strict slider (that is
 # about traces); a separate axis — WHO gives the word and WHEN. Derived from two recorded
 # facts: a `grant` event (his words) and, later, a `halt` event (where it stopped).
-AUTONOMY_TITLE = "АВТОНОМИЯ — кредит слова человека"
+AUTONOMY_TITLE = "АВТОНОМИЯ — грант и решения агента под ним"
 AUTONOMY_RULES = [
     ("грант", 'автономию выдаёт человек своим словом — «работай сам», «действуй автономно», '
-              '«продолжай без меня»: el grant "<его слова дословно>" [--until "<до какой остановки>"] '
-              '[--no "<чего не делать: push · деньги · удаление · отправка>"]. Агент сам себе '
-              'автономию не выдаёт. Грант — событие журнала; «выдана / остановлена / долг N» '
-              'вычисляется, не хранится'),
-    ("займ", 'там, где нужен человек, а его нет, агент занимает слово: те же команды с --assumed '
-             '"<почему так принял>" — el accept … --assumed (слово над картиной · планом · остановкой '
-             'узла), el context qa "<вопрос, который задал бы>" "<ответ, который предполагаю>" '
-             '--assumed, el think decide … --assumed --undo "<как откатить>". Предположение — самое '
-             'узкое, совместимое с его словами; помечено в файле и в журнале'),
-    ("долг", 'каждый займ — долг слова: el review печатает леджер (что принял · почему · оплачен ли). '
-             'Платит человек своим словом над той же областью: el accept "<его слова>" --for context '
-             'покрывает все займы контекста; --for node:<id> — займ остановки; --for design:<id> — '
-             'развилку. completed с открытым долгом — отказ'),
+              '«продолжай без меня»: el grant "<его слова дословно>" [--name "<коротко>"] [--hours N — '
+              'срок] [--until "<до какой остановки>"] [--no "<чего не делать: push · деньги · удаление · '
+              'отправка>"]. Агент сам себе автономию не выдаёт. Грант — период: начался его словом, '
+              'кончается одним из пяти концов (см. «конец»); начался и не кончился — активен. '
+              'Всё вычисляется из журнала, не хранится'),
+    ("изменение", 'владелец поправил условия действующего гранта («давай четыре часа, не два») — тот же '
+                  'грант, изменение внутри: el grant change "<его слова>" --hours 4 | --until | --no; '
+                  'записано кто, когда, что было → стало. «Продолжай» после конца — новый грант'),
+    ("решение", 'там, где нужен человек, а его нет, агент решает в его место: те же команды с --assumed '
+                '"<почему так принял>" — el accept … --assumed (слово над картиной · планом · остановкой '
+                'узла), el context qa "<вопрос, который задал бы>" "<ответ, который предполагаю>" '
+                '--assumed, el think decide … --assumed --undo "<как откатить>". Предположение — самое '
+                'узкое, совместимое с его словами; помечено в файле и в журнале под грантом. Это не '
+                'долг и не откатывается: решение уже сделано и по нему работали; он прочтёт, вернувшись '
+                '(el review — гранты и решения под ними, новые с его последнего слова помечены), не '
+                'согласится — скажет, и дальше по его слову от ТЕКУЩЕГО состояния. Решения '
+                'закончившегося гранта — история, на них не опираются'),
     ("владелец", 'ДОЛГ ВЛАДЕЛЬЦА, обратный случай: ответ есть только у человека, и его пока нет — он пошёл '
                        'выяснять или думать (кто подписывает, кто третий, какой вариант). '
                        'el owe "<вопрос>" --how "<у кого / где>" — на любой фазе. Занять ТАКОЙ ответ '
@@ -1143,15 +1165,17 @@ AUTONOMY_RULES = [
                        'отпускается сам'),
     ("последнее слово", 'приёмка (--for final) не занимается никогда: автономный прогон кончается '
                         'состоянием «готово, жду приёмки», а не completed. Смена цели — только его словом'),
-    ("граница", 'грант кончился, когда следующий шаг требует слова, которое занять нельзя; '
-                'необратимого действия, которого грант не разрешал; или ходов честно не осталось '
-                '(плато, семейства исчерпаны). Тогда: el halt "<почему дальше без человека нельзя · '
-                'что нужно от него>" — и стоп. Это не «задача закрыта», это «мой кредит дальше не '
-                'распространяется». el status печатает это первым; человек снимает остановку новым '
-                'грантом («продолжай») или своим словом'),
+    ("конец", 'пять концов гранта. Естественный — условие или срок достигнуты: el grant end "<чем '
+               'доказано>" (срок --hours вышел — el status говорит «срок вышел — заверши»). Аварийный — '
+               'hold: следующий шаг требует его слова, которое за него не решить (приёмка, смена цели); '
+               'необратимого действия, которого грант не разрешал; или ходов честно не осталось (плато, '
+               'семейства исчерпаны) — el halt "<почему дальше без человека нельзя · что нужно от него>" '
+               '— и стоп, не «done». Владелец сказал «стоп» — el halt "<его слова>" --by user. Новый '
+               'грант поверх действующего — прежний заменён. Задача закрыта — грант кончился с ней. '
+               'el status печатает конец первым; новый грант — только его словом («продолжай»)'),
     ("замер", 'автономный поиск возможен ровно настолько, насколько автоматичен замер: «лучше» '
               'должно мериться командой. Нет прибора — агент сначала строит его (узел-стенд) и '
-              'помечает выбор займом; иначе он меряет на глаз и врёт себе'),
+              'помечает выбор как решение в его место; иначе он меряет на глаз и врёт себе'),
     ("листок", 'brief.md — максимальное сжатие для агента, не для человека: baseline и где лежит · '
                'чем меряем · лучшее и где лежит · что не повторять · что сейчас. Переписывается целиком '
                '(el brief "<текст>"), ограничен по строкам и символам — не влезло, убери менее важное; '
@@ -1176,7 +1200,7 @@ SEARCH_RULES = [
                 'понять · подумать · спланировать · исполнить · проверить на живом · уроки · сверка'),
     ("контекст", 'сам за двоих, если человека нет: что значит «лучше» (метрика, набор, порог) · чем '
                  'меряем · что допустимо · где граница (что НЕ делаем — beyond) — вопрос + предполагаемый '
-                 'ответ, пометка займа. Цель словами — в ИФР (критерии успеха · чек-лист); числа — в '
+                 'ответ, помечен как решение в его место. Цель словами — в ИФР (критерии успеха · чек-лист); числа — в '
                  'критериях этапа поиска'),
     ("думание", 'baseline — замер «как сейчас» · семейства методов, не попытки · кристалл копит, что '
                 'понято. Сюда возвращаются по ходу — за новым семейством, когда старое исчерпано '
