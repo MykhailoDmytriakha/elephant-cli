@@ -69,6 +69,11 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     the concept (model, layers, what to keep), filed by --file
 #
 # look — the three questions and the map
+#   el resume                         ONE CARD TO COME BACK ON: the sheet · autonomy · the owner's
+#                                     debt · the baton · the node in work · three states of
+#                                     checking · contradictions · the gate · THE one move (the
+#                                     same `el next` gives) · the rule of the return. The page's
+#                                     «карточка для агента» ends with it; --task <id> for another
 #   el status                         where we are: project, task, and the phase strip —
 #                                     what is passed, what is current, what lies ahead
 #   el next                           the next move: phase, beat, what blocks, which command
@@ -309,7 +314,7 @@ from .plan import cmd_plan, cmd_sync
 from .validate import cmd_validate
 from .views import flush_renders
 from .navigate import (cmd_ctx, cmd_forward, cmd_left, cmd_next, cmd_phase, cmd_progress,
-                       cmd_projects, cmd_status, cmd_where)
+                       cmd_projects, cmd_resume, cmd_status, cmd_where)
 from .owe import cmd_owe
 from .commands import (cmd_accept, cmd_ack, cmd_beat, cmd_blueprint, cmd_boot, cmd_brief, cmd_doctor,
                        cmd_done, cmd_feedback, cmd_grant, cmd_halt, cmd_init, cmd_lesson, cmd_log,
@@ -526,6 +531,7 @@ def _dispatch(argv):
     p = sub.add_parser("blueprint", add_help=False); p.add_argument("part", nargs="?"); p.add_argument("--mode"); p.set_defaults(fn=cmd_blueprint)
     p = sub.add_parser("mode", add_help=False); p.add_argument("mode", nargs="?"); p.add_argument("--why"); p.add_argument("--task"); p.set_defaults(fn=cmd_mode)
     p = sub.add_parser("status", add_help=False); p.add_argument("--short", action="store_true"); p.set_defaults(fn=cmd_status)
+    p = sub.add_parser("resume", add_help=False); p.add_argument("--task"); p.set_defaults(fn=cmd_resume)
     for nm in ("projects", "ls"):
         sub.add_parser(nm, add_help=False).set_defaults(fn=cmd_projects)
     for nm in ("validate", "check"):

@@ -246,6 +246,42 @@ def validation_state(tdir):
     return nodes, verdicts, open_n, failed_n, declined_n, unverified_n
 
 
+def validation_split(tdir):
+    """Two ledgers that must not blur (feedback 2026-08-26, the MLE task: «44/57 verdicts,
+    4/6 nodes и 13 открытых пунктов ИФР читаются как общий успех»): the NODES' own criteria
+    — does it work — apart from the acceptance checklist IFR — is it what he asked for.
+    {"nodes": c, "owner": c}, c = {total, met, failed, open, unverified, declined}."""
+    nodes, verdicts, *_ = validation_state(tdir)
+    out = {"nodes": dict(total=0, met=0, failed=0, open=0, unverified=0, declined=0),
+           "owner": dict(total=0, met=0, failed=0, open=0, unverified=0, declined=0)}
+    for n in nodes:
+        c = out["owner"] if n["id"] == "IFR" else out["nodes"]
+        for i in range(1, len(criteria_of(n)) + 1):
+            st = verdicts.get((n["id"], i), ("open", ""))[0]
+            c["total"] += 1
+            c[st if st in ("failed", "open", "unverified", "declined") else "met"] += 1
+    return out
+
+
+def check_line(vs, word):
+    """The `проверка` line of `el status`: nodes · owner's checklist · owner's word."""
+    def part(c):
+        if not c["total"]:
+            return "критериев нет"
+        s = f"{c['met']}/{c['total']} сошлось"
+        if c["failed"]:
+            s += f" · {c['failed']} НЕ сошлось"
+        if c["unverified"]:
+            s += f" · {c['unverified']} не проверено"
+        if c["open"]:
+            s += f" · {c['open']} без вердикта"
+        if c["declined"]:
+            s += f" · {c['declined']} снято"
+        return s
+    return (f"узлы (работает ли): {part(vs['nodes'])}  |  приёмка владельца (то ли это): "
+            f"чек-лист {part(vs['owner'])} · его слово {'есть' if word else 'нет'}")
+
+
 # ── Свёртка — один закон на все уровни ────────────────────────────────────────
 #
 # The owner's design (2026-08-23): validation is a matryoshka, not a flat list. The check

@@ -6,13 +6,13 @@ open) · where (absolute paths) · projects (the list) · forward / phase (one p
 with a reason; back is free). `next` and `forward` must answer the gate question the
 same way — they live side by side on purpose.
 """
-import contextlib, io, json, os, re, sys
+import argparse, contextlib, io, json, os, re, sys
 from .protocol import (AREA_KEYS, CONTEXT_FILES, CONTEXT_MIN, CONTEXT_STEPS, MODES, NEXT_MOVE, THINK_FILES,
                        OUTCOME_RU, PHASE_MAP, PHASE_MODE, PHASE_RU, PHASES, QA_AREAS, SCOPE_KEYS,
                        THINK_STEPS, required_in)
 from . import autonomy, owe
 from .worklog import last_line, stale_lines, worklog
-from .state import (CLI_ENTRY, SKILL_ROOT, brief_read, current_task, find_root, journal, journal_path, open_tasks,
+from .state import (CLI_ENTRY, SKILL_ROOT, brief_read, brief_when, current_task, find_root, journal, journal_path, open_tasks,
                     phase_no, phase_state, pick_task, request_line, task_mode,
                     project_root, require_root, resolve_task, task_meta, task_state,
                     todo_items, todo_line,
@@ -23,7 +23,7 @@ from .context import area_coverage, context_step, questions_stat, scope_done
 from .think import forks_read, think_step
 from .plan import (STATUS_MARK, STATUS_RU, active_node, drift_lines, plan_drift, node_gaps, node_open, node_status,
                    node_sync, nodes_all, sync_mark, waiting_nodes)
-from .validate import VERDICT_RU, criteria_of, rollup, validation_state
+from .validate import VERDICT_RU, check_line, criteria_of, rollup, validation_split, validation_state
 from .amend import acked, amend_events, pending_line, pending_word, word_given_on
 
 
@@ -368,6 +368,12 @@ def cmd_status(args):
         if st == "active":
             g_open, g_why = gate_verdict(root, task, tdir, ph)
             print("gate      " + ("открыт — el forward --why \"…\"" if g_open else f"закрыт — {g_why} · подробно: el next"))
+            # THREE STATES, not one «готово» (feedback 2026-08-26): the nodes' own criteria say
+            # «it works», the IFR checklist says «it is what he asked for», and his final word
+            # is a third thing — apart, so green node verdicts cannot read as acceptance.
+            vs = validation_split(tdir)
+            if vs["nodes"]["total"] or vs["owner"]["total"]:
+                print("проверка  " + check_line(vs, word_given_on(root, task, "validate")))
         if getattr(args, "short", False):
             print(f"cli       {cli}")
             return 0
@@ -426,7 +432,7 @@ def cmd_status(args):
     if task:
         b = brief_read(os.path.join(root, task))
         if b:
-            print("листок    brief.md — читать первым:")
+            print(f"листок    brief.md · переписан {brief_when(tdir)} — читать первым:")
             for bl in b.splitlines():
                 print(f"  {bl}")
             bs = autonomy.brief_stale_line(root, task, indent="  ")
@@ -1254,6 +1260,137 @@ def cmd_next(args):
         print('         покажи так, чтобы можно было потрогать · услышь · запиши: el accept "<его слова>"')
     else:
         print('gate     open — el forward --why "<what is closed and what proves it>"')
+    return 0
+
+
+def cmd_resume(args):
+    """ONE CARD TO COME BACK ON (feedback 2026-08-26 → owner: «есть проект, мне нужно
+    продолжить работать — это и есть el resume»). Not a new source of truth: every line is
+    what another command already answers — the sheet, autonomy, the owner's debt, the baton,
+    the node in work, the three states of checking, contradictions, the gate, and THE one
+    move `el next` gives — gathered on one screen, so a returning agent (or a fresh chat
+    given the page's «карточка для агента») starts here and not from the whole picture.
+    Closed by the rule of the return: with a grant — report in a line and go; without —
+    report and ask; on the owner's debt — work around it, never guess it."""
+    root = find_root()
+    if not root:
+        print("elephant  off — хранилища здесь нет")
+        print('start     el boot "<задача>" --id <имя> --raw "<его слова о задаче>"')
+        return 0
+    want = getattr(args, "task", None)
+    task = resolve_task(root, want) if want else current_task(root)
+    if want and not task:
+        print(f"нет задачи {want}", file=sys.stderr)
+        print(f"hint     известны: {', '.join(tasks_of(root)) or '—'} · el projects", file=sys.stderr)
+        return 1
+    if not task:
+        live = open_tasks(root)
+        print(f"в руке    ничего (idle) · открытых {len(live)}")
+        for t in live[:6]:
+            m = task_meta(root, t)
+            print(f"          {t} · {phase_no(m.get('phase', 'context'))}/8 {m.get('phase', 'context')}"
+                  f" · {(m.get('name') or '')[:50]}")
+        print("взять     el use <id> — и снова el resume" if live else
+              'новая     el boot "<задача>" --id <имя> --raw "<его слова о задаче>"')
+        return 0
+    tdir = os.path.join(root, task)
+    meta = task_meta(root, task)
+    ph = meta.get("phase", "context")
+    st = meta.get("status", "active")
+    print(f"RESUME    {task}")
+    print(f"          {(meta.get('name') or '')[:80]}")
+    if st != "active":
+        print(f"исход     {st.upper()} · закрыта {str(meta.get('closed_at', '?'))[:10]}")
+        print(f"читать    el context --task {task} · el progress --task {task} · снова открыть: "
+              f'el reopen {task} --why "…"')
+        return 0
+    try:
+        from .views import phase_reached
+        reached = phase_reached(tdir, meta)
+    except Exception:
+        reached = ph
+    drift = f" · по следам {phase_no(reached)}/8 {reached}" if reached != ph else ""
+    _state, human = task_state(tdir)
+    print(f"фаза      {phase_no(ph)}/8 {ph}{drift} · mode {meta.get('mode', 'soft')} · {human}")
+    # THE SHEET, whole — it is bounded for exactly this reading.
+    b = brief_read(tdir)
+    if b:
+        print(f"листок    переписан {brief_when(tdir)} — читать первым:")
+        for bl in b.splitlines():
+            print(f"          {bl}")
+        bs = autonomy.brief_stale_line(root, task, indent="          ")
+        if bs:
+            print(bs)
+    else:
+        print('листок    нет — вернувшийся агент начнёт с нуля; заведи: el brief "<baseline · замер · '
+              'лучшее · не повторять · сейчас · следующая команда>"')
+    for l in return_lines(root, task):
+        print(l)
+    for l in stale_lines(root, task, tdir):
+        print(l)
+    auto = autonomy.state(root, task)
+    for l in autonomy.lines(root, task):
+        print(l)
+    for l in owe.lines(root, task):
+        print(l)
+    for w_n in waiting_nodes(tdir):
+        print(f"эстафета  у владельца — {w_n['id']} · {w_n.get('waiting_note') or w_n.get('name', '')} "
+              f'· его слово: el accept "…" --for node:{w_n["id"].lower()}')
+    act = active_node(tdir)
+    if act and node_status(act) == "active":
+        print(f"узел      {act['id']} · {act.get('name', '')[:50]} · в работе"
+              + (f" с {human_when(act['started_at'])}" if act.get("started_at") else ""))
+        print(f"следы     {last_line(root, task, act['id'])}")
+    pend = pending_word(root, task)
+    if pend:
+        print(f"поправки  без его слова: {pending_line(pend)} — предъяви и запиши ответ: el accept")
+    vs = validation_split(tdir)
+    if vs["nodes"]["total"] or vs["owner"]["total"]:
+        print("проверка  " + check_line(vs, word_given_on(root, task, "validate")))
+    # CONTRADICTIONS — the doctor's count, so a lying state is caught before the first move.
+    from .commands import cmd_doctor
+    buf_d = io.StringIO()
+    with contextlib.redirect_stdout(buf_d), contextlib.redirect_stderr(io.StringIO()):
+        cmd_doctor(argparse.Namespace(task=task))
+    n_err = sum(1 for l in buf_d.getvalue().splitlines() if l.strip().startswith("ERROR"))
+    n_warn = sum(1 for l in buf_d.getvalue().splitlines() if l.strip().startswith("WARN"))
+    if n_err or n_warn:
+        print(f"сверка    противоречий {n_err} · предупреждений {n_warn} — el doctor")
+    g_open, g_why = gate_verdict(root, task, tdir, ph)
+    print("gate      " + ('открыт — el forward --why "…"' if g_open else f"закрыт — {g_why}"))
+    # THE ONE MOVE — the same answer `el next` gives, taken from it, not recomputed.
+    buf_n = io.StringIO()
+    with contextlib.redirect_stdout(buf_n), contextlib.redirect_stderr(io.StringIO()):
+        cmd_next(argparse.Namespace(task=task, short=True))
+    lines_n = buf_n.getvalue().splitlines()
+    move = []
+    for i, l in enumerate(lines_n):
+        if l.startswith("next     "):
+            move.append("next      " + l[9:])
+            for c in lines_n[i + 1:]:
+                if c.startswith("         "):
+                    move.append(" " + c)
+                else:
+                    break
+            break
+    for l in move or ["next      ход не определён — el next"]:
+        print(l)
+    # THE RULE OF THE RETURN — what the state allows before anything is written.
+    if auto and auto["halt"]:
+        rule = "стоп стоит — дальше без человека нельзя: доложи и жди его слова"
+    elif auto and auto["active"]:
+        rule = ("грант стоит — доложи одной строкой и продолжай; недостающее слово занимай и помечай "
+                "(--assumed), ответ владельца (за тобой) не занимается, необратимое — el halt")
+    else:
+        rule = ("гранта нет — доложи человеку (где мы · что дальше · что за ним) и спроси, приступать ли; "
+                "до его слова только чтение: ни записи, ни el forward")
+    if pend:
+        rule = "картина правилась после его слова — сначала предъяви поправки; " + rule
+    if n_err:
+        rule = "состояние противоречиво — сначала el doctor и сверка; " + rule
+    print(f"правило   {wrap(rule, indent='          ')}")
+    print("дальше    el next — ход подробно · el context --section <раздел> — один раздел · "
+          "el context — вся картина, только если вопрос в ней")
     return 0
 
 

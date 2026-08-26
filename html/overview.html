@@ -607,7 +607,7 @@ window.ELEPHANT_OVERVIEW = null;
     '<code class="hid">' + esc(d.dir || "") + "</code></span>" +
     '<div class="hbtns"><button class="cbtn" data-copy="id" title="имя папки проекта">' + ICON + "<span>id</span></button>" +
     (absPath ? '<button class="cbtn" data-copy="path" title="полный путь к папке проекта">' + ICON + "<span>путь</span></button>" : "") +
-    '<button class="cbtn" data-copy="card" title="название · папка · статус · даты · как продолжить — вставь агенту">' +
+    '<button class="cbtn" data-copy="card" title="промпт для запуска агента: что за проект · где · состояние · команда el resume — вставь в чистый чат">' +
     ICON + "<span>карточка для агента</span></button></div>";
 
   /* the facts: created · updated (· closed · took) · mode · plan nodes */
@@ -634,10 +634,14 @@ window.ELEPHANT_OVERVIEW = null;
   document.getElementById("hfacts").innerHTML = hf;
   document.getElementById("hcard").hidden = false;
 
-  /* КАРТОЧКА ДЛЯ АГЕНТА — то, что человек вставляет в новую сессию: что за проект, где лежит,
-     в каком состоянии и одна команда, чтобы взять его в руку (или прочитать закрытый). */
+  /* КАРТОЧКА ДЛЯ АГЕНТА — промпт запуска (владелец, 2026-08-26: «открываю overview, жму
+     «карточка для агента», вставляю в чистый чат, Enter — и оно пошло»): что за проект, где
+     лежит, в каком состоянии, и одна команда — взять в руку и получить карточку возврата
+     (el resume), которая сама скажет листок, что за владельцем, один ход и правило возврата. */
   function cardText() {
-    var lines = ["Project: " + (d.name || d.dir || "")];
+    var lines = [closed ? "Elephant — закрытая задача, прочитать и доложить." :
+                          "Elephant — продолжаем задачу; работать через el (skill elephant)."];
+    lines.push("Project: " + (d.name || d.dir || ""));
     if (absPath) lines.push("Folder: " + absPath);
     lines.push("Status: " + (closed ? hOut[0] + (hOut[1] ? " (" + hOut[1] + ")" : "") +
                                       (d.closed_at ? " · closed " + isoShort(d.closed_at) : "")
@@ -648,8 +652,16 @@ window.ELEPHANT_OVERVIEW = null;
                " · updated: " + (d.updated_at ? isoShort(d.updated_at) : "—"));
     if (hNodes[1]) lines.push("Nodes: " + hNodes[0] + "/" + hNodes[1] +
                              (hVal[1] ? " · criteria met: " + hVal[0] + "/" + hVal[1] : ""));
-    if (rootPath && d.dir) lines.push((closed ? "Read: " : "Continue: ") + 'cd "' + rootPath +
-                                      '" && el ' + (closed ? "context --task " : "use ") + d.dir);
+    if (rootPath && d.dir) {
+      if (closed) {
+        lines.push('Read: cd "' + rootPath + '" && el context --task ' + d.dir);
+      } else {
+        lines.push('Run: cd "' + rootPath + '" && el use ' + d.dir + " && el resume");
+        lines.push("Дальше: по карточке resume — листок (brief) первым, потом ровно ОДИН ход (next); " +
+                   "правило возврата напечатано там (гранта нет → доложи и спроси, прежде чем писать; " +
+                   "грант стоит → доклад одной строкой и работа). Полная картина (el context) — только если вопрос в ней.");
+      }
+    }
     return lines.join("\n");
   }
   function copyLegacy(text) {

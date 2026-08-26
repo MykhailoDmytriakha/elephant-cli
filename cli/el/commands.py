@@ -11,7 +11,7 @@ from .worklog import stale_lines
 from .state import SKILL_ROOT
 from . import autonomy, owe
 from .blueprint import PARTS, render, resolve_part
-from .state import (MARKER, RESERVED_EVENTS, STORAGE_DIR, brief_path, brief_read, current_task, feedback_dir,
+from .state import (MARKER, RESERVED_EVENTS, STORAGE_DIR, brief_path, brief_read, brief_when, current_task, feedback_dir,
                     todo_items, todo_line,
                     feedback_ids, feedback_looks_like_id, feedback_resolve, find_root, fm_read, fm_write, git_dirty,
                     hold, id_words_dropped, journal, lessons_path, lessons_read, mark_render, norm_id, now_iso,
@@ -450,6 +450,16 @@ def cmd_accept(args):
     journal(root, task, "accepted", args.words.strip(), {"phase": phase, "for": scope})
     touch(root, task)
     print(f"recorded  {rel} · {scope}")
+    mark = change_mark(args.words)
+    if mark:
+        # Acceptance does not edit the contract: what he ADDED goes the amendment way, which
+        # re-opens his word by itself — otherwise the archive keeps both readings and no one
+        # knows which one the nodes and verdicts answer to.
+        print(f"похоже    в слове есть изменение («{mark}»), а не только приёмка — приёмка контракт не правит.")
+        print('          оформи поправкой: el context requirements "<что добавилось>" --why "<его слова>" · '
+              'чек-лист приёмки: el context checklist "…" --why "…"')
+        print("          затем: затронутые узлы — el plan set … · их вердикты устарели — el validate … · "
+              "листок — el brief; поправка сама попросит его свежее слово")
     paid = [a for a in task_meta(root, task).get("assumes", [])
             if autonomy.pays(scope, a.get("for") or "")]
     if paid:
@@ -961,6 +971,13 @@ def cmd_doctor(args):
         if node_status(n) == "waiting":
             warns.append(f"{n['id']} ждёт владельца с {str(n.get('waiting_since') or '')[:16]} — "
                          f'его слово: el accept "…" --for node:{n["id"].lower()}')
+        elif n.get("waiting_since"):
+            # A stamp that outlived its status (feedback 2026-08-26): written by an older
+            # el, or by hand; the next status change of the node clears it.
+            warns.append(f"{n['id']}: статус {STATUS_RU.get(node_status(n), node_status(n))}, а "
+                         f"waiting_since {str(n.get('waiting_since'))[:16]} остался — устаревший штамп, "
+                         f"ложный сигнал; сотрётся следующей сменой статуса узла или убери строку из "
+                         f"nodes/{n['id']}.md")
     phase = task_meta(root, task).get("phase", "context")
     if phase in PHASES and PHASES.index(phase) > PHASES.index("execute"):
         left = [n["id"] for n in nodes if node_open(n)]
@@ -1078,6 +1095,38 @@ def cmd_halt(args):
     return 0
 
 
+# WHAT A SHEET MUST CARRY (feedback 2026-08-26: a one-line brief held an old result and
+# none of: the current retry, the RCA, the owner gate, the open criteria, the next command —
+# «the limit is reasonable, the schema is not enforced»). Not refused — a thin sheet beats
+# none — but named, part by part, so the agent sees what a returning agent will not know.
+BRIEF_PARTS = [
+    ("baseline", ("baseline", "базов", "эталон", "исходн")),
+    ("замер", ("замер", "меря", "метрик", "measure", "как проверя")),
+    ("лучшее", ("лучш", "best", "рекорд")),
+    ("не повторять", ("не повторя", "тупик", "не сработа", "не работа", "dead end", "нельзя")),
+    ("сейчас", ("сейчас", "now", "текущ", "стоим", "следующ", "next")),
+    ("следующая команда", ("el ",)),
+]
+
+
+def brief_nudge(text):
+    low = text.lower()
+    return [name for name, keys in BRIEF_PARTS if not any(k in low for k in keys)]
+
+
+# A WORD THAT CARRIES A CHANGE (feedback 2026-08-26, the MLE task: «добавь health, versions,
+# datasources, scale instances и rerun» was filed as acceptance; the old and the new
+# requirement stayed side by side, verdicts and nodes untouched, the contract ambiguous).
+CHANGE_MARKS = ("добавь", "добавить", "ещё ", "еще ", "также", "плюс ", "вместо", "переделай",
+                "убери", "замени", "перезапусти", "не так", "add ", "also ", "instead", "remove ",
+                "change ", "rerun")
+
+
+def change_mark(words):
+    low = " " + words.lower() + " "
+    return next((m.strip() for m in CHANGE_MARKS if m in low), "")
+
+
 def cmd_brief(args):
     """brief.md — the sheet in the hand (owner, 2026-08-22: «максимальное сжатие для агента, не
     для человека»). What a returning agent must know: where the baseline lies, how we measure,
@@ -1102,8 +1151,12 @@ def cmd_brief(args):
             return 0
         n_l, n_c = len(b.splitlines()), len(b)
         print(f"BRIEF     {task} · {n_l}/{BRIEF_LINES} строк · {n_c}/{BRIEF_CHARS} символов"
+              f" · переписан {brief_when(tdir)}"
               + ("  ⚠ больше лимита — ужми" if n_l > BRIEF_LINES or n_c > BRIEF_CHARS else ""))
         print(b)
+        thin = brief_nudge(b)
+        if thin:
+            print(f"тонко     без: {' · '.join(thin)} — вернувшийся агент этого не узнает; перепиши: el brief")
         return 0
     n_l, n_c = len(text.splitlines()), len(text)
     if n_l > BRIEF_LINES or n_c > BRIEF_CHARS:
@@ -1115,6 +1168,10 @@ def cmd_brief(args):
     touch(root, task)
     print(f"листок    переписан · {n_l}/{BRIEF_LINES} строк · {n_c}/{BRIEF_CHARS} символов · "
           "el и el status печатают его первым")
+    thin = brief_nudge(text)
+    if thin:
+        print(f"тонко     без: {' · '.join(thin)} — вернувшийся агент этого не узнает; "
+              "лимит тот же — ужми другое")
     return 0
 
 
@@ -1448,7 +1505,7 @@ def cmd_onboard(_args):
             # anything else — baseline, best, what not to repeat, what is now.
             b = brief_read(os.path.join(root, cur))
             if b:
-                print("  листок (brief.md) — читать первым:")
+                print(f"  листок (brief.md · переписан {brief_when(os.path.join(root, cur))}) — читать первым:")
                 for bl in b.splitlines():
                     print(f"    {bl}")
                 bs = autonomy.brief_stale_line(root, cur, indent="    ")
@@ -1488,6 +1545,7 @@ def cmd_onboard(_args):
         print("    2. el blueprint <фаза>     такты фазы, в которой стоишь: el blueprint context")
         print("                               для первой; дальше el forward сам покажет карточку")
     print("    3. el help                 команды · el help <команда|группа> — одна")
+    print("  вернулся       el resume — карточка возврата: листок · что за тобой · узел · gate · один ход")
     print("  где мы         el status — фаза, чек-лист следов, что заполнено")
     print("  что дальше     el next — конкретный следующий шаг и его команда")
     print("  человеку       el blueprint full — весь контракт одним списком (длинный)")

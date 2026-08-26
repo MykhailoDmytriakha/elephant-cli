@@ -685,6 +685,17 @@ def brief_read(tdir):
         return ""
 
 
+def brief_when(tdir):
+    """When the sheet was last rewritten, in human words — its «as-of» (feedback 2026-08-26:
+    a one-line brief carried an old baseline and nothing said how old)."""
+    from .term import human_when
+    try:
+        ts = datetime.fromtimestamp(os.path.getmtime(brief_path(tdir))).astimezone()
+        return human_when(ts.isoformat(timespec="minutes"))
+    except OSError:
+        return "?"
+
+
 # ── the raw request, one line — and «is this the same task again?» ──────────────
 # The owner repeats a task in another conversation and the agent, not seeing the first one,
 # opens a second (owner, 2026-08-22). Two answers, both cheap: `el projects` shows each

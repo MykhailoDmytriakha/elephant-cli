@@ -227,6 +227,11 @@ def _set_status(root, task, tdir, node, status, extra=None, event=None, text="")
             meta.pop(k, None)
         else:
             meta[k] = v
+    # A LIFECYCLE STAMP that outlives its status is a false signal (feedback 2026-08-26:
+    # «S1.WP5.md: status: active и одновременно waiting_since» — resume put the node back to
+    # work and left the wait's «since when» behind): the stamp of a wait goes with the wait.
+    if status != "waiting":
+        meta.pop("waiting_since", None)
     node_write(tdir, node["id"], meta, node["_fields"])
     if event:
         journal(root, task, event, (f"{node['id']}: {text}" if text else node["id"])[:160],

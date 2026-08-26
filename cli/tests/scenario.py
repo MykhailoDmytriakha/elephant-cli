@@ -157,6 +157,33 @@ def pre_plan_md_B(ws):
            "# План B\n\nпока только набросок.\n")
 
 
+def pre_stale_wait(ws):
+    """An older el (or a hand) left `waiting_since` on a node that is parked."""
+    for path in sorted(glob.glob(os.path.join(ws["A"], ".projects", "*", "nodes", "S2.md"))):
+        text = open(path, encoding="utf-8").read()
+        if "\nstatus: parked\n" in text and "waiting_since" not in text:
+            _write(path, text.replace("\nstatus: parked\n",
+                                      "\nstatus: parked\nwaiting_since: 2026-01-01T00:00:00-08:00\n", 1))
+            return
+
+
+def invariants(ws):
+    """The UX contract the snapshot diff cannot see (feedback 2026-08-26: «tests check
+    mechanics, not the contract»): facts that must hold in the final tree whatever the
+    commands were. Returns the violations; an empty list is the pass."""
+    bad = []
+    for key in ("A", "D"):
+        for path in sorted(glob.glob(os.path.join(ws[key], "**", "nodes", "*.md"), recursive=True)):
+            meta = {}
+            for line in open(path, encoding="utf-8").read().split("\n---\n", 2)[0].splitlines():
+                if ":" in line and not line.startswith("#"):
+                    k, v = line.split(":", 1)
+                    meta[k.strip()] = v.strip()
+            if meta.get("waiting_since") and meta.get("status", "open") != "waiting":
+                bad.append(f"{os.path.relpath(path, ws[key])}: waiting_since on status {meta.get('status')}")
+    return bad
+
+
 def pre_letter(ws):
     """A long review written elsewhere — `el feedback --file` takes it whole."""
     _write(os.path.join(ws["home"], "letter.md"),
@@ -235,6 +262,8 @@ def scenario(ws):
     add(S(["new", "Собрать песни из дневника и выложить", "--id",
            "Share Songs From Journal Now Please"]))
     add(S(["next"], label="el next (init nag: request not recorded)"))
+    add(S(["resume"], label="resume: early, no sheet, no grant"))
+    add(S(["resume", "--task", "nope"], rc=1, label="resume --task unknown"))
     add(S(["new", "again", "--id", A_ID]))
     add(S(["boot", "Песни из дневника", "--id", B_ID, "--raw",
            "хочу делиться песнями из дневника одной кнопкой"], rc=1,
@@ -806,6 +835,7 @@ def scenario(ws):
     add(S(["plan"], label="plan: statuses in the tree"))
     add(S(["plan", "wait", "s2", "показал экран"], label="plan wait: the baton goes to the owner"))
     add(S(["next"], label="next: baton with the owner"))
+    add(S(["resume"], label="resume: the card with the baton at the owner"))
     add(S(["left"]))
     add(S(["plan", "start", "s1", "--force"], label="plan start while s2 waits: allowed, s2 keeps the baton"))
     add(S(["accept", "ок, смотрел", "--for", "node:s2"], label="accept --for node: baton back, s1 busy → s2 open"))
@@ -821,6 +851,12 @@ def scenario(ws):
     add(S(["plan", "park", "s2", "--why", "не в этой итерации"]))
     add(S(["plan", "park", "s1", "--why", "тоже позже"]))
     add(S(["doctor"], label="doctor: nothing in work, parked nodes"))
+    # a wait stamp left on a node that is no longer waiting — doctor names it, the next
+    # status change clears it (feedback 2026-08-26)
+    add(S(["doctor"], pre=pre_stale_wait, label="doctor: stale waiting_since on a parked node"))
+    add(S(["plan", "reopen", "s2", "--why", "штамп ожидания снимается сменой статуса"],
+          label="plan reopen: the stale waiting_since goes away"))
+    add(S(["plan", "park", "s2", "--why", "снова позже"]))
     add(S(["ack", "context/expected-outcomes.md"], rc=1, label="ack: --why required"))
     add(S(["ack", "thinking/tools.md", "--why", "приёмы здесь не нужны"]))
     add(S(["next"]))
@@ -849,6 +885,7 @@ def scenario(ws):
 
     # ── other roots: ELEPHANT_DIR, ambiguity, custom --dir ─────────────────
     add(S(["status"], cwd="N", pre=pre_neutral, label="status in a neutral folder"))
+    add(S(["resume"], cwd="N", label="resume: no storage"))
     add(S(["status"], cwd="N", env={"ELEPHANT_DIR": os.path.join(ws["A"], ".projects")},
           label="status with ELEPHANT_DIR"))
     add(S(["projects"], cwd="N", env={"ELEPHANT_DIR": os.path.join(ws["A"], ".projects")}))
@@ -1047,6 +1084,8 @@ def scenario(ws):
     add(S(["status"], label="status: halted first"))
     add(S(["next"], label="next: halted"))
     add(S(["accept", "да, картина верна", "--for", "context"], label="his word pays the context loans"))
+    add(S(["accept", "да, и добавь ещё экспорт в csv", "--for", "note"],
+          label="accept with a change inside: the amendment nudge"))
     add(S(["review"], label="review: paid"))
     add(S(["grant", "продолжай"], label="grant: «продолжай» lifts the halt"))
     add(S(["status"]))
@@ -1291,9 +1330,12 @@ def run(args):
                    if k not in ("A/sub", "home"))
     with open(os.path.join(args.out, "tree.txt"), "w", encoding="utf-8") as fh:
         fh.write(tree)
+    broken = invariants(ws)
+    with open(os.path.join(args.out, "invariants.txt"), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(broken) + ("\n" if broken else "ok\n"))
     with open(os.path.join(args.out, "summary.json"), "w", encoding="utf-8") as fh:
         json.dump({"bin": bin_path, "steps": len(steps), "rc_mismatches": mismatches,
-                   "results": summary}, fh, ensure_ascii=False, indent=1)
+                   "invariants_broken": broken, "results": summary}, fh, ensure_ascii=False, indent=1)
 
     if args.trace:
         cov = os.path.join(args.out, "coverage")
@@ -1304,7 +1346,10 @@ def run(args):
         with open(os.path.join(cov, "summary.txt"), "w", encoding="utf-8") as fh:
             fh.write(rep.stdout + rep.stderr)
 
-    print(f"steps {len(steps)} · rc mismatches {mismatches} · snapshot → {args.out}")
+    print(f"steps {len(steps)} · rc mismatches {mismatches} · invariants broken {len(broken)} · "
+          f"snapshot → {args.out}")
+    for b in broken:
+        print(f"  invariant: {b}")
     for s in summary:
         if not s["ok"]:
             print(f"  rc mismatch {s['n']:03d}: got {s['rc']}, expected {s['expected']} — "
