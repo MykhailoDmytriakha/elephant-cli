@@ -1502,8 +1502,19 @@ def cmd_feedback(args):
                 "project": project_root(), "task": task or "—", "about": about or "—"}
         path = os.path.join(fdir, stem + ".md")
         fm_write(path, meta, text)
+        # THE RECORDER'S TAIL RIDES WITH THE REVIEW (owner, 2026-08-26): the last calls before
+        # this one, so the meta-session sees what was run around the observation without a
+        # second file carried by hand. Nothing when no storage is in reach.
+        from .calls import TAIL_N, tail_lines
+        tail = tail_lines(root) if root else []
+        if tail:
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(f"\n\n## Самописец · последние {len(tail)} вызовов до этого отзыва\n\n"
+                         "```text\n" + "\n".join(tail) + "\n```\n")
         print(f"записан   {stem}")
         print(f"          {path}")
+        if tail:
+            print(f"самописец приложены последние {len(tail)} вызовов el — «до/после» отзыва без пересказа")
         # RELATED ITEMS (feedback 2026-08-26: similarity was a manual read of the pool):
         # the same --about is a hint, not a refusal — observations may still differ.
         if about:

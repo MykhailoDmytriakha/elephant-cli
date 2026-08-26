@@ -60,9 +60,8 @@ def session_start(root, gap=RETURN_GAP):
     is not written yet, so the newest line is the previous call: silent for longer than the
     gap → this call opens the run (start = now); otherwise walk back to the gap."""
     path = os.path.join(root, "metadata", CALLS_FILE)
-    try:
-        lines = open(path, encoding="utf-8").read().splitlines()
-    except OSError:
+    lines = read_tail(path)
+    if lines is None:
         return None, 0
     stamps = []
     for line in reversed(lines):
@@ -184,6 +183,56 @@ def probe(root):
     except Exception as e:
         return f"версия инструмента не читается: {type(e).__name__}: {e}"
     return ""
+
+
+TAIL_N = 100
+TAIL_BYTES = 256 * 1024     # the last quarter-megabyte holds ~1 000 calls — more than any reader needs
+
+
+def read_tail(path, size=TAIL_BYTES):
+    """The last lines of the recorder, read from the END of the file (owner, 2026-08-26): every
+    `el` call asks «when was the previous call?», and reading a year of calls to answer it
+    would tax every command. Whole lines only — the first partial line is dropped. None when
+    the file cannot be read."""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            end = fh.tell()
+            fh.seek(max(0, end - size))
+            chunk = fh.read()
+    except OSError:
+        return None
+    text = chunk.decode("utf-8", "replace")
+    if end > size:
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+    return text.splitlines()
+
+
+def tail_lines(root, n=TAIL_N):
+    """The last `n` calls as readable lines — what a review carries with it (owner,
+    2026-08-26: «после того как feedback записан, добавлять в конец последние строк из
+    calls.jsonl»): the «до/после» of the review's own format, taken from the recorder instead
+    of the agent's memory. Time · task · command · rc · screen; no milliseconds — they vary
+    and prove nothing. [] without a recorder."""
+    path = os.path.join(root, "metadata", CALLS_FILE)
+    raw = read_tail(path)
+    if raw is None:
+        return []
+    recs = []
+    for line in raw[-(n * 2):]:
+        try:
+            recs.append(json.loads(line))
+        except ValueError:
+            continue
+    recs = [r for r in recs if r.get("type") != "version" and r.get("ts")][-n:]
+    out = []
+    for r in recs:
+        argv = " ".join(r.get("argv") or [])
+        task = (r.get("task") or "—")
+        task = task[11:] if len(task) > 11 and task[:10].count("-") == 2 else task
+        out.append(f"{r['ts'][:16]}  {task[:28]:<28} {('el ' + argv[:80]).strip():<84} "
+                   f"rc {r.get('rc')} · {r.get('out', 0)} стр")
+    return out
 
 
 def run_recorded(fn, argv):
