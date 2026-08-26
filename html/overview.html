@@ -320,6 +320,58 @@
   .exwait { color: var(--warn); margin-top: 6px; }
   .exrow { border-top: 1px solid var(--line); padding: 6px 0; }
   .exrow:first-of-type { border-top: none; }
+  /* ПО ЭТАПАМ (владелец, 2026-08-26: «в execution я не вижу истории… ожидаю видеть по этапу, что
+     сделано»): полоса этапов с прогрессом, фокус на этапе, пакеты складными карточками с чек-листом
+     задач, переключатель «весь этап / только пакет в работе», история закрытий. */
+  .srail { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .schip { flex: 1 1 180px; min-width: 160px; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line);
+           background: var(--card); cursor: pointer; }
+  .schip .sid { font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 13px; }
+  .schip .sname { font-weight: 600; font-size: 14px; }
+  .schip .ssub { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+  .schip.done { border-color: var(--done); }   .schip.done .sid { color: var(--done); }
+  .schip.active { border-color: var(--accent); } .schip.active .sid { color: var(--accent); }
+  .schip.waiting { border-color: var(--warn); } .schip.waiting .sid { color: var(--warn); }
+  .schip.focus { color: #fff; border-color: transparent; background: var(--closed); }
+  .schip.focus.done { background: var(--done); } .schip.focus.active { background: var(--accent); }
+  .schip.focus.waiting { background: var(--warn); }
+  .schip.focus .sid, .schip.focus .ssub { color: rgba(255,255,255,.9); }
+  .pbar { display: block; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 6px; }
+  .pbar i { display: block; height: 5px; background: var(--accent); }
+  .pbar.done i { background: var(--done); } .pbar.waiting i { background: var(--warn); }
+  .pbar.parked i, .pbar.ahead i, .pbar.blocked i { background: var(--closed); }
+  .schip.focus .pbar { background: rgba(255,255,255,.35); } .schip.focus .pbar i { background: #fff; }
+  .sfocus { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 6px 0 10px; font-size: 14px; }
+  .tog { display: inline-flex; border: 1px solid var(--line); border-radius: 99px; overflow: hidden; font-size: 13px;
+         margin-left: auto; }
+  .tog span { padding: 3px 12px; cursor: pointer; color: var(--muted); white-space: nowrap; }
+  .tog span + span { border-left: 1px solid var(--line); }
+  .tog span.on { background: var(--accent); color: #fff; font-weight: 600; }
+  details.wp { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px; }
+  details.wp.active { border-color: var(--accent); }
+  details.wp > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 9px 14px; }
+  details.wp > summary::-webkit-details-marker { display: none; }
+  details.wp > summary::before { content: "▸"; color: var(--muted); font-size: 12px; }
+  details.wp[open] > summary::before { content: "▾"; }
+  .wp .wid { font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 13px; white-space: nowrap; }
+  .wp .wname { font-weight: 600; }
+  .wp .pbar { flex: 1 1 auto; max-width: 240px; margin: 0 0 0 6px; }
+  .wp .wmeta { margin-left: auto; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  .tlist { padding: 0 14px 8px 44px; }
+  .trow { display: flex; gap: 12px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--line); }
+  .trow .tm { font-family: ui-monospace, Menlo, monospace; font-size: 13px; width: 18px; flex-shrink: 0; }
+  .trow .tid { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; width: 96px; flex-shrink: 0; }
+  .trow .tn { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  .trow .tsub { font-size: 13px; color: var(--muted); margin-top: 2px; font-weight: 400; }
+  .trow .tmeta { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  .trow.done .tn { color: var(--muted); } .trow.done .tm, .trow.done .tid { color: var(--done); }
+  .trow.active .tn { font-weight: 600; } .trow.active .tm, .trow.active .tid { color: var(--accent); }
+  .trow.waiting .tm, .trow.waiting .tid { color: var(--warn); }
+  .trow.parked .tm, .trow.parked .tid, .trow.blocked .tm, .trow.blocked .tid { color: var(--closed); }
+  .trow.sub { margin-left: 26px; }
+  .shist { margin-top: 12px; }
+  .baton { margin-top: 12px; padding: 9px 14px; border-radius: 12px; border: 1px solid var(--warn); background: var(--bg);
+           font-size: 14px; }
   .exrow .nid { font-family: ui-monospace, Menlo, monospace; color: var(--accent); font-size: 13px; }
   .exrow .lvl { font-size: 12px; color: var(--muted); margin-left: 6px; }
   .exrow .fsub { font-size: 13px; color: var(--muted); margin-left: 22px; }
@@ -1445,6 +1497,148 @@ window.ELEPHANT_OVERVIEW = null;
     });
     nh += "</div>";
     ex += sec("exec.now", term("now", "сейчас и прогресс"), nh);
+    /* ПО ЭТАПАМ — что сделано и где мы (владелец, 2026-08-26: «почему я всегда хожу в план
+       посмотреть — я ожидаю видеть по этапу, что сделано»). Полоса этапов с прогрессом и цветом
+       состояния; фокус — этап с узлом в работе (или выбранный кликом, помнится); внутри — пакеты
+       складными карточками с чек-листом задач; переключатель «весь этап / только пакет в работе»;
+       история закрытий этапа; эстафета — отдельно. Старая доска по статусам — ниже, свёрнута. */
+    var byIdX = {}, kidsX = {};
+    xd.nodes.forEach(function (n) { byIdX[n.id] = n; kidsX[n.id] = []; });
+    xd.nodes.forEach(function (n) {
+      var p = n.id.indexOf(".") >= 0 ? n.id.replace(/\.[^.]+$/, "") : "";
+      if (p && kidsX[p]) kidsX[p].push(n);
+    });
+    function natKey(id) {
+      return id.split(/(\d+)/).map(function (s) { return /^\d+$/.test(s) ? ("00000" + s).slice(-6) : s; }).join("");
+    }
+    function sortIds(list) { return list.slice().sort(function (a, b) { return natKey(a.id) < natKey(b.id) ? -1 : 1; }); }
+    function descend(n) { var out = []; (kidsX[n.id] || []).forEach(function (k) { out.push(k); out = out.concat(descend(k)); }); return out; }
+    function closedOf(n) { return n.status === "done" || n.status === "parked"; }
+    var doneTs = {};
+    (d.journal || []).forEach(function (e) {
+      if (e.type === "node-done") { var id0 = (e.text || "").split(":")[0].trim(); if (id0) doneTs[id0] = e.ts; }
+    });
+    function stateOfNode(s) {
+      var ds = descend(s);
+      if (s.status === "done") return "done";
+      if (s.status === "parked") return "parked";
+      if (s.status === "active" || ds.some(function (k) { return k.status === "active"; })) return "active";
+      if (s.status === "waiting" || ds.some(function (k) { return k.status === "waiting"; })) return "waiting";
+      if (s.status === "blocked") return "blocked";
+      return (ds.some(closedOf) || (WL[s.id] && WL[s.id].length)) ? "open" : "ahead";
+    }
+    function progress(n) { var k = kidsX[n.id] || []; if (!k.length) return null; return { done: k.filter(closedOf).length, total: k.length }; }
+    function pctOf(n, st) {
+      var pr = progress(n);
+      if (pr) return Math.round(pr.done / pr.total * 100);
+      if (closedOf(n)) return 100;
+      return st === "active" && n.crit_total ? Math.round(n.crit_done / n.crit_total * 100) : 0;
+    }
+    var SRU = { done: "закрыт", active: "в работе", waiting: "ждёт владельца", ahead: "впереди", open: "открыт",
+                parked: "отложен", blocked: "заблокирован" };
+    var stages = sortIds(xd.nodes.filter(function (n) { return n.id.indexOf(".") < 0; }));
+    var stStage = {};
+    stages.forEach(function (s) { stStage[s.id] = stateOfNode(s); });
+    var defFocus = stages.filter(function (s) { return stStage[s.id] === "active"; })[0] ||
+                   stages.filter(function (s) { return stStage[s.id] === "waiting"; })[0] ||
+                   stages.filter(function (s) { return !closedOf(s); })[0] || stages[stages.length - 1];
+    var focusId = (mem["exec.focus"] && byIdX[mem["exec.focus"]]) ? mem["exec.focus"] : (defFocus ? defFocus.id : null);
+    var exMode = mem["exec.mode"] === "wp" ? "wp" : "stage";
+    var rail = '<div class="srail">';
+    stages.forEach(function (s) {
+      var st = stStage[s.id], pr = progress(s);
+      rail += '<div class="schip ' + st + (s.id === focusId ? " focus" : "") + '" data-focus="' + esc(s.id) + '">' +
+              '<div><span class="sid">' + (STM[s.status] || "·") + " " + esc(s.id) + '</span> <span class="sname">' + esc(s.name) + "</span></div>" +
+              '<span class="pbar ' + st + '"><i style="width:' + pctOf(s, st) + '%"></i></span>' +
+              '<div class="ssub">' + SRU[st] + (pr ? " · пакетов " + pr.done + "/" + pr.total : "") +
+              (closedOf(s) && doneTs[s.id] ? " · " + when(doneTs[s.id]) : "") + "</div></div>";
+    });
+    rail += "</div>";
+    function taskRows(parent, depth) {
+      var out = "";
+      sortIds(kidsX[parent.id] || []).forEach(function (k) {
+        var st = k.status === "done" ? "done" : k.status;
+        var meta = "", sub = "";
+        if (st === "done") {
+          meta = "закрыта" + (doneTs[k.id] ? " " + when(doneTs[k.id]) : "") + (k.crit_total ? " · критерии " + k.crit_done + "/" + k.crit_total : "");
+          if (k.reopen_note) meta = "закрыта, затем открыта заново";
+          if (k.evidence && k.evidence.length) sub = k.evidence.map(function (f) { return '<a href="' + encodeURI("evidence/" + f) + '">' + esc(f) + "</a>"; }).join(" · ");
+        } else if (st === "active") {
+          meta = (k.started_at ? "в работе с " + when(k.started_at) : "в работе") + (k.crit_total ? " · критерии " + k.crit_done + "/" + k.crit_total : "");
+          var wl = WL[k.id] || [];
+          if (wl.length) sub = "последняя запись хода: " + inl(wl[wl.length - 1].text || "");
+        } else if (st === "waiting") {
+          meta = "ждёт владельца"; sub = k.note ? inl(k.note) : "";
+        } else if (st === "parked" || st === "blocked") {
+          meta = SRU[st]; sub = k.note ? inl(k.note) : "";
+        } else {
+          meta = (xd.ready || []).indexOf(k.id) >= 0 ? "по графу следующая" : "";
+          if (k.stop) meta += (meta ? " · " : "") + "остановка: " + esc(k.stop);
+        }
+        var kk = kidsX[k.id] || [];
+        if (kk.length) { var pr2 = progress(k); meta = "внутри " + pr2.done + "/" + pr2.total + (meta ? " · " + meta : ""); }
+        out += '<div class="trow ' + st + (depth ? " sub" : "") + '"><span class="tm">' + (STM[k.status] || "·") + '</span>' +
+               '<span class="tid" title="' + esc(k.id) + '">' + esc(k.id.split(".").slice(depth ? -2 : -1).join(".")) + "</span>" +
+               '<span class="tn">' + esc(k.name) + (sub ? '<div class="tsub">' + sub + "</div>" : "") + "</span>" +
+               '<span class="tmeta">' + meta + "</span></div>";
+        if (kk.length) out += taskRows(k, depth + 1);
+      });
+      return out;
+    }
+    var sh = "";
+    var fs = byIdX[focusId];
+    if (fs) {
+      var pn = (d.plan_nodes || []).filter(function (p) { return p.id === fs.id; })[0] || {};
+      var prS = progress(fs), stS = stStage[fs.id];
+      sh += '<div class="sfocus"><b>' + esc(fs.id) + " · " + esc(fs.name) + "</b>" +
+            (pn.decomp === "accepted" ? '<span class="lvl" style="color: var(--done); border-color: var(--done)">раскладка принята</span>' :
+             pn.decomp === "pending" ? '<span class="lvl" style="color: var(--warn); border-color: var(--warn)">раскладка ждёт слова</span>' :
+             (pn.decomp === "none" && !closedOf(fs)) ? '<span class="lvl">не разложен</span>' : "") +
+            '<span class="lvl">' + (prS ? "пакетов " + prS.done + "/" + prS.total + " закрыто" : SRU[stS]) +
+            (fs.reopen_note ? " · открыт заново: " + esc(fs.reopen_note) : "") + "</span>" +
+            '<span class="tog"><span class="' + (exMode === "stage" ? "on" : "") + '" data-mode="stage">весь этап</span>' +
+            '<span class="' + (exMode === "wp" ? "on" : "") + '" data-mode="wp">только пакет в работе</span></span></div>';
+      var wps = sortIds(kidsX[fs.id] || []);
+      if (!wps.length)
+        sh += '<div class="plain"><div class="fsub">' + (closedOf(fs) ? "этап вёлся целиком — пакетов нет" :
+              "этап не разложен на пакеты — раскладка появляется при старте: сначала обговорить с владельцем, потом записать") + "</div></div>";
+      var hidden = [];
+      wps.forEach(function (w) {
+        var wst = stateOfNode(w);
+        if (exMode === "wp" && (wst === "done" || wst === "parked")) { hidden.push(w.id); return; }
+        var wpr = progress(w), key = "exec.wp." + w.id;
+        var meta = wpr ? "задач " + wpr.done + "/" + wpr.total : (w.crit_total ? "критериев " + w.crit_done + "/" + w.crit_total : SRU[wst]);
+        if (closedOf(w) && doneTs[w.id]) meta += " · закрыт " + when(doneTs[w.id]);
+        var openDef = wst === "active" || wst === "waiting";
+        sh += '<details class="wp ' + wst + '" data-key="' + esc(key) + '"' + (isOpen(key, openDef) ? " open" : "") +
+              '><summary><span class="wid" style="color: var(--' + ({done: "done", active: "accent", waiting: "warn"}[wst] || "muted") + ')">' +
+              (STM[w.status] || "·") + " " + esc(w.id.split(".").pop()) + '</span><span class="wname">' + esc(w.name) + "</span>" +
+              '<span class="pbar ' + wst + '"><i style="width:' + pctOf(w, wst) + '%"></i></span>' +
+              '<span class="wmeta">' + meta + "</span></summary>" +
+              '<div class="tlist">' + (taskRows(w, 0) || '<div class="fsub" style="padding: 6px 0">задач внутри нет — пакет ведётся целиком</div>') + "</div></details>";
+      });
+      if (hidden.length)
+        sh += '<div class="fsub" style="margin: 2px 0 8px 4px">закрытые пакеты скрыты: ' + esc(hidden.join(", ")) + " — показать: «весь этап»</div>";
+      var hist = (d.journal || []).filter(function (e) {
+        return e.type === "node-done" && ((e.text || "").split(":")[0].trim() + ".").indexOf(fs.id + ".") === 0;
+      }).slice(-8).reverse();
+      if (hist.length) {
+        sh += '<div class="shist"><div class="crit-node">история этапа · последние закрытия</div><div class="plain">';
+        hist.forEach(function (e) {
+          var id1 = e.text.split(":")[0].trim(), nn = byIdX[id1];
+          sh += '<div class="trow done"><span class="tm">✓</span><span class="tid" title="' + esc(id1) + '">' + esc(id1) + '</span>' +
+                '<span class="tn">' + esc(nn ? nn.name : e.text.split(":").slice(1).join(":").trim()) + "</span>" +
+                '<span class="tmeta">' + when(e.ts) + "</span></div>";
+        });
+        sh += "</div></div>";
+      }
+    }
+    (byS.waiting || []).forEach(function (n) {
+      sh += '<div class="baton"><span class="t" style="color: var(--warn)">⏸ ' + esc(n.id) + "</span> <b>ждёт владельца</b>" +
+            (n.note ? " — " + inl(n.note) : "") + ' <span class="lvl">не тормоз для остального</span></div>';
+    });
+    ex += sec("exec.stages", term("stages", "по этапам — что сделано и где мы") + ' <span class="n">этапов ' + stages.length +
+             " · закрыто " + stages.filter(closedOf).length + "</span>", rail + sh);
     if (actN) {
       var ah = '<div class="plain">';
       if (actN.result) ah += '<div class="nfield"><b>результат</b>' + md(actN.result) + "</div>";
@@ -1496,7 +1690,7 @@ window.ELEPHANT_OVERVIEW = null;
                 (n.note ? '<div class="fsub">' + inl(n.note) + "</div>" : "") + "</div>";
       });
     });
-    ex += sec("exec.board", term("board", "доска узлов"), '<div class="plain">' + rows + "</div>");
+    ex += sec("exec.board", term("board", "доска узлов — все по статусам"), '<div class="plain">' + rows + "</div>", false);
   }
   var exf = filesBox("artifacts", "Артефакты") + filesBox("evidence", "Доказательства");
   if (exf) ex += sec("exec.files", term("artifacts · evidence", "произведено и доказано"), exf);
@@ -1644,6 +1838,16 @@ window.ELEPHANT_OVERVIEW = null;
   }
   h = h.replace("<!--AMEND-->", amHtml);
   document.getElementById("main").innerHTML = h;
+  /* ФОКУС И РЕЖИМ доски исполнения — помнятся, страница пересобирается из тех же данных */
+  document.getElementById("main").addEventListener("click", function (ev) {
+    var f = ev.target.closest ? ev.target.closest("[data-focus]") : null;
+    var m = ev.target.closest ? ev.target.closest("[data-mode]") : null;
+    if (!f && !m) return;
+    if (f) mem["exec.focus"] = f.getAttribute("data-focus");
+    if (m) mem["exec.mode"] = m.getAttribute("data-mode");
+    try { localStorage.setItem(MEM_KEY, JSON.stringify(mem)); } catch (e) {}
+    location.reload();
+  });
 
   /* ПЕРЕХОД К ДОКУМЕНТУ — раскрыть все папки на пути, прокрутить, мигнуть карточкой поправки. */
   function jumpTo(key, n) {

@@ -481,6 +481,7 @@ def render_views(root, only=None):
                                      "crit_done": cd, "crit_total": len(crits),
                                      "artifacts": tr["artifacts"], "evidence": tr["evidence"],
                                      "started_at": n.get("started_at", ""),
+                                     "reopen_note": n.get("reopen_note") or "",
                                      "stop": sync_mark(n), "design": design})
                 act = active_node(tdir)
                 stops = [n for n in nodes_all(tdir) if node_sync(n)]
