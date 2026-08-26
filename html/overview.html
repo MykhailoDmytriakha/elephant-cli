@@ -330,6 +330,8 @@
   .schip .sname { font-weight: 600; font-size: 14px; }
   .schip .ssub { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
   .schip.done { border-color: var(--done); }   .schip.done .sid { color: var(--done); }
+  .schip.full { border-color: var(--done); border-style: dashed; } .schip.full .sid { color: var(--done); }
+  .schip.focus.full { background: var(--done); border-style: solid; }
   .schip.active { border-color: var(--accent); } .schip.active .sid { color: var(--accent); }
   .schip.waiting { border-color: var(--warn); } .schip.waiting .sid { color: var(--warn); }
   .schip.focus { color: #fff; border-color: transparent; background: var(--closed); }
@@ -338,7 +340,7 @@
   .schip.focus .sid, .schip.focus .ssub { color: rgba(255,255,255,.9); }
   .pbar { display: block; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 6px; }
   .pbar i { display: block; height: 5px; background: var(--accent); }
-  .pbar.done i { background: var(--done); } .pbar.waiting i { background: var(--warn); }
+  .pbar.done i, .pbar.full i { background: var(--done); } .pbar.waiting i { background: var(--warn); }
   .pbar.parked i, .pbar.ahead i, .pbar.blocked i { background: var(--closed); }
   .schip.focus .pbar { background: rgba(255,255,255,.35); } .schip.focus .pbar i { background: #fff; }
   .sfocus { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 6px 0 10px; font-size: 14px; }
@@ -1526,6 +1528,9 @@ window.ELEPHANT_OVERVIEW = null;
       if (s.status === "active" || ds.some(function (k) { return k.status === "active"; })) return "active";
       if (s.status === "waiting" || ds.some(function (k) { return k.status === "waiting"; })) return "waiting";
       if (s.status === "blocked") return "blocked";
+      var kk0 = kidsX[s.id] || [];
+      /* всё внутри закрыто, а сам узел — нет (владелец, 2026-08-26): это «сделано», не «открыт» */
+      if (kk0.length && kk0.every(closedOf)) return "full";
       return (ds.some(closedOf) || (WL[s.id] && WL[s.id].length)) ? "open" : "ahead";
     }
     function progress(n) { var k = kidsX[n.id] || []; if (!k.length) return null; return { done: k.filter(closedOf).length, total: k.length }; }
@@ -1536,7 +1541,7 @@ window.ELEPHANT_OVERVIEW = null;
       return st === "active" && n.crit_total ? Math.round(n.crit_done / n.crit_total * 100) : 0;
     }
     var SRU = { done: "закрыт", active: "в работе", waiting: "ждёт владельца", ahead: "впереди", open: "открыт",
-                parked: "отложен", blocked: "заблокирован" };
+                parked: "отложен", blocked: "заблокирован", full: "внутри всё закрыто · сам не закрыт" };
     var stages = sortIds(xd.nodes.filter(function (n) { return n.id.indexOf(".") < 0; }));
     var stStage = {};
     stages.forEach(function (s) { stStage[s.id] = stateOfNode(s); });
@@ -1595,7 +1600,8 @@ window.ELEPHANT_OVERVIEW = null;
             (pn.decomp === "accepted" ? '<span class="lvl" style="color: var(--done); border-color: var(--done)">раскладка принята</span>' :
              pn.decomp === "pending" ? '<span class="lvl" style="color: var(--warn); border-color: var(--warn)">раскладка ждёт слова</span>' :
              (pn.decomp === "none" && !closedOf(fs)) ? '<span class="lvl">не разложен</span>' : "") +
-            '<span class="lvl">' + (prS ? "пакетов " + prS.done + "/" + prS.total + " закрыто" : SRU[stS]) +
+            '<span class="lvl"' + (stS === "full" ? ' style="color: var(--done); border-color: var(--done)"' : "") + '>' +
+            (prS ? "пакетов " + prS.done + "/" + prS.total + " закрыто" + (stS === "full" ? " · сам этап не закрыт — закрой или скажи, что ещё" : "") : SRU[stS]) +
             (fs.reopen_note ? " · открыт заново: " + esc(fs.reopen_note) : "") + "</span>" +
             '<span class="tog"><span class="' + (exMode === "stage" ? "on" : "") + '" data-mode="stage">весь этап</span>' +
             '<span class="' + (exMode === "wp" ? "on" : "") + '" data-mode="wp">только пакет в работе</span></span></div>';
@@ -1609,10 +1615,12 @@ window.ELEPHANT_OVERVIEW = null;
         if (exMode === "wp" && (wst === "done" || wst === "parked")) { hidden.push(w.id); return; }
         var wpr = progress(w), key = "exec.wp." + w.id;
         var meta = wpr ? "задач " + wpr.done + "/" + wpr.total : (w.crit_total ? "критериев " + w.crit_done + "/" + w.crit_total : SRU[wst]);
+        if (wpr && wpr.done === wpr.total && !closedOf(w))
+          meta += ' · <span style="color: var(--warn); font-weight: 600">не закрыт — закрой или скажи, что ещё</span>';
         if (closedOf(w) && doneTs[w.id]) meta += " · закрыт " + when(doneTs[w.id]);
         var openDef = wst === "active" || wst === "waiting";
         sh += '<details class="wp ' + wst + '" data-key="' + esc(key) + '"' + (isOpen(key, openDef) ? " open" : "") +
-              '><summary><span class="wid" style="color: var(--' + ({done: "done", active: "accent", waiting: "warn"}[wst] || "muted") + ')">' +
+              '><summary><span class="wid" style="color: var(--' + ({done: "done", full: "done", active: "accent", waiting: "warn"}[wst] || "muted") + ')">' +
               (STM[w.status] || "·") + " " + esc(w.id.split(".").pop()) + '</span><span class="wname">' + esc(w.name) + "</span>" +
               '<span class="pbar ' + wst + '"><i style="width:' + pctOf(w, wst) + '%"></i></span>' +
               '<span class="wmeta">' + meta + "</span></summary>" +

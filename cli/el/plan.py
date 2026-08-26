@@ -1166,6 +1166,8 @@ def plan_done(root, task, tdir, words, force=False, dry=False):
     left = [n["id"] for n in nodes_all(tdir) if node_open(n)]
     print(f"осталось {', '.join(left) if left else '— все узлы закрыты'}")
     if left:
+        for l in parent_closable_lines(tdir, nid):
+            print(l)
         print("дальше   " + ready_line(tdir, root, task))
     return 0
 
@@ -1204,6 +1206,12 @@ def ready_line(tdir, root=None, task=None):
         first = ready[0]
         # THE STAGE LAW first (owner, 2026-08-26): a bare stage is laid out, a laid-out stage
         # waits for his word over the layout — only then a package starts.
+        kids_f = [n for n in nodes_all(tdir) if (n.get("parent") or "") == first["id"]]
+        if kids_f:
+            low = first["id"].lower()
+            return (f"все узлы внутри {first['id']} закрыты ({len(kids_f)}/{len(kids_f)}), а он открыт — "
+                    f'закрой: el plan done {low} "<результат>" · или скажи, что ещё осталось: '
+                    f'el plan new {low.replace(".", " ")} <следующий> "<имя>"')
         if "." not in first["id"]:
             low = first["id"].lower()
             return (f"этап {first['id']} не разложен — предложи раскладку владельцу в чате (пакеты → работы), "
@@ -1533,6 +1541,9 @@ def plan_hold(root, task, tdir, words, status, why, owe_n=None):
         _owe._md(root, task)
     touch(root, task)
     print(f"{STATUS_RU[status]}  {nid} — {why}")
+    if status == "parked":
+        for l in parent_closable_lines(tdir, nid):
+            print(l)
     if debt:
         print(f'снять    el owe answer {owe_n} "<его ответ>" — узел отпустится сам')
     elif status == "blocked":
@@ -1554,6 +1565,33 @@ def plan_hold(root, task, tdir, words, status, why, owe_n=None):
         except Exception:
             pass
     return 0
+
+
+def parent_closable(tdir, nid):
+    """The parent of `nid` when every child of it is closed and the parent is still open —
+    the moment to say so (owner, 2026-08-26: «закрыл все дочерние и промолчал, а пакет висит»).
+    (parent node, n_children) or (None, 0)."""
+    parent = nid.rsplit(".", 1)[0] if "." in nid else ""
+    if not parent:
+        return None, 0
+    par = node_read(tdir, parent)
+    if not par or not node_open(par):
+        return None, 0
+    kids = [n for n in nodes_all(tdir) if (n.get("parent") or "") == parent]
+    if kids and all(not node_open(k) for k in kids):
+        return par, len(kids)
+    return None, 0
+
+
+def parent_closable_lines(tdir, nid):
+    par, n = parent_closable(tdir, nid)
+    if not par:
+        return []
+    low = par["id"].lower()
+    return [f"родитель {par['id']} · {par.get('name', '')[:50]} — все узлы внутри закрыты ({n}/{n}), а он открыт: "
+            "обычно больше делать нечего",
+            f'         закрой: el plan done {low} "<результат>" · или скажи, что ещё осталось: '
+            f'el plan new {low.replace(".", " ")} <следующий> "<имя>" — молча не оставляй']
 
 
 def plan_cancel(root, task, tdir, words, why):
@@ -1603,6 +1641,8 @@ def plan_cancel(root, task, tdir, words, why):
     print(f"не потребовался  {nid} · {node.get('name', '')} — {why}")
     print(f"критерии {len(declined)} снят(о) тем же «потому что»" if declined else "критериев без вердикта не было")
     print(f'вернуть  el plan reopen {nid.lower()} --why "<что изменилось>"')
+    for l in parent_closable_lines(tdir, nid):
+        print(l)
     return 0
 
 

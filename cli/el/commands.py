@@ -1023,6 +1023,12 @@ def cmd_doctor(args):
             errs.append(f"{n['id']}: все критерии с вердиктом, узел ещё "
                         f"{STATUS_RU.get(node_status(n), '?')} — el plan done {n['id'].lower()} \"<результат>\"")
     for n in nodes:
+        # ALL CHILDREN CLOSED, PARENT OPEN (owner, 2026-08-26): not an error — the parent may
+        # still have work — but never silent.
+        kids_d = [k for k in nodes if (k.get("parent") or "") == n["id"]]
+        if node_open(n) and node_status(n) != "active" and kids_d and all(not node_open(k) for k in kids_d):
+            warns.append(f"{n['id']}: все узлы внутри закрыты ({len(kids_d)}/{len(kids_d)}), а он открыт — "
+                         f'закрой (el plan done {n["id"].lower()} "…") или скажи, что ещё осталось')
         if node_status(n) == "done" and not (n.get("result_note") or "").strip():
             warns.append(f"{n['id']} закрыт без результата — что стало правдой? "
                          f"(el plan done {n['id'].lower()} \"<результат>\" --force)")
