@@ -1008,6 +1008,14 @@ def cmd_doctor(args):
             warns.append(f"{name} нет на месте — el ui")
     if not os.path.exists(os.path.join(root, "metadata", task + ".js")):
         warns.append("данных страницы нет (metadata/) — el ui")
+    # THE FLIGHT RECORDER (owner, 2026-08-26: the files did not come back on another machine
+    # and nothing said why): the same probe record() would fail on, named here.
+    from .calls import probe as _probe
+    why_no = _probe(root)
+    if why_no:
+        warns.append(f"самописец не пишет — {why_no} · причину при вызове печатает ELEPHANT_CALLS=debug")
+    elif not os.path.exists(os.path.join(root, "metadata", "calls.jsonl")):
+        warns.append("самописец: metadata/calls.jsonl ещё нет — появится со следующим вызовом el")
     print(f"DOCTOR    {task} · фаза {phase} · узлов {len(nodes)}")
     for e in errs:
         print(f"  ERROR   {wrap(e, indent='          ')}")

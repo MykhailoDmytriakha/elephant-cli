@@ -131,7 +131,8 @@ def record(argv, rc, out, err, ms):
     Silent on every failure: the recorder must never turn a working command into a broken
     one. Off when ELEPHANT_CALLS=off. Nothing is written outside a storage — there is no
     place for it."""
-    if os.environ.get("ELEPHANT_CALLS", "").lower() in ("off", "0", "no"):
+    env = os.environ.get("ELEPHANT_CALLS", "").lower()
+    if env in ("off", "0", "no"):
         return
     try:
         root = find_root()
@@ -155,8 +156,34 @@ def record(argv, rc, out, err, ms):
         with open(os.path.join(meta_dir, CALLS_FILE), "a", encoding="utf-8") as fh:
             for rec in lines:
                 fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
+    except Exception as e:
+        # Silent by design — but a silent recorder that never writes is undiagnosable
+        # (owner, 2026-08-26: «удалил файлы, вызвал el — не появились»): ELEPHANT_CALLS=debug
+        # says why, and `el doctor` runs the same probe (see probe()).
+        if env == "debug":
+            print(f"самописец: не записал — {type(e).__name__}: {e}", file=sys.__stderr__)
+
+
+def probe(root):
+    """Why the recorder would NOT write here — '' when it would. The same steps record()
+    takes, without writing a line: the switch, the folder, the append, the version."""
+    env = os.environ.get("ELEPHANT_CALLS", "").lower()
+    if env in ("off", "0", "no"):
+        return f"выключен окружением: ELEPHANT_CALLS={os.environ.get('ELEPHANT_CALLS')}"
+    meta_dir = os.path.join(root, "metadata")
+    try:
+        os.makedirs(meta_dir, exist_ok=True)
+        with open(os.path.join(meta_dir, CALLS_FILE), "a", encoding="utf-8"):
+            pass
+        with open(os.path.join(meta_dir, VERSION_FILE), "a", encoding="utf-8"):
+            pass
+    except Exception as e:
+        return f"нет записи в {meta_dir}: {type(e).__name__}: {e}"
+    try:
+        version()
+    except Exception as e:
+        return f"версия инструмента не читается: {type(e).__name__}: {e}"
+    return ""
 
 
 def run_recorded(fn, argv):
