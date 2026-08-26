@@ -263,6 +263,18 @@ def cmd_log(args):
     journal(root, task, args.type, args.text, extra or None)
     print(f"logged: {args.type}" + (f" → {extra['node']}" if extra.get("node") else "")
           + (f" → {task}" if getattr(args, "task", None) else ""))
+    # WORK BETWEEN NODES IS NAMED AT ITS FIRST TOUCH (owner, 2026-08-26: «не наступят ли
+    # агенты на те же грабли?» — the tool cannot see work done off `el`, so the first call
+    # that carries it says where it should have landed).
+    ph_l = task_meta(root, task).get("phase", "context")
+    on_exec = ph_l in PHASES and PHASES.index(ph_l) >= PHASES.index("execute")
+    if on_exec and not free and not extra.get("node"):
+        from .plan import ready_line as _rl
+        print("узел      в работе никого — запись легла мимо узлов; сначала узел, потом работа: " + _rl(tdir, root, task))
+    elif want and extra.get("node") and (not act or act["id"] != extra["node"]):
+        st_w = _nst(_nread(tdir, extra["node"]))
+        if st_w == "open":
+            print(f"узел      {extra['node']} не в работе — объяви его до работы: el plan start {extra['node'].lower()}")
     if extra.get("node") and act and extra["node"] != act["id"]:
         print(f"⚠ {act['id']} всё ещё в работе, а запись ушла в {extra['node']} — закрой "
               f"(el plan done {act['id'].lower()}), поставь ждать (el plan wait), отложи "
@@ -356,6 +368,9 @@ def cmd_put(args):
                   file=sys.stderr)
             return 1
         extra["node"] = nid
+        if nid != "IFR" and node_status(node_read(tdir, nid)) == "open":
+            print(f"узел      {nid} не в работе — след ляжет к нему, но объяви узел до работы: "
+                  f"el plan start {nid.lower()}")
         chk = getattr(args, "check", None)
         if chk:
             extra["check"] = int(chk)

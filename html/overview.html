@@ -1415,11 +1415,20 @@ window.ELEPHANT_OVERVIEW = null;
     xd.nodes.forEach(function (n) { cT += n.crit_total; cD += n.crit_done; });
     var actN = null;
     xd.nodes.forEach(function (n) { if (n.id === xd.active) actN = n; });
+    /* БЕЗ АКТИВНОГО УЗЛА (отзыв 2026-08-26): «сейчас» — это не эстафета. Между двумя узлами
+       страница говорит, что в работе никого, какой узел закрыт последним и какой готов по
+       графу; эстафета владельца — отдельной строкой ниже, как и в el status. */
     var now = actN
       ? '<span class="exmark">▶</span> ' + esc(actN.id) + " · " + esc(actN.name) +
         (actN.started_at ? ' <span class="lvl">в работе с ' + when(actN.started_at) + "</span>" : "")
-      : (xd.waiting.length ? '<span class="exmark">⏸</span> ждём владельца: ' + esc(xd.waiting.join(", "))
-                           : (doneN === totalN ? "все узлы закрыты" : "в работе никого"));
+      : (doneN === totalN ? "все узлы закрыты"
+         : "в работе никого" +
+           (xd.last_done && xd.last_done.id ? ' <span class="lvl">последний закрыт: ' + esc(xd.last_done.id) +
+                                              (xd.last_done.ts ? " · " + when(xd.last_done.ts) : "") + "</span>" : "") +
+           (xd.ready && xd.ready.length ? ' <span class="lvl">по графу готов: ' + esc(xd.ready.join(", ")) + "</span>" : ""));
+    if (xd.waiting.length)
+      now += '<div class="fsub"><span class="exmark">⏸</span> эстафета у владельца: ' + esc(xd.waiting.join(", ")) +
+             " — не тормоз для остального</div>";
     var nh = '<div class="plain"><div class="exnow">' + now + "</div>" +
              '<div class="exprog">узлов закрыто ' + doneN + "/" + totalN +
              " · критериев с вердиктом " + cD + "/" + cT +

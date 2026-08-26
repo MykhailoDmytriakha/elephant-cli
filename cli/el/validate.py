@@ -566,6 +566,10 @@ def cmd_validate(args):
             proof = f"{proof} [{ev}]"
         raw[(node["id"], num)] = (kind, proof)
         validation_render(tdir, nodes, raw)
+        if node["id"] != "IFR" and node_status(node) == "open":
+            # a verdict on a node nobody started — the work happened off the board (2026-08-26)
+            print(f"узел      {node['id']} не в работе — вердикт записан, но объяви узел до работы: "
+                  f"el plan start {node['id'].lower()}")
         journal(root, task, "validated",
                 f"{node['id']}.{num} {kind}: "
                 f"{(met or failed or declined or unverified).strip()[:120]}")

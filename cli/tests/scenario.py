@@ -602,6 +602,9 @@ def scenario(ws):
     add(S(["next", "--short"], label="next: baton on s1.wp1, s3 is free — the move is s3"))
     add(S(["doctor"], rc=1, label="doctor: waiting beside free work is no «two in work»; the answered-criteria error stays"))
     add(S(["accept", "смотрел, ок", "--for", "node:s1.wp1", "--close"], label="the word on s1.wp1 with --close: baton back, node closed again"))
+    # WORK BETWEEN NODES is named at its first touch (owner, 2026-08-26)
+    add(S(["log", "работа между узлами"], label="log with nobody in work on execute: named, with the next start"))
+    add(S(["evidence", "out/log.txt", "--node", "s3"], label="evidence --node on a node not in work: named"))
     add(S(["artifact"], rc=2))
     add(S(["artifact", "out/app.apk", "--why", "сборка"], pre=pre_out_files))
     add(S(["artifact", "out/app.apk", "--node", "s1", "--check", "1", "--why", "к узлу"],

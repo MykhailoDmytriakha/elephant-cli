@@ -484,8 +484,23 @@ def render_views(root, only=None):
                                      "stop": sync_mark(n), "design": design})
                 act = active_node(tdir)
                 stops = [n for n in nodes_all(tdir) if node_sync(n)]
+                # BETWEEN TWO NODES (feedback 2026-08-26: T2 closed at 15:32, T3 started at
+                # 15:38 — in between the page put the owner's baton S2 in the «now» slot and
+                # read as «current work is S2»): the last node closed and the next one ready
+                # by the graph, so «now» is honest without an active node.
+                last_done = None
+                for e in entries:
+                    if e.get("type") == "node-done":
+                        last_done = {"id": (e.get("text") or "").split(":", 1)[0].strip(),
+                                     "ts": e.get("ts", "")}
+                try:
+                    from .plan import ready_nodes as _rn
+                    ready_ids = [n["id"] for n in _rn(tdir)[0][:3]]
+                except Exception:
+                    ready_ids = []
                 exec_data = {"active": act["id"] if act and node_status(act) == "active" else None,
                              "waiting": [n["id"] for n in waiting_nodes(tdir)],
+                             "last_done": last_done, "ready": ready_ids,
                              "nodes": ex_nodes,
                              "stops": {"total": len(stops),
                                        "passed": sum(1 for n in stops if node_status(n) == "done")}}
