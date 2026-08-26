@@ -4,7 +4,7 @@ one `## field · heading` section per field; the path IS the hierarchy (S1 · S1
 The field set is protocol.NODE_FIELDS.
 """
 import json, os, re, sys
-from .protocol import NODE_FIELDS, NODE_KEYS, NODE_KEYS_OPTIONAL, PLAN_LEVELS
+from .protocol import NODE_FIELDS, NODE_KEYS, NODE_KEYS_OPTIONAL, PHASES, PLAN_LEVELS
 from .state import path_marks
 from . import autonomy
 from .state import (pick_task, current_task, fm_read, fm_write, journal, now_iso, require_root,
@@ -703,6 +703,29 @@ def plan_new(root, task, tdir, words, force=False):
                   file=sys.stderr)
             print("  декомпозиция закон (§5), разложить всё вперёд убило v1.", file=sys.stderr)
             return 1
+        # THE LAYOUT IS TALKED OVER BEFORE IT IS WRITTEN (owner, 2026-08-26: «агент порывается
+        # записывать декомпозицию, не разобравшись и не поговорив с пользователем»): on execute
+        # the first package under a stage is recorded only after his word over the layout he
+        # was shown in the chat — el accept "<его слова>" --for stage:s2 --on "<раскладка>".
+        # On the plan phase his word over the plan covers packages drawn there. Light warns.
+        from .state import task_meta as _tm
+        ph_now = _tm(root, task).get("phase", "context")
+        first_kid = "." not in parent and not any(n.get("parent") == parent for n in nodes_all(tdir))
+        if first_kid and ph_now in PHASES and PHASES.index(ph_now) >= PHASES.index("execute") \
+                and not stage_word(root, task, parent) and not force:
+            low_p = parent.lower()
+            if task_mode(tdir) == "light":
+                print(f"раскладка {parent} без слова владельца — в light допустимо; правило: сначала обговорить "
+                      f'в чате, после его «одобряю» — el accept "<его слова>" --for stage:{low_p} --on "<раскладка>"')
+            else:
+                print(f"РАСКЛАДКУ СНАЧАЛА ОБГОВОРИ — пакеты {parent} записываются после его «одобряю»:",
+                      file=sys.stderr)
+                print(f"  предложи раскладку владельцу в чате (пакеты → работы) → его слово: "
+                      f'el accept "<его слова>" --for stage:{low_p} --on "<раскладка: wp1 … · wp2 …>" → '
+                      f"потом el plan new {low_p} wp1 …", file=sys.stderr)
+                print(f'  под грантом — реши в его место: el accept "<раскладка>" --for stage:{low_p} --assumed '
+                      f'"<почему>" · осознанно без слова: --force', file=sys.stderr)
+                return 1
     # A REPEATED HYPOTHESIS (search tasks, owner 2026-08-22): a sibling with the same name
     # already exists — tried or open. Loop hygiene: say so, show its result, and ask for a
     # different name or an explicit --force. The CLI compares names, not ideas — the agent
@@ -1098,9 +1121,9 @@ def ready_line(tdir, root=None, task=None):
         # waits for his word over the layout — only then a package starts.
         if "." not in first["id"]:
             low = first["id"].lower()
-            return (f"этап {first['id']} не разложен — разложи на пакеты работ: el plan new {low} wp1 "
-                    f'"<пакет>" … → покажи владельцу → el accept "<его слова>" --for stage:{low} → '
-                    f"el plan start {low}.wp1")
+            return (f"этап {first['id']} не разложен — предложи раскладку владельцу в чате (пакеты → работы), "
+                    f'после его «одобряю»: el accept "<его слова>" --for stage:{low} --on "<раскладка>" → '
+                    f'запиши: el plan new {low} wp1 "<пакет>" … → el plan start {low}.wp1')
         _w, _m, _c, deps = plan_waves(tdir)
         after = [d for d in deps.get(first["id"], []) if d in {n["id"] for n in nodes_all(tdir)}]
         line = (f"el plan start {first['id'].lower()} — по графу готов"
@@ -1169,6 +1192,37 @@ def decomp_state(root, task, tdir, node):
 DECOMP_RU = {"none": "не разложен", "pending": "раскладка ждёт слова владельца", "accepted": "раскладка принята"}
 
 
+def _natkey(nid):
+    return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", nid)]
+
+
+def stage_gate(root, task, tdir, node):
+    """STAGES GO ONE AFTER ANOTHER (owner, 2026-08-26, after an incident: the agent put S2 to
+    wait while S1.WP6 was in work, and the board read both as «в работе»): a node of stage
+    Sk may start or be shown only when the stages BEFORE it are closed whole — every nested
+    node done or parked. «Before» = the stage's prerequisites by `deps` when it declares any,
+    else every stage with a smaller number. (ok, [lines]) — the lines say what is open."""
+    nodes = nodes_all(tdir)
+    by = {n["id"]: n for n in nodes}
+    sid = stage_of(node["id"])
+    _w, _m, _c, deps = plan_waves(tdir)
+    own = [d for d in deps.get(sid, []) if d in by]
+    if own:
+        prev = {stage_of(d) for d in own} - {sid}
+    else:
+        prev = {n["id"] for n in nodes if "." not in n["id"] and _natkey(n["id"]) < _natkey(sid)}
+    open_prev = sorted((n for n in nodes if stage_of(n["id"]) in prev and node_open(n)),
+                       key=lambda n: _natkey(n["id"]))
+    if not open_prev:
+        return True, []
+    names = ", ".join(f"{n['id']} ({STATUS_RU.get(node_status(n), '?')})" for n in open_prev[:6])
+    return False, [
+        f"ЭТАП {sid} РАНО — предыдущий этап не закрыт целиком: {names}" + (" …" if len(open_prev) > 6 else ""),
+        "  переход к следующему этапу — после закрытия всех узлов предыдущего: el plan done <узел> "
+        '"<результат>" · отложить осознанно: el plan park <узел> --why "…"',
+    ]
+
+
 def plan_start(root, task, tdir, words, force=False, switch=None):
     """Name THE node in work. One at a time — and the previous one is never dropped in
     silence (owner, 2026-08-25: «начал делать, пошёл дальше, а work package так и не закрыл»):
@@ -1188,6 +1242,13 @@ def plan_start(root, task, tdir, words, force=False, switch=None):
         print(f"{nid} {STATUS_RU[st]} — вернуть в работу осознанно: el plan start "
               f"{nid.lower()} --force", file=sys.stderr)
         return 1
+    if not force:
+        ok_g, lines_g = stage_gate(root, task, tdir, node)
+        if not ok_g:
+            for l in lines_g:
+                print(l, file=sys.stderr)
+            print(f"  осознанно, в журнал: el plan start {nid.lower()} --force", file=sys.stderr)
+            return 1
     # A STAGE IS WORKED THROUGH ITS PACKAGES (owner, 2026-08-26): lay it out first, show the
     # layout, record his word over it, start a package. Light mode warns; soft and strict refuse.
     kids0 = [n for n in nodes_all(tdir) if n.get("parent") == nid]
@@ -1199,12 +1260,13 @@ def plan_start(root, task, tdir, words, force=False, switch=None):
         else:
             print(f"ЭТАП НЕ РАЗЛОЖЕН — {nid} перед стартом раскладывается на пакеты работ, "
                   "пакеты — на работы, работы — на подзадачи (только ближайший уровень):", file=sys.stderr)
-            print(f'  el plan new {low} wp1 "<пакет работ>" … → покажи раскладку владельцу → его слово: '
-                  f'el accept "<его слова>" --for stage:{low} → el plan start {low}.wp1', file=sys.stderr)
+            print(f"  предложи раскладку владельцу в чате → его «одобряю»: el accept \"<его слова>\" --for stage:{low} "
+                  f'--on "<раскладка>" → запиши: el plan new {low} wp1 "<пакет работ>" … → el plan start {low}.wp1',
+                  file=sys.stderr)
             print(f"  под грантом — реши в его место: el accept \"…\" --for stage:{low} --assumed \"<почему>\" · "
                   f"осознанно вести этап целиком: el plan start {low} --force", file=sys.stderr)
             return 1
-    elif "." in nid and not force:
+    if "." in nid and not force:
         sid = stage_of(nid)
         if not stage_word(root, task, sid):
             low = sid.lower()
@@ -1306,8 +1368,20 @@ def plan_wait(root, task, tdir, words):
         return 1
     cur = active_node(tdir)
     if cur and cur["id"] != nid and node_status(cur) == "active":
-        _set_status(root, task, tdir, cur, "open", {"started_at": None}, "node-pause",
-                    f"уступил место {nid}")
+        # THE NODE IN WORK IS NOT PUSHED ASIDE BY A WAIT ON ANOTHER (incident 2026-08-26:
+        # `el plan wait s2` while S1.WP6 was in work pushed S1.WP6 out and put S2 in
+        # waiting — two nodes «в работе» and the wrong one shown to the owner).
+        low = cur["id"].lower()
+        print(f"в работе {cur['id']} — показать владельцу можно узел в работе, а не {nid}.", file=sys.stderr)
+        print(f'  его и показывай: el plan wait {low} "<что показал>" · закончи с ним: el plan done {low} "…" · '
+              f'el plan park {low} --why "…" — потом el plan start {nid.lower()}', file=sys.stderr)
+        return 1
+    if node_status(node) != "active":
+        ok_g, lines_g = stage_gate(root, task, tdir, node)
+        if not ok_g:
+            for l in lines_g:
+                print(l, file=sys.stderr)
+            return 1
     _set_status(root, task, tdir, node, "waiting",
                 {"waiting_note": note or None, "waiting_since": now_iso()}, "node-wait", note)
     touch(root, task)

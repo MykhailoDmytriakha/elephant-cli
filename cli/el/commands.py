@@ -479,7 +479,7 @@ def cmd_accept(args):
                         key=lambda x: x["id"])
         print(f"раскладка этапа {sid} принята его словом" +
               (f" — стартуй пакет: el plan start {kids_s[0]['id'].lower()}" if kids_s
-               else f' — пакетов ещё нет: el plan new {sid.lower()} wp1 "<пакет работ>"'))
+               else f' — теперь запиши её: el plan new {sid.lower()} wp1 "<пакет работ>" … → el plan start {sid.lower()}.wp1'))
     mark = change_mark(args.words)
     if mark:
         # Acceptance does not edit the contract: what he ADDED goes the amendment way, which
@@ -983,10 +983,20 @@ def cmd_doctor(args):
     tdir = os.path.join(root, task)
     errs, warns = [], []
     nodes = nodes_all(tdir)
-    acts = [n for n in nodes if node_status(n) in ("active", "waiting")]
+    # ONE node in work; a node WAITING for the owner beside it is legal (the baton is his,
+    # the agent works elsewhere) — doctor used to call that a contradiction (incident 2026-08-26)
+    acts = [n for n in nodes if node_status(n) == "active"]
     if len(acts) > 1:
         errs.append(f"в работе больше одного узла: {', '.join(n['id'] for n in acts)} — "
                     "активный один: el plan start <узел>")
+    # STAGES GO ONE AFTER ANOTHER: a node of a later stage in work or waiting while an earlier
+    # stage is still open is the incident itself, named here.
+    from .plan import stage_gate as _sg
+    for n in nodes:
+        if node_status(n) in ("active", "waiting"):
+            ok_s, lines_s = _sg(root, task, tdir, n)
+            if not ok_s:
+                errs.append(f"{n['id']} {STATUS_RU.get(node_status(n), '?')}, а " + lines_s[0][0].lower() + lines_s[0][1:])
     vnodes, verdicts, *_c = validation_state(tdir)
     for n in vnodes:
         if n["id"] == "IFR":

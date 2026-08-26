@@ -570,13 +570,32 @@ def scenario(ws):
     # THE BATON IS NOT A BRAKE (feedback 2026-08-26): s1 waits for the owner, s2 is free —
     # `next` names the free work as the move and the owner's word as a separate line
     add(S(["plan", "wait", "s1", "показал экран"], rc=1, label="plan wait on a closed node: refused"))
-    add(S(["plan", "reopen", "s2", "--why", "тест эстафеты: свободная работа"]))
-    add(S(["plan", "wait", "s3", "показал место раскрытия"], label="baton test: s3 waits"))
-    add(S(["next", "--short"], label="next: baton on s3, s2 is free — the move is s2"))
-    add(S(["accept", "смотрел, ок", "--for", "node:s3"], label="the word on s3: baton back"))
-    add(S(["plan", "park", "s3", "--why", "тест эстафеты"]))
-    add(S(["plan", "reopen", "s3", "--why", "тест эстафеты — обратно в открытые"]))
-    add(S(["plan", "done", "s2", "снова закрыт после теста"]))
+    add(S(["plan", "reopen", "s1.wp1", "--why", "тест эстафеты: показать ещё раз"]))
+    # STAGES GO ONE AFTER ANOTHER (incident 2026-08-26): S4 cannot start while S1.WP1 is open
+    add(S(["plan", "new", "s4", "тест порядка этапов"]))
+    add(S(["plan", "set", "s4", "result", "x"]))
+    add(S(["plan", "start", "s4"], rc=1, label="plan start s4 while S1 is open: ЭТАП РАНО"))
+    add(S(["plan", "wait", "s4", "показал"], rc=1, label="plan wait s4 while S1 is open: refused too"))
+    # THE LAYOUT IS TALKED OVER BEFORE IT IS WRITTEN (owner, 2026-08-26): on execute the first
+    # package under a stage waits for his word over the layout
+    for f in ("check", "resources", "artifacts", "storage", "inputs", "deps", "executor"):
+        add(S(["plan", "set", "s4", f, "- x" if f == "check" else "x"]))
+    add(S(["plan", "set", "s4", "sync", "показываю: x\nувидишь: y\nпотрогать: z\nот тебя: ничего"]))
+    add(S(["plan", "new", "s4", "wp1", "первый пакет"], rc=1,
+          label="plan new s4 wp1 on execute before his word: talk it over first — refused"))
+    add(S(["accept", "одобряю", "--for", "stage:s4", "--on", "wp1 первый пакет · wp2 второй"],
+          label="accept --for stage:s4 --on: his word over the layout, before the nodes"))
+    add(S(["plan", "new", "s4", "wp1", "первый пакет"], label="plan new s4 wp1 after his word"))
+    add(S(["plan", "park", "s4.wp1", "--why", "тест"]))
+    add(S(["validate", "s4", "1", "--declined", "тест порядка этапов — работа снята"]))
+    add(S(["plan", "park", "s4", "--why", "тест"]))
+    add(S(["plan", "start", "s1", "wp1", "--force"], label="baton test: s1.wp1 back in work"))
+    add(S(["plan", "wait", "s3", "показал место раскрытия"], rc=1,
+          label="plan wait on another node while one is in work: refused, nothing pushed aside"))
+    add(S(["plan", "wait", "s1", "wp1", "показал экран"], label="baton test: the node in work waits"))
+    add(S(["next", "--short"], label="next: baton on s1.wp1, s3 is free — the move is s3"))
+    add(S(["doctor"], rc=1, label="doctor: waiting beside free work is no «two in work»; the answered-criteria error stays"))
+    add(S(["accept", "смотрел, ок", "--for", "node:s1.wp1", "--close"], label="the word on s1.wp1 with --close: baton back, node closed again"))
     add(S(["artifact"], rc=2))
     add(S(["artifact", "out/app.apk", "--why", "сборка"], pre=pre_out_files))
     add(S(["artifact", "out/app.apk", "--node", "s1", "--check", "1", "--why", "к узлу"],
@@ -876,15 +895,16 @@ def scenario(ws):
     for f in ("resources", "artifacts", "storage", "inputs", "deps", "executor"):
         add(S(["plan", "set", "s3", f, "x"]))
     add(S(["plan", "set", "s3", "sync", "показываю: x\nувидишь: y\nпотрогать: z\nот тебя: ничего"]))
-    add(S(["plan", "new", "s3", "wp1", "прогон сценария"]))
+    add(S(["plan", "new", "s3", "wp1", "прогон сценария"],
+          label="plan new s3 wp1 on the PLAN phase: allowed — his word over the plan covers packages drawn here"))
+    add(S(["accept", "раскладка третьего этапа ок", "--for", "stage:s3", "--on", "wp1 прогон сценария"],
+          label="accept --for stage:s3 --on: his word over the layout"))
     for f, v in (("result", "прогон записан"), ("check", "- видео есть"), ("resources", "x"), ("artifacts", "x"),
                  ("storage", "x"), ("inputs", "x"), ("deps", "x"),
                  ("sync", "показываю: x\nувидишь: y\nпотрогать: z\nот тебя: ничего"), ("executor", "x")):
         add(S(["plan", "set", "s3.wp1", f, v]))
-    add(S(["plan", "start", "s3", "wp1"], rc=1, label="plan start s3.wp1: the layout has no word yet — refused"))
-    add(S(["plan"], label="plan: the stage says «раскладка ждёт слова владельца»"))
-    add(S(["next"], label="next: show the layout, record his word"))
-    add(S(["accept", "раскладка третьего этапа ок", "--for", "stage:s3"], label="accept --for stage:s3"))
+    add(S(["plan"], label="plan: the stage says «раскладка принята»"))
+    add(S(["next"], label="next: the package is the move"))
     add(S(["plan", "start", "s3", "wp1"], label="plan start s3.wp1: the package starts"))
     add(S(["plan", "park", "s3.wp1", "--why", "позже"]))
     add(S(["plan", "park", "s3", "--why", "позже"]))
