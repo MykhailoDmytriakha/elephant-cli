@@ -6,7 +6,7 @@ file for the index and one per project. Rebuilt once per command, only for the p
 the command touched (state._DIRTY). A broken view must never break the bookkeeping.
 """
 import json, os
-from .protocol import CONTEXT_FILES, IFR_PARTS, NODE_FIELDS, SCOPE_FRAME, THINK_STEPS
+from .protocol import CONTEXT_FILES, IFR_PARTS, NODE_FIELDS, SCOPE_FRAME, THINK_STEPS, feedback_prompt
 from .state import _DIRTY, SKILL_ROOT, current_task, now_iso, task_meta, tasks_of, todo_items, write
 from .context import qa_read, scope_notes, scope_read
 from .think import forks_read
@@ -526,6 +526,9 @@ def render_views(root, only=None):
             write(data_path,
                   dump("ELEPHANT_OVERVIEW",
                        dict(m, generated=stamp, request=request,
+                            # the review prompt for the page's «feedback» button — one copy,
+                            # the same text `el feedback prompt` prints (owner, 2026-08-26)
+                            feedback_prompt=feedback_prompt("all"),
                             worklog=worklog(root, t), stale=stale(root, t, tdir),
                             clarified=docs["clarified"],
                             ifr=docs["ifr"],

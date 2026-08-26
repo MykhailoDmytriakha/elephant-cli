@@ -5,7 +5,8 @@ spawn · reopen · done · lesson · ui · feedback (the tool's own inbox), and 
 that teach: blueprint (the whole contract) and onboard (bare `el`).
 """
 import argparse, json, os, re, shutil, sys
-from .protocol import BRIEF_CHARS, BRIEF_LINES, CONTEXT_FILES, MODE_RU, MODES, OUTCOMES, PHASES
+from .protocol import (BRIEF_CHARS, BRIEF_LINES, CONTEXT_FILES, MODE_RU, MODES, OUTCOMES, PHASES,
+                       PROMPT_KINDS, feedback_prompt)
 from .navigate import return_lines
 from .worklog import stale_lines
 from .state import SKILL_ROOT
@@ -1217,78 +1218,6 @@ FEEDBACK_FORMAT = [
     "           помогло:  что в el сработало хорошо — тоже ценно",
     "         плюс --about <команда> — о какой команде речь · длина не ограничена: --file <путь>",
 ]
-
-
-# THE REVIEW PROMPT FOR THE HUMAN (owner, 2026-08-26: «когда мне нужен отзыв от агента по
-# работе системы, мне нужен промпт, который я могу скопировать и вставить; когда прошу
-# своими словами — выходит то одно, то другое; а руками выпрошенный развёрнутый — понравился»).
-# `el feedback prompt` prints it and puts it on the clipboard; the human pastes it into the
-# agent's chat, the agent writes the long review and files it with `el feedback --file`.
-# Two parts — the TOOL (how `el` behaved on this task: findings with evidence) and the
-# CONCEPT (how Elephant should be built: model, layers, what to keep) — because the review
-# he liked had exactly these two, and a bare «напиши отзыв» yields neither in full.
-PROMPT_HEAD = """\
-Ты работал над задачей с Elephant — бухгалтерией больших задач: CLI `el`, хранилище .projects,
-фазы context → close, страницы overview.html. Напиши развёрнутый отзыв об Elephant по итогам
-ЭТОЙ работы — не заметку, а разбор, по которому мета-сессия сможет чинить инструмент и
-пересматривать концепцию, не видя твоего экрана.
-
-Пиши подробно: тезис одним абзацем сверху, дальше развёртка. Конкретика — из этой задачи:
-команды дословно, вывод как есть, пути файл:строка. Свидетельство, а не пересказ guide."""
-
-PROMPT_TOOL = """\
-ЧАСТЬ 1 — ОБ ИНСТРУМЕНТЕ: как `el` вёл себя на работе
-- Главный вывод: что Elephant делает хорошо и где слаб — 2–4 предложения.
-- Findings — по убыванию риска (критический · высокий · средний · низкий). Каждый:
-  что наблюдал (команда → вывод, файл:строка) · что ожидал · причина, если нашёл её в коде
-  (путь:строка) · чем это грозит человеку или агенту. Сначала посмотри pool `el feedback`:
-  что уже зафиксировано — сошлись на id, не дублируй.
-- Что было ясно — что сработало и помогло; это тоже ценно.
-- Что было трудно — где терял время, что сверял вручную, где искал источник истины.
-- Границы ответственности: что дефект Elephant/CLI · что протокола и документации · что
-  процесса агента (что ты сам должен был сделать иначе) · что специфика самой задачи, а
-  не Elephant.
-- Приоритетные улучшения — конкретно: команда, поле, правило; нумерованным списком."""
-
-PROMPT_CONCEPT = """\
-ЧАСТЬ 2 — О КОНЦЕПЦИИ: как Elephant должен быть устроен
-- Что в ядре правильно и трогать не нужно.
-- Главная проблема модели: какие понятия смешаны, чего не хватает — с примерами из этой
-  задачи (файл:строка).
-- Какой должна быть основа: слои, состояния, что из чего выводится — и как должен выглядеть
-  идеальный ответ инструмента на «что истинно сейчас, что блокирует, какой следующий
-  безопасный шаг»: покажи пример экрана.
-- Что изменить в концепции — нумерованно, каждое с «почему» и «как».
-- Что оставить без изменений — списком.
-- Приоритет изменений: P0 · P1 · P2 · P3.
-- Итог одним абзацем: менять ли концепцию, что убрать, что исчезнет само как следствие."""
-
-PROMPT_RULES = """\
-ПРАВИЛА
-- Развёрнуто: не сжимай ради краткости — лучше длинно и точно. Не смягчай: сломано — так и
-  пиши, с доказательством.
-- Разделяй «что исторически было», «что истинно сейчас» и «что агент имел право делать»;
-  где инструмент это смешивает — это и есть finding.
-- Не предлагай замену концепции целиком, если ядро работает — говори, что оставить.
-- Язык — тот, на котором идёт разговор; термины и команды — как есть.
-
-КУДА
-Покажи отзыв целиком в чате. Затем сохрани его в файл и положи в pool инструмента:
-  el feedback --file <путь> --about {about}
-Проверь, что `el feedback` показывает записанное."""
-
-PROMPT_KINDS = {"all": "tool-and-concept", "tool": "tool", "concept": "concept"}
-
-
-def feedback_prompt(kind="all"):
-    """The review prompt, whole: head · the parts asked for · rules with the filing line."""
-    parts = [PROMPT_HEAD]
-    if kind in ("all", "tool"):
-        parts.append(PROMPT_TOOL)
-    if kind in ("all", "concept"):
-        parts.append(PROMPT_CONCEPT)
-    parts.append(PROMPT_RULES.format(about=PROMPT_KINDS[kind]))
-    return "\n\n".join(parts) + "\n"
 
 
 def clipboard_put(text):

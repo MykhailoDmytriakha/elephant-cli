@@ -608,7 +608,9 @@ window.ELEPHANT_OVERVIEW = null;
     '<div class="hbtns"><button class="cbtn" data-copy="id" title="имя папки проекта">' + ICON + "<span>id</span></button>" +
     (absPath ? '<button class="cbtn" data-copy="path" title="полный путь к папке проекта">' + ICON + "<span>путь</span></button>" : "") +
     '<button class="cbtn" data-copy="card" title="промпт для запуска агента: что за проект · где · состояние · команда el resume — вставь в чистый чат">' +
-    ICON + "<span>карточка для агента</span></button></div>";
+    ICON + "<span>карточка для агента</span></button>" +
+    (d.feedback_prompt ? '<button class="cbtn" data-copy="feedback" title="промпт для отзыва об Elephant: об инструменте и о концепции — вставь агенту, который работал над задачей">' +
+                         ICON + "<span>feedback</span></button>" : "") + "</div>";
 
   /* the facts: created · updated (· closed · took) · mode · plan nodes */
   function fact(k, v, s, cls) {
@@ -664,6 +666,13 @@ window.ELEPHANT_OVERVIEW = null;
     }
     return lines.join("\n");
   }
+  /* FEEDBACK — промпт для отзыва (владелец, 2026-08-26: «нажал — и скопировался тот промпт»):
+     тот же текст, что печатает `el feedback prompt`, приезжает с данными проекта; сверху —
+     какая задача и где, чтобы промпт работал и в чистом чате. */
+  function feedbackText() {
+    return "Elephant · задача: " + (d.name || d.dir || "") + (absPath ? "\nПапка: " + absPath : "") +
+           "\n\n" + (d.feedback_prompt || "");
+  }
   function copyLegacy(text) {
     var ta = document.createElement("textarea");
     ta.value = text; ta.setAttribute("readonly", "");
@@ -684,7 +693,8 @@ window.ELEPHANT_OVERVIEW = null;
     var b = ev.target.closest ? ev.target.closest("[data-copy]") : null;
     if (!b || b.getAttribute("data-busy")) return;
     var what = b.getAttribute("data-copy");
-    var text = what === "id" ? (d.dir || "") : what === "path" ? absPath : cardText();
+    var text = what === "id" ? (d.dir || "") : what === "path" ? absPath :
+               what === "feedback" ? feedbackText() : cardText();
     var label = b.querySelector("span"), old = label.textContent;
     b.setAttribute("data-busy", "1");
     copyText(text).then(function () { b.classList.add("ok"); label.textContent = "✓ скопировано"; },
