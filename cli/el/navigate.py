@@ -356,6 +356,16 @@ def cmd_status(args):
         print(f"current   {task} · phase {phase_no(ph)}/8 {ph}"
               + ("" if st == "active" else f" · {st.upper()}"))
         print(f"          {meta.get('name', '')[:70]}")
+        # THE NODE, apart from the task (feedback 2026-08-26: «current» read as the current
+        # node; S2 in owner handoff next to it looked like current work).
+        from .plan import active_node as _an, node_status as _ns, waiting_nodes as _wn
+        act_s = _an(tdir)
+        if act_s and _ns(act_s) == "active":
+            print(f"узел      {act_s['id']} · {(act_s.get('name') or '')[:50]} — в работе")
+        elif st == "active" and ph in PHASES and PHASES.index(ph) >= PHASES.index("execute"):
+            print("узел      в работе никого")
+        for w_s in _wn(tdir):
+            print(f"эстафета  {w_s['id']} у владельца — {(w_s.get('waiting_note') or w_s.get('name') or '')[:60]}")
         for l in return_lines(root, task):
             print(l)
         for l in stale_lines(root, task, tdir):
@@ -1153,8 +1163,8 @@ def cmd_next(args):
                 print(f"эстафета {act['id']} у владельца" +
                       (f" — держит {', '.join(held)}" if held else " — никого не держит") +
                       f"; свободная работа есть: {', '.join(n['id'] for n in ready_w[:5])}")
-                move = (f"{act['id']} ждёт его слова ({word}) — это не тормоз для остального: "
-                        + ready_line(tdir, root, task))
+                move = (ready_line(tdir, root, task)
+                        + f" · отдельно, слово владельца по {act['id']}: {word}")
             else:
                 move = (f"запиши его слово: {word}"
                         + (f" — {act['id']} держит {', '.join(held)}" if held else ""))

@@ -277,6 +277,8 @@ def cmd_plan(args):
         return plan_set(root, task, tdir, words[1:], getattr(args, "replace", False))
     if verb in ("rm", "drop"):
         return plan_rm(root, task, tdir, words[1:])
+    if verb == "rename":
+        return plan_rename(root, task, tdir, words[1:], getattr(args, "why", None))
     if verb == "reopen":
         return plan_reopen(root, task, tdir, words[1:], getattr(args, "why", None))
     if verb == "done":
@@ -313,7 +315,42 @@ def cmd_plan(args):
 
 
 PROJECTION_MARK = "_Проекция дерева узлов"
-ID_RE = re.compile(r"\b[Ss]\d+(?:\.[Ww][Pp]\d+)*\b")
+ID_RE = re.compile(r"\b[Ss]\d+(?:\.(?:[Ww][Pp]|[Tt]|[Ss][Tt])\d+)*\b")
+# A RELATIVE reference — «WP7», «WP6.WP7», «T3» — resolved against the node's own ancestors
+# (feedback 2026-08-26: «After WP6.WP7» silently vanished from the graph and the node came
+# out ready). The canonical prefix of every level, by depth: S · WP · T · ST.
+REL_RE = re.compile(r"\b(?:[Ww][Pp]|[Tt]|[Ss][Tt])\d+(?:\.(?:[Ww][Pp]|[Tt]|[Ss][Tt])\d+)*\b")
+LEVEL_PREFIX = ["S", "WP", "T", "ST"]
+
+
+def canonical_gap(nid):
+    """'' when every segment of `nid` carries its level's prefix (S1 · S1.WP2 · S1.WP2.T3 ·
+    S1.WP2.T3.ST1); else the id it should have been (owner's plan, 2026-08-26: S1.WP6.WP1
+    was accepted as a «task» and lied about the structure to every reader)."""
+    segs = nid.split(".")
+    if len(segs) > len(LEVEL_PREFIX):
+        return "?"
+    fixed = []
+    for i, seg in enumerate(segs):
+        m = re.match(r"^([A-Za-z]+)(\d+)$", seg)
+        want = LEVEL_PREFIX[i]
+        if not m or m.group(1).upper() != want:
+            fixed.append(f"{want}{m.group(2) if m else 1}")
+        else:
+            fixed.append(seg.upper())
+    return "" if fixed == [s.upper() for s in segs] else ".".join(fixed)
+
+
+def resolve_relative(token, own):
+    """«WP7» / «WP6.WP7» / «T3» / «ST2» → a full id under the ancestors of `own`: a WP is a
+    package of own's stage, a T a task of own's package, an ST a subtask of own's task."""
+    segs = [s.upper() for s in token.split(".")]
+    first = re.match(r"^([A-Z]+)", segs[0]).group(1)
+    depth = LEVEL_PREFIX.index(first) if first in LEVEL_PREFIX else -1
+    own_segs = own.split(".") if own else []
+    if depth <= 0 or len(own_segs) < depth:
+        return ""
+    return ".".join(own_segs[:depth] + segs)
 
 
 AFTER_WORDS = ("after", "после", "depends", "зависит", "requires", "нужен", "нужны", "следом за")
@@ -338,9 +375,14 @@ def deps_parse(text, own=""):
                 cut = i
         head, tail = (clause, "") if cut is None else (clause[:cut], clause[cut:])
         for part, bucket in ((head, pre), (tail, suc)):
+            masked = ID_RE.sub(lambda m: " " * len(m.group(0)), part)
             for m in ID_RE.finditer(part):
                 d = m.group(0).upper()
                 if d != own and d not in bucket:
+                    bucket.append(d)
+            for m in REL_RE.finditer(masked):
+                d = resolve_relative(m.group(0), own)
+                if d and d != own and d not in bucket:
                     bucket.append(d)
     return pre, suc
 
@@ -681,6 +723,16 @@ def plan_new(root, task, tdir, words, force=False):
     if node_read(tdir, nid):
         print(f"узел {nid} уже есть")
         return 0
+    # ONE SCHEMA FOR EVERY LEVEL (feedback 2026-08-26): the id says the level — S · WP · T · ST.
+    want = canonical_gap(nid)
+    if want:
+        if want == "?":
+            print(f"{nid} — глубже подзадачи уровней нет (этап → пакет → задача → подзадача)", file=sys.stderr)
+        else:
+            print(f"{nid} — не тот уровень в имени: этап S1 · пакет S1.WP1 · задача S1.WP1.T1 · "
+                  f"подзадача S1.WP1.T1.ST1", file=sys.stderr)
+            print(f"  так: el plan new {want.lower().replace('.', ' ')} \"{name}\"", file=sys.stderr)
+        return 1
     parent = nid.rsplit(".", 1)[0] if "." in nid else ""
     if parent:
         par = node_read(tdir, parent)
@@ -750,7 +802,7 @@ def plan_new(root, task, tdir, words, force=False):
             {"parent": parent})
     touch(root, task)
     print(f"узел {nid} · {meta['level']} · {meta['name']}")
-    print(f"дальше   el plan {nid.lower().replace('.', ' ')} — какие из восьми полей пусты · "
+    print(f"дальше   el plan {nid.lower().replace('.', ' ')} — какие из девяти полей пусты · "
           f"el plan start {nid.lower()} — ДО работы, не после (контракт допишешь до закрытия)")
     return 0
 
@@ -787,6 +839,23 @@ def plan_reopen(root, task, tdir, words, why):
     print(f"дальше   расширить: el plan new {nid.lower().replace('.', ' ')} wpN \"<имя>\" · "
           f"в работу: el plan start {nid.lower()} · критерии узла остаются, вердикты — тоже")
     return 0
+
+
+def sync_missing(text):
+    """The four lines a stop must carry — which are absent."""
+    low = (text or "").lower()
+    return [w for w in ("показываю:", "увидишь:", "потрогать:", "от тебя:") if w not in low]
+
+
+def print_sync_help(nid, missing):
+    print(f"в остановке нет строк: {', '.join(missing)}", file=sys.stderr)
+    print("  остановка описывается четырьмя строками, и каждая отвечает на своё:", file=sys.stderr)
+    print("  показываю: — предмет · увидишь: — куда смотреть ·", file=sys.stderr)
+    print("  потрогать: — чем он поработает САМ · от тебя: — ничего/поправка/решение", file=sys.stderr)
+    print("  без них остановка превращается в «ну как?», а это не вопрос.", file=sys.stderr)
+    print(f'  готовый шаблон:  el plan set {nid.lower()} sync "показываю: <что>'
+          '\\nувидишь: <куда смотреть>\\nпотрогать: <что он сделает сам>'
+          '\\nот тебя: <ничего|поправка|решение>"', file=sys.stderr)
 
 
 def plan_populate(root, task, tdir, words, src):
@@ -844,6 +913,15 @@ def plan_populate(root, task, tdir, words, src):
             continue
         rows = [l.strip() for l in body.splitlines() if l.strip()]
         fields[key] = "\n".join(l if l.startswith("-") else f"- {l}" for l in rows)
+    # THE SAME SEMANTICS AS FIELD BY FIELD (feedback 2026-08-26: --file printed «все поля
+    # заполнены» over a one-line stop and a single criterion): a stop without its four lines
+    # is refused whole; fewer than five criteria is said out loud.
+    if "sync" in sections and fields.get("sync", "").strip():
+        miss = sync_missing(fields["sync"])
+        if miss:
+            print_sync_help(nid, miss)
+            print("  файл не записан — поправь секцию ## sync", file=sys.stderr)
+            return 1
     node_write(tdir, nid, node, fields)
     touch(root, task)
     journal(root, task, "node-set", f"{nid}: {', '.join(sections)} (--file)", {"node": nid})
@@ -855,8 +933,11 @@ def plan_populate(root, task, tdir, words, src):
         pre, suc = deps_parse(fields["deps"], nid)
         print("порядок  " + (f"после {', '.join(pre)}" if pre else "предпосылок нет")
               + (f" · перед {', '.join(suc)}" if suc else ""))
+    n_check = len([l for l in fields.get("check", "").splitlines() if l.strip().startswith("-")])
+    if "check" in sections and n_check < 5:
+        print(f"         критериев {n_check} — меньше пяти: по спеке узел ещё не контракт")
     gaps = node_gaps(node_read(tdir, nid), task_mode(tdir))
-    print(f"пусто    {', '.join(gaps) if gaps else '— все поля контракта заполнены'}")
+    print(f"пусто    {', '.join(gaps) if gaps else ('— все поля контракта заполнены' if n_check >= 5 else '— поля заполнены, но контракт ещё тонкий (критериев < 5)')}")
     for l in drift_lines(tdir, indent="         "):
         print(l)
     return 0
@@ -896,20 +977,9 @@ def plan_set(root, task, tdir, words, replace=False):
     fields[key] = (cur + "\n" if cur else "") + (line if line.startswith("-") else f"- {line}")
     if key == "sync":
         low = fields[key].lower()
-        missing = [w for w in ("показываю:", "увидишь:", "потрогать:", "от тебя:")
-                   if w not in low]
+        missing = sync_missing(fields[key])
         if missing:
-            print(f"в остановке нет строк: {', '.join(missing)}", file=sys.stderr)
-            print("  остановка описывается четырьмя строками, и каждая отвечает на своё:",
-                  file=sys.stderr)
-            print("  показываю: — предмет · увидишь: — куда смотреть ·", file=sys.stderr)
-            print("  потрогать: — чем он поработает САМ · от тебя: — ничего/поправка/решение",
-                  file=sys.stderr)
-            print("  без них остановка превращается в «ну как?», а это не вопрос.",
-                  file=sys.stderr)
-            print(f'  готовый шаблон:  el plan set {nid.lower()} sync "показываю: <что>'
-                  '\\nувидишь: <куда смотреть>\\nпотрогать: <что он сделает сам>'
-                  '\\nот тебя: <ничего|поправка|решение>"', file=sys.stderr)
+            print_sync_help(nid, missing)
             return 1
         if "развилка" in low and ("вопрос:" not in low or "изменится:" not in low):
             print("развилка без вопроса — это не развилка.", file=sys.stderr)
@@ -1542,8 +1612,10 @@ def plan_rm(root, task, tdir, words):
     nid = path_to_id(words)
     path = node_path(tdir, nid)
     if not os.path.exists(path):
-        print(f"нет узла {nid}", file=sys.stderr)
-        return 1
+        # Idempotent (feedback 2026-08-26: a chained «rm && rm && rm» stopped at the first
+        # node already gone): nothing to remove is not an error.
+        print(f"узла {nid} уже нет")
+        return 0
     kids = [n["id"] for n in nodes_all(tdir) if n["id"].startswith(nid + ".")]
     if kids:
         print(f"внутри {nid} есть узлы: {', '.join(kids)} — сперва убери их", file=sys.stderr)
@@ -1552,6 +1624,70 @@ def plan_rm(root, task, tdir, words):
     journal(root, task, "node-removed", nid)
     touch(root, task)
     print(f"убран {nid}")
+    return 0
+
+
+def plan_rename(root, task, tdir, words, why):
+    """A node keeps its identity under a new id (feedback 2026-08-26: fixing S1.WP6.WP1 →
+    S1.WP6.T1 meant rm + new and lost the contract). The subtree moves with it, every `deps`
+    that named the old id is rewritten, the validation ledger keeps its verdicts under the new
+    heading, and the journal says from → to and why."""
+    why = (why or "").strip()
+    if len(words) < 2 or not why:
+        print('el plan rename s1.wp6.wp1 s1.wp6.t1 --why "<почему>"', file=sys.stderr)
+        return 1
+    old, new = path_to_id([words[0]]), path_to_id([words[1]])
+    if not node_read(tdir, old):
+        print(f"нет узла {old}", file=sys.stderr)
+        return 1
+    if node_read(tdir, new):
+        print(f"узел {new} уже есть", file=sys.stderr)
+        return 1
+    want = canonical_gap(new)
+    if want:
+        print(f"{new} — не тот уровень в имени (этап S1 · пакет S1.WP1 · задача S1.WP1.T1 · подзадача "
+              f"S1.WP1.T1.ST1)" + (f"; так: {want}" if want != "?" else ""), file=sys.stderr)
+        return 1
+    new_parent = new.rsplit(".", 1)[0] if "." in new else ""
+    if new_parent and not node_read(tdir, new_parent):
+        print(f"нет родителя {new_parent} — заведи его первым", file=sys.stderr)
+        return 1
+    moved = []
+    for n in sorted(nodes_all(tdir), key=lambda x: x["id"]):
+        if n["id"] == old or n["id"].startswith(old + "."):
+            nid2 = new + n["id"][len(old):]
+            meta = {k: v for k, v in n.items() if k not in ("_fields", "id")}
+            meta["parent"] = nid2.rsplit(".", 1)[0] if "." in nid2 else ""
+            meta["level"] = level_of_depth(nid2)
+            node_write(tdir, nid2, meta, n["_fields"])
+            os.remove(node_path(tdir, n["id"]))
+            moved.append((n["id"], nid2))
+    # every `deps` that named the old id (or a node under it)
+    touched = []
+    pat = re.compile(r"\b" + re.escape(old) + r"(?=\.|\b)", re.I)
+    for n in nodes_all(tdir):
+        deps_txt = n["_fields"].get("deps") or ""
+        if pat.search(deps_txt):
+            fields = dict(n["_fields"]); fields["deps"] = pat.sub(new, deps_txt)
+            node_write(tdir, n["id"], {k: v for k, v in n.items() if k not in ("_fields", "id")}, fields)
+            touched.append(n["id"])
+    # the validation ledger keeps its verdicts
+    vpath = os.path.join(tdir, "validation.md")
+    if os.path.exists(vpath):
+        vt = open(vpath, encoding="utf-8").read()
+        vt2 = pat.sub(new, vt)
+        if vt2 != vt:
+            with open(vpath, "w", encoding="utf-8") as fh:
+                fh.write(vt2)
+            touched.append("validation.md")
+    journal(root, task, "node-renamed", f"{old} → {new}: {why}"[:160],
+            {"from": old, "to": new, "moved": [m[1] for m in moved], "touched": touched})
+    touch(root, task)
+    print(f"переименован  {old} → {new} — {why}")
+    if len(moved) > 1:
+        print(f"  вместе с ним: {', '.join(m[1] for m in moved[1:])}")
+    if touched:
+        print(f"  поправлены ссылки: {', '.join(touched)}")
     return 0
 
 

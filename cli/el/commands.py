@@ -1016,11 +1016,18 @@ def cmd_doctor(args):
                          f'его слово: el accept "…" --for node:{n["id"].lower()}')
         elif n.get("waiting_since"):
             # A stamp that outlived its status (feedback 2026-08-26): written by an older
-            # el, or by hand; the next status change of the node clears it.
-            warns.append(f"{n['id']}: статус {STATUS_RU.get(node_status(n), node_status(n))}, а "
-                         f"waiting_since {str(n.get('waiting_since'))[:16]} остался — устаревший штамп, "
-                         f"ложный сигнал; сотрётся следующей сменой статуса узла или убери строку из "
-                         f"nodes/{n['id']}.md")
+            # el, or by hand. `el doctor --fix` removes it and writes a repair event — a
+            # hand edit of nodes/*.md is not a workflow (feedback 2026-08-26, twice).
+            if getattr(args, "fix", False):
+                from .plan import node_write as _nw
+                meta_f = {k: v for k, v in n.items() if k not in ("_fields", "id", "waiting_since")}
+                _nw(tdir, n["id"], meta_f, n["_fields"])
+                journal(root, task, "repair", f"{n['id']}: снят устаревший waiting_since", {"node": n["id"]})
+                warns.append(f"{n['id']}: устаревший waiting_since снят (--fix)")
+            else:
+                warns.append(f"{n['id']}: статус {STATUS_RU.get(node_status(n), node_status(n))}, а "
+                             f"waiting_since {str(n.get('waiting_since'))[:16]} остался — устаревший штамп, "
+                             f"ложный сигнал; снять: el doctor --fix")
     phase = task_meta(root, task).get("phase", "context")
     if phase in PHASES and PHASES.index(phase) > PHASES.index("execute"):
         left = [n["id"] for n in nodes if node_open(n)]

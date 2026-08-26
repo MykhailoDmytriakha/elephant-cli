@@ -101,7 +101,7 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     how — the mechanics, its own screen
 #   el ui [update] [--open]           refresh the human pages NOW, without waiting for the
 #                                     agent's next write; --open opens them in the browser
-#   el doctor                         integrity: criteria answered but node open · two nodes in
+#   el doctor [--fix]                 integrity: criteria answered but node open · two nodes in
 #                                     work · closed without result · waiting unanswered · phase
 #                                     past execute with open nodes · proof files missing · pages
 #                                     behind the template
@@ -254,6 +254,10 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     the level (stage · work · task · subtask) and the parent,
 #                                     so neither has to be declared
 #   el plan new s1 wp1 "<name>"       create it there. Refused if the parent still has empty
+#                                     THE ID SAYS THE LEVEL (2026-08-26): S1 · S1.WP1 · S1.WP1.T1 ·
+#                                     S1.WP1.T1.ST1 — a wrong prefix is refused with the right one.
+#                                     deps may name a sibling RELATIVELY («after WP7», «T3»): it is
+#                                     resolved under the node's own ancestors, never dropped
 #                                     fields: expand only the level you stand on (§5). A sibling
 #                                     with the SAME name is refused too (a repeated hypothesis —
 #                                     search tasks): name how this one differs, or --force
@@ -294,7 +298,11 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     A DECLARED BLANK SPOT: here the plan cannot be built until
 #                                     something is learned. Counts as coverage — a hole named out
 #                                     loud is part of the route; a silent one is a failure
-#   el plan rm s1 wp1                 remove a node that has nothing inside it
+#   el plan rm s1 wp1                 remove a node that has nothing inside it (already gone =
+#                                     no-op, so a chain of rm never stops halfway)
+#   el plan rename s1.wp6.wp1 s1.wp6.t1 --why "…"   a node keeps its identity under a new id:
+#                                     the subtree moves, every deps naming it is rewritten, the
+#                                     validation ledger keeps its verdicts, the journal says why
 #   el sync                           THE STOPS ALONG THE ROAD: which are passed, which comes
 #                                     next, what exactly gets shown at each. Planned in the plan,
 #                                     never improvised — a stop decided in the moment is decided
@@ -700,7 +708,7 @@ def _dispatch(argv):
     p.add_argument("what", nargs="?"); p.add_argument("--why"); p.add_argument("--task")
     p.set_defaults(fn=cmd_ack)
     p = sub.add_parser("doctor", add_help=False)
-    p.add_argument("--task"); p.set_defaults(fn=cmd_doctor)
+    p.add_argument("--task"); p.add_argument("--fix", action="store_true"); p.set_defaults(fn=cmd_doctor)
     p = sub.add_parser("lesson", add_help=False)
     p.add_argument("text"); p.add_argument("--task"); p.set_defaults(fn=cmd_lesson)
     p = sub.add_parser("research", add_help=False)

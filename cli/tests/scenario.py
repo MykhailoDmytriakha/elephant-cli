@@ -187,6 +187,12 @@ def invariants(ws):
     return bad
 
 
+def pre_bad_contract(ws):
+    """A bulk contract whose stop is one line — refused by the same rule as field by field."""
+    _write(os.path.join(ws["A"], "contract-bad.md"),
+           "## result\n- виза есть\n## check\n- юрист подписал\n## sync\n- показал юристу\n")
+
+
 def pre_letter(ws):
     """A long review written elsewhere — `el feedback --file` takes it whole."""
     _write(os.path.join(ws["home"], "letter.md"),
@@ -444,7 +450,7 @@ def scenario(ws):
     add(S(["plan", "s3"]))
     add(S(["plan", "rm", "s3"]))
     add(S(["plan", "rm"], rc=1))
-    add(S(["plan", "rm", "s9"], rc=1))
+    add(S(["plan", "rm", "s9"]))
     add(S(["sync"]))
     add(S(["next"]))
     add(S(["plan", "s1"]))
@@ -897,6 +903,11 @@ def scenario(ws):
     add(S(["plan", "set", "s3", "sync", "показываю: x\nувидишь: y\nпотрогать: z\nот тебя: ничего"]))
     add(S(["plan", "new", "s3", "wp1", "прогон сценария"],
           label="plan new s3 wp1 on the PLAN phase: allowed — his word over the plan covers packages drawn here"))
+    add(S(["plan", "new", "s3", "wp1", "wp1", "не тот уровень"], rc=1, label="plan new: a wrong level prefix is refused with the right one"))
+    add(S(["plan", "new", "s3", "x1", "не тот уровень"], rc=1, label="plan new: a non-canonical package id is refused"))
+    add(S(["plan", "set", "s3", "wp1", "deps", "after WP9; before T2", "--replace"],
+          label="deps: relative references resolve under the node's ancestors"))
+    add(S(["plan", "set", "s3", "wp1", "deps", "x", "--replace"]))
     add(S(["accept", "раскладка третьего этапа ок", "--for", "stage:s3", "--on", "wp1 прогон сценария"],
           label="accept --for stage:s3 --on: his word over the layout"))
     for f, v in (("result", "прогон записан"), ("check", "- видео есть"), ("resources", "x"), ("artifacts", "x"),
@@ -912,6 +923,7 @@ def scenario(ws):
     # a wait stamp left on a node that is no longer waiting — doctor names it, the next
     # status change clears it (feedback 2026-08-26)
     add(S(["doctor"], pre=pre_stale_wait, label="doctor: stale waiting_since on a parked node"))
+    add(S(["doctor", "--fix"], label="doctor --fix: the stale stamp is removed with a repair event"))
     add(S(["plan", "reopen", "s2", "--why", "штамп ожидания снимается сменой статуса"],
           label="plan reopen: the stale waiting_since goes away"))
     add(S(["plan", "park", "s2", "--why", "снова позже"]))
@@ -1221,6 +1233,13 @@ def scenario(ws):
     add(S(["plan", "reopen", "s2", "--why", "x"], rc=1, label="reopen: already open"))
     add(S(["plan", "new", "s2", "wp1", "виза"], label="plan new after reopen"))
     add(S(["plan", "set", "s2", "wp1", "--file", "nope.md"], rc=1, label="--file: unreadable"))
+    add(S(["plan", "set", "s2", "wp1", "--file", "contract-bad.md"], pre=pre_bad_contract, rc=1,
+          label="--file: a stop without its four lines is refused whole"))
+    add(S(["plan", "rename", "s2.wp1", "s2.wp9", "--why", "тест переименования"], label="plan rename: identity kept"))
+    add(S(["plan", "s2", "wp9"], label="plan s2 wp9: the renamed node"))
+    add(S(["plan", "rename", "s2.wp9", "s2.wp1", "--why", "обратно"]))
+    add(S(["plan", "rename", "s2.wp1", "s2.x1", "--why", "x"], rc=1, label="plan rename: a non-canonical id is refused"))
+    add(S(["plan", "rm", "s2", "wp7"], label="plan rm of a node already gone: a no-op"))
     add(S(["plan", "set", "s2", "wp1", "--file", "contract.md"], pre=pre_contract_file,
           label="--file: the whole contract at once, with a digest"))
     add(S(["plan", "s2", "wp1"], label="the populated node"))
