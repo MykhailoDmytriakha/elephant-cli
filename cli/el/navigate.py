@@ -1112,8 +1112,23 @@ def cmd_next(args):
               + (f" · ждут владельца {len(wait_e)}" if wait_e else "")
               + " · " + " ".join(f"{STATUS_MARK.get(node_status(n), '·')}{n['id']}" for n in nodes_e))
         if act and node_status(act) == "waiting":
-            move = (f'запиши его слово: el accept "<его слова>" --for node:{act["id"].lower()}'
-                    " (принял и закрываем: --close)")
+            # THE BATON IS NOT A GLOBAL BRAKE (feedback 2026-08-26: S2 waited for the owner,
+            # S1.WP6 was actionable, and `next` offered only «запиши его слово»): what the
+            # waiting node HOLDS is named, and the free work is the move.
+            from .plan import plan_waves, ready_line, ready_nodes
+            _w, _m, _c, deps_w = plan_waves(tdir)
+            held = sorted(k for k, v in deps_w.items() if act["id"] in v)
+            ready_w, _b = ready_nodes(tdir)
+            word = f'el accept "<его слова>" --for node:{act["id"].lower()} (принял и закрываем: --close)'
+            if ready_w:
+                print(f"эстафета {act['id']} у владельца" +
+                      (f" — держит {', '.join(held)}" if held else " — никого не держит") +
+                      f"; свободная работа есть: {', '.join(n['id'] for n in ready_w[:5])}")
+                move = (f"{act['id']} ждёт его слова ({word}) — это не тормоз для остального: "
+                        + ready_line(tdir, root, task))
+            else:
+                move = (f"запиши его слово: {word}"
+                        + (f" — {act['id']} держит {', '.join(held)}" if held else ""))
         elif act:
             node_board(root, task, tdir, act, verd_e)
             print(f"ход      {last_line(root, task, act['id'])}")
@@ -1360,10 +1375,18 @@ def cmd_resume(args):
     buf_d = io.StringIO()
     with contextlib.redirect_stdout(buf_d), contextlib.redirect_stderr(io.StringIO()):
         cmd_doctor(argparse.Namespace(task=task))
-    n_err = sum(1 for l in buf_d.getvalue().splitlines() if l.strip().startswith("ERROR"))
-    n_warn = sum(1 for l in buf_d.getvalue().splitlines() if l.strip().startswith("WARN"))
+    d_lines = buf_d.getvalue().splitlines()
+    errs_d = [l.strip()[len("ERROR"):].strip() for l in d_lines if l.strip().startswith("ERROR")]
+    warns_d = [l.strip()[len("WARN"):].strip() for l in d_lines if l.strip().startswith("WARN")]
+    n_err, n_warn = len(errs_d), len(warns_d)
     if n_err or n_warn:
+        # THE FIRST ONE, not only the count (feedback 2026-08-26: «resume says the state is
+        # suspect and makes you run a second command to learn why»).
         print(f"сверка    противоречий {n_err} · предупреждений {n_warn} — el doctor")
+        if errs_d:
+            print(f"          ERROR {errs_d[0][:150]}")
+        elif warns_d:
+            print(f"          WARN  {warns_d[0][:150]}")
     g_open, g_why = gate_verdict(root, task, tdir, ph)
     print("gate      " + ('открыт — el forward --why "…"' if g_open else f"закрыт — {g_why}"))
     # THE ONE MOVE — the same answer `el next` gives, taken from it, not recomputed.

@@ -15,6 +15,9 @@ the parser that registers the commands sit together and cannot drift apart.
 #   el boot "<description>" --id NAME idempotent: init if missing + new if missing + status line ·
 #                                     --mode light|soft|strict sets the task's TIGHTNESS at birth ·
 #                                     --raw on an EXISTING task appends «Повтор запроса» in his words
+#                                     · --raw "<fact>" --source jira — an EXTERNAL fact (Jira, a
+#                                     document, a colleague): its own section, typed apart from
+#                                     his words — never filed as the owner's request
 #   el use <id>                       TAKE a task in hand — the one commands act on without
 #                                     --task (a `hold` event; `el done` puts it down → idle)
 #   el projects | el ls               list of tasks: phase, last touched, description, and the
@@ -57,7 +60,9 @@ the parser that registers the commands sit together and cannot drift apart.
 #   el feedback "<text>"              THE TOOL'S OWN INBOX — what in `el` got in the way, what
 #                                     helped; one file per review in feedback/ of the clone (the
 #                                     pool a meta-session reads, fixes, deletes) · --about · --by ·
-#                                     --from user (his words) · --file · <id> · done <id>
+#                                     --from user (his words) · --file · <id> · done <id> ·
+#                                     add <id> "<more>" | --file — a revision, appended under its
+#                                     date (never a second pool item for one observation)
 #                                     THE SHAPE, so it can be reproduced: наблюдал: <command →
 #                                     what it printed> · ожидал: <instead> · обошёл: <how you went
 #                                     on> · помогло: <what worked> — a thin review is taken, but
@@ -492,7 +497,7 @@ def _dispatch(argv):
 
     p = sub.add_parser("init", add_help=False); p.add_argument("--dir"); p.set_defaults(fn=cmd_init)
     p = sub.add_parser("new", add_help=False); p.add_argument("description"); p.add_argument("--id"); p.add_argument("--raw"); p.add_argument("--mode"); p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_new)
-    p = sub.add_parser("boot", add_help=False); p.add_argument("description", nargs="?", default=""); p.add_argument("--id"); p.add_argument("--raw"); p.add_argument("--mode"); p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_boot)
+    p = sub.add_parser("boot", add_help=False); p.add_argument("description", nargs="?", default=""); p.add_argument("--id"); p.add_argument("--raw"); p.add_argument("--source"); p.add_argument("--mode"); p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_boot)
     # `context` is a phase GROUP: bare call shows what is gathered, sub-commands act inside
     # the phase. Nested subparsers keep the command tree shaped like the process itself.
     for nm in ("context", "ctx"):

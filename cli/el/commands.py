@@ -159,15 +159,31 @@ def cmd_boot(args):
                 journal(root, existing, "request",
                         "запрос пользователя дозаписан — его словами", {"ref": "init/request.md"})
                 made.append("request")
+            elif raw and (getattr(args, "source", None) or "").strip():
+                # AN EXTERNAL FACT IS NOT HIS WORD (feedback 2026-08-26: a Jira delta the
+                # agent composed landed under «Повтор запроса», and the next reader would
+                # take the URL and the new requirement for the owner's request). It goes
+                # in, under its source and date — the file keeps both, typed apart.
+                src = args.source.strip()
+                with open(req, "a", encoding="utf-8") as fh:
+                    fh.write(f"\n## Из источника · {src} · {now_iso()[:16].replace('T', ' ')} "
+                             f"(не его слова — записал агент)\n\n{raw}\n")
+                journal(root, existing, "request", f"уточнение из источника {src} — не его слова",
+                        {"ref": "init/request.md", "source": src})
+                made.append(f"request-source:{src}")
             elif raw:
                 # THE REQUEST REPEATED (owner, 2026-08-22): the same task asked again, in
                 # other words, another day — appended under its date, in his words, never
                 # overwriting the first: how he put it each time is history worth keeping.
+                # HIS words only — a fact from Jira, a document, a colleague goes with
+                # --source <name>, or it reads as the owner's request next time.
                 with open(req, "a", encoding="utf-8") as fh:
                     fh.write(f"\n## Повтор запроса · {now_iso()[:16].replace('T', ' ')}\n\n{raw}\n")
                 journal(root, existing, "request", "запрос повторён — дозаписан его словами",
                         {"ref": "init/request.md", "repeat": True})
                 made.append("request-repeat")
+                print("запрос    дозаписан как ЕГО слова; факт из Jira/документа/от коллеги — не сюда: "
+                      '--source <имя> кладёт его отдельной секцией')
             hold(root, existing, "взята в руку: el boot")
         else:
             # A refusal inside `new` (a twin of an open task) is a refusal of boot too — it
@@ -721,6 +737,25 @@ def cmd_done(args):
     if meta.get("status", "active") != "active":
         print(f"already closed as {meta['status']} on {meta.get('closed_at', '?')[:10]}")
         return 0
+    # COMPLETED MEANS VERIFIED (feedback 2026-08-26: «a task may be completed while its
+    # validation ledger is incomplete — readers take it as all checks passed»): every
+    # criterion answered and his final word recorded; an owner-authorised early finish is
+    # `closed` with the reason — legal, and named for what it is.
+    if args.outcome == "completed":
+        _n, _v, open_n, failed_n, _d, unver_n = validation_state(tdir)
+        from .amend import word_given_on
+        gaps_c = []
+        if open_n or failed_n or unver_n:
+            gaps_c.append(f"критериев без вердикта {open_n} · не сошлось {failed_n} · не проверено {unver_n}")
+        if not word_given_on(root, task, "validate"):
+            gaps_c.append("приёмки нет — его слово над результатом на фазе validate (el accept --for final)")
+        if gaps_c:
+            print("НЕ ЗАКРОЮ как completed — «доехали» значит: все критерии сошлись и он принял:", file=sys.stderr)
+            for g_c in gaps_c:
+                print(f"  {g_c}", file=sys.stderr)
+            print('  закрыть по его слову раньше дороги — честно: el done "<что вышло>" --as closed '
+                  '--why "<его слова>"', file=sys.stderr)
+            return 1
     # THE OWNER'S DEBT (2026-08-24): an answer he never brought is either still needed — then
     # «completed» is a guess — or never came due — then say so: el owe drop.
     open_owed = owe.open_items(root, task)
@@ -1338,6 +1373,7 @@ def cmd_feedback(args):
       el feedback "<his words>" --from user         the owner's verdict, verbatim
       el feedback --file <path>                     a long letter written elsewhere
       el feedback <id>                              one review in full
+      el feedback add <id> "<more>" | --file <path>  a revision: appended under its date
       el feedback done <id>                         remove it — after the fix
       el feedback prompt [tool|concept]             THE PROMPT for the human: printed and put on
                                                     the clipboard, pasted into an agent's chat"""
@@ -1363,6 +1399,31 @@ def cmd_feedback(args):
               " · только одна: el feedback prompt tool | concept")
         print()
         print(text, end="")
+        return 0
+    if words and words[0] == "add":
+        # A REVISION OF AN EXISTING REVIEW (feedback 2026-08-26: «допиши тем же id» was
+        # promised and no command did it — a correction became a second pool item).
+        if len(words) < 2:
+            print('el feedback add <id> "<ещё>" | --file <путь>', file=sys.stderr)
+            return 1
+        fid = feedback_resolve(words[1])
+        if not fid:
+            print(f"нет отзыва {words[1]} · pool: {', '.join(ids) or '—'}", file=sys.stderr)
+            return 1
+        more = " ".join(words[2:]).strip()
+        f_add = (getattr(args, "file", None) or "").strip()
+        if f_add:
+            try:
+                more = open(os.path.expanduser(f_add), encoding="utf-8").read().strip()
+            except OSError:
+                print(f"не читается: {f_add}", file=sys.stderr)
+                return 1
+        if not more:
+            print('el feedback add <id> "<ещё>" | --file <путь>', file=sys.stderr)
+            return 1
+        with open(os.path.join(fdir, fid + ".md"), "a", encoding="utf-8") as fh:
+            fh.write(f"\n\n## Дополнение · {now_iso()[:16].replace('T', ' ')}\n\n{more}\n")
+        print(f"дописан   {fid} — секция «Дополнение», первый текст не тронут")
         return 0
     if words and words[0] == "done":
         if len(words) < 2:
@@ -1426,13 +1487,20 @@ def cmd_feedback(args):
         fm_write(path, meta, text)
         print(f"записан   {stem}")
         print(f"          {path}")
+        # RELATED ITEMS (feedback 2026-08-26: similarity was a manual read of the pool):
+        # the same --about is a hint, not a refusal — observations may still differ.
+        if about:
+            same = [i for i in ids if fm_read(os.path.join(fdir, i + ".md"))[0].get("about") == about]
+            if same:
+                print(f"похожие   о том же ({about}): {', '.join(same)} — если это то же наблюдение, "
+                      f'допиши туда: el feedback add {same[0]} "<ещё>"')
         if meta["by"] == "unknown harness":
             print('          кто ты — не определилось по окружению; в следующий раз: --by "<harness>"')
         print(f"в pool    {len(ids) + 1} · читает и чинит мета-сессия над скиллом: el feedback")
         thin = feedback_nudge(text) if who == "agent" else []
         if thin:
             print(f"тонко     не хватает: {' · '.join(thin)} — допиши тем же id: "
-                  f'el feedback "<ещё>" (новый файл) или правь {stem}.md руками')
+                  f'el feedback add {stem} "<ещё>" (или --file <путь>)')
             for l in FEEDBACK_FORMAT:
                 print(l)
         return 0

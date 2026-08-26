@@ -59,6 +59,9 @@ SKILL = os.path.dirname(CLI_DIR)                         # the skill root
 #   D      a project where the storage is created in a custom --dir
 #   R      the copy of a real storage, when --fixture is given
 
+STEP_TIMEOUT = 120      # seconds per step — a CLI call that runs longer is a hang, not a slow command
+
+
 def _step(argv, rc=0, cwd="A", pre=None, env=None, label=None):
     return {"argv": list(argv), "rc": rc, "cwd": cwd, "pre": pre, "env": env or {},
             "label": label or " ".join(argv)}
@@ -561,6 +564,16 @@ def scenario(ws):
     # ── execute phase, task A ───────────────────────────────────────────────
     add(S(["next"]))
     add(S(["left"]))
+    # THE BATON IS NOT A BRAKE (feedback 2026-08-26): s1 waits for the owner, s2 is free —
+    # `next` names the free work as the move and the owner's word as a separate line
+    add(S(["plan", "wait", "s1", "показал экран"], rc=1, label="plan wait on a closed node: refused"))
+    add(S(["plan", "reopen", "s2", "--why", "тест эстафеты: свободная работа"]))
+    add(S(["plan", "wait", "s3", "показал место раскрытия"], label="baton test: s3 waits"))
+    add(S(["next", "--short"], label="next: baton on s3, s2 is free — the move is s2"))
+    add(S(["accept", "смотрел, ок", "--for", "node:s3"], label="the word on s3: baton back"))
+    add(S(["plan", "park", "s3", "--why", "тест эстафеты"]))
+    add(S(["plan", "reopen", "s3", "--why", "тест эстафеты — обратно в открытые"]))
+    add(S(["plan", "done", "s2", "снова закрыт после теста"]))
     add(S(["artifact"], rc=2))
     add(S(["artifact", "out/app.apk", "--why", "сборка"], pre=pre_out_files))
     add(S(["artifact", "out/app.apk", "--node", "s1", "--check", "1", "--why", "к узлу"],
@@ -986,6 +999,7 @@ def scenario(ws):
     add(S(["next"], cwd="D", label="next: execute in light, all nodes done"))
     add(S(["forward", "--why", "light: узел закрыт"], cwd="D", label="forward from execute in light: no artifacts needed"))
     add(S(["validate"], cwd="D", label="validate in light: one node, one criterion, the task on top"))
+    add(S(["done", "рано", "--dirty", "тест"], cwd="D", rc=1, label="done: completed refused — no final word yet"))
     add(S(["accept", "принимаю", "--for", "final"], cwd="D"))
     add(S(["forward", "--why", "light: принято"], cwd="D"))
     add(S(["mode", "strict", "--why", "усложнилось"], cwd="D"))
@@ -1035,6 +1049,11 @@ def scenario(ws):
     add(S(["feedback", "x", "--from", "bogus"], rc=1))
     add(S(["feedback"], label="feedback: the pool"))
     add(S(["feedback", "001"], label="feedback <id>: one in full"))
+    add(S(["feedback", "add", "001", "дополнение: команда была el beat, вывод — ничего"], label="feedback add: a revision"))
+    add(S(["feedback", "add", "nope", "x"], rc=1))
+    add(S(["feedback", "add", "001"], rc=1, label="feedback add: text required"))
+    add(S(["feedback", "001"], label="feedback <id>: with the revision"))
+    add(S(["feedback", "ещё один про beat", "--about", "el beat"], label="feedback: the same --about → related"))
     add(S(["feedback", "done"], rc=1))
     # the review prompt for the human — printed; the clipboard is off under test
     add(S(["feedback", "prompt"], label="feedback prompt: both parts, clipboard off"))
@@ -1201,6 +1220,8 @@ def scenario(ws):
     add(S(["new", "починить парсер логов сервера", "--id", "fix-log-parser"], label="new: unrelated, no note"))
     add(S(["boot", "x", "--id", "shrink-model", "--raw", "ещё раз: ужми модель на два гига"],
           label="boot --raw on an existing task: the request repeated, appended"))
+    add(S(["boot", "x", "--id", A_ID, "--raw", "Статус Jira: In Progress; добавлен пункт 5", "--source", "jira"],
+          label="boot --raw --source: an external fact, typed apart"))
     add(S(["projects"], label="projects: requests in his words under each task"))
     add(S(["progress"], label="progress: the main files of every phase, whole"))
     add(S(["progress", "think"], label="progress think: one phase"))
@@ -1338,8 +1359,22 @@ def run(args):
         cwd = ws[st["cwd"]]
         e = dict(env)
         e.update(st["env"])
-        proc = subprocess.run(prefix + [bin_path] + st["argv"], cwd=cwd, env=e,
-                              capture_output=True, text=True, errors="replace")
+        # BOUNDED (feedback 2026-08-26: the runner hung inside subprocess.run and was killed
+        # by hand — no final status, nothing said which step): a step that does not return
+        # in STEP_TIMEOUT s is recorded as `timeout` with its label and output tail.
+        try:
+            proc = subprocess.run(prefix + [bin_path] + st["argv"], cwd=cwd, env=e,
+                                  capture_output=True, text=True, errors="replace",
+                                  timeout=STEP_TIMEOUT)
+        except subprocess.TimeoutExpired as te:
+            class _Timed:
+                returncode = "timeout"
+                stdout = (te.stdout or b"").decode("utf-8", "replace") if isinstance(te.stdout, bytes) else (te.stdout or "")
+                stderr = (te.stderr or b"").decode("utf-8", "replace") if isinstance(te.stderr, bytes) else (te.stderr or "")
+            proc = _Timed()
+            print(f"!! step {i:03d} TIMEOUT after {STEP_TIMEOUT}s: el {' '.join(st['argv'])} "
+                  f"[{st['cwd']}] — {st['label']}\n   stdout tail: {proc.stdout[-300:]!r}",
+                  file=sys.stderr)
         ok = st["rc"] is None or args.trace or proc.returncode == st["rc"]
         if not ok:
             mismatches += 1

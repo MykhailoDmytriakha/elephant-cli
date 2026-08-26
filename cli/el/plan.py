@@ -753,8 +753,11 @@ def plan_reopen(root, task, tdir, words, why):
     if not why:
         print("скажи --why — переоткрытие без причины неотличимо от случайного", file=sys.stderr)
         return 1
+    # The closing summary is history now (feedback 2026-08-26, plan-reopen: `el plan` kept
+    # printing the old «итог» over a node that was open again) — the journal keeps it.
     _set_status(root, task, tdir, node, "open",
-                {"reopened_at": now_iso(), "reopen_note": why, "park_note": None},
+                {"reopened_at": now_iso(), "reopen_note": why, "park_note": None,
+                 "result_note": None},
                 "node-reopen", why)
     touch(root, task)
     print(f"открыт заново  {nid} · {node.get('name', '')} — {why}")
@@ -1294,6 +1297,12 @@ def plan_wait(root, task, tdir, words):
     node = node_read(tdir, nid)
     if not node:
         print(f"нет узла {nid}", file=sys.stderr)
+        return 1
+    if node_status(node) in TERMINAL:
+        # A closed node has nothing to show (caught by the differential test 2026-08-26:
+        # `plan wait` on a done stage put it back into waiting and broke the closing gate).
+        print(f"{nid} {STATUS_RU[node_status(node)]} — ждать владельца может только открытый узел; "
+              f'сначала el plan reopen {nid.lower()} --why "…"', file=sys.stderr)
         return 1
     cur = active_node(tdir)
     if cur and cur["id"] != nid and node_status(cur) == "active":

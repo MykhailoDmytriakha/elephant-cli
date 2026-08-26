@@ -572,6 +572,11 @@ def cmd_validate(args):
         touch(root, task)
         print(f"{node['id']}.{num} · " + {"met": "сошлось", "failed": "НЕ сошлось",
               "declined": "снят", "unverified": "не проверено"}[kind])
+        if kind == "met" and not ev:
+            # A verdict is the agent's ATTESTATION, not the tool's check (feedback 2026-08-26):
+            # said out loud when nothing on disk stands behind it.
+            print("          свидетельство агента без файла — инструмент ничего не проверял; "
+                  "доказательство рядом: --evidence <файл>")
         _, _, open_n, failed_n, _d, _u = validation_state(tdir)
         print(f"осталось  {open_n} без вердикта · не сошлось {failed_n}")
         return 0
