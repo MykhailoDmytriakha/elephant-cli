@@ -4,7 +4,7 @@ wrap: long protocol lines at a fixed width under a hanging indent · human_when:
 stamp as «сегодня 14:03» · bar: a progress bar · emit: a screen under the tool-call budget. Nothing else belongs here — a helper
 that is not about how text LOOKS in the terminal belongs to its own layer.
 """
-import sys
+import os, sys
 from datetime import datetime
 
 # One screen = one tool call. Claude Code hands the agent at most ~30 000 characters of a
@@ -12,7 +12,12 @@ from datetime import datetime
 # plus a file path); other harnesses may cut lower. So every reading screen aims under this
 # budget, and a screen that cannot fit says so IN ITS HEAD — the head survives a cut, the
 # tail does not — and names the parts it can be read by.
-SCREEN_BUDGET = 24000
+# One screen — what a single tool call carries to the agent (Claude Code ≈ 30 000 characters).
+# ELEPHANT_SCREEN=<chars> for a harness with a smaller window (feedback 2026-08-26).
+try:
+    SCREEN_BUDGET = int(os.environ.get("ELEPHANT_SCREEN", "") or 24000)
+except ValueError:
+    SCREEN_BUDGET = 24000
 
 
 def emit(text, parts=None, budget=SCREEN_BUDGET):

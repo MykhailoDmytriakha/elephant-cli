@@ -924,14 +924,20 @@ window.ELEPHANT_OVERVIEW = null;
                "возвращает эстафету" +
                ' <a class="jump" href="#" data-jump="exec.now">→</a></div></div>';
     });
+    var crows = "";
     owItems.filter(function (x) { return x.status !== "open"; }).forEach(function (it) {
-      orows += '<div class="owe-row closed"><span class="v ' + (it.status === "paid" ? "paid" : "drop") + '">' +
+      crows += '<div class="owe-row closed"><span class="v ' + (it.status === "paid" ? "paid" : "drop") + '">' +
                (it.status === "paid" ? "ответ есть" : "снято") + "</span>" +
                '<span class="kind">' + esc(it.kind) + "</span>#" + esc(it.n) + " · " + inl(it.q) +
                '<div class="fsub">' + (it.status === "paid" ? "<b>ответ:</b> " + inl(it.answer || "")
                                                              : "<b>почему снято:</b> " + inl(it.why || "")) +
                " · " + when(it.paid_ts) + "</div></div>";
     });
+    var nClosedOwe = owItems.filter(function (x) { return x.status !== "open"; }).length;
+    if (nClosedOwe)
+      orows += '<details class="box" data-key="owed.closed"' + (isOpen("owed.closed", false) ? " open" : "") +
+               '><summary>ответ есть или снято <span class="n">' + nClosedOwe + "</span></summary>" +
+               '<div class="plain" style="border: none; padding-top: 4px;">' + crows + "</div></details>";
     h += sec("owed", term("owed", "за тобой — выяснить · решить · принять") + ' <span class="n">' + nOwe +
              (nStand ? " · стоим: " + nStand : "") + "</span>",
              '<div class="plain">' +
@@ -1016,10 +1022,19 @@ window.ELEPHANT_OVERVIEW = null;
                "</span>" + inl(t.text) +
                (t.why ? '<div class="fsub"><b>зачем:</b> ' + inl(t.why) + "</div>" : "") + "</div>";
     });
+    if (!tOpen.length)
+      trows += '<div class="owe-row"><span class="fsub">открытого нет — всё отложенное сделано</span></div>';
+    /* СДЕЛАННОЕ — отдельной свёрнутой подгруппой (владелец, 2026-08-26: «30 штук сделано и одно
+       нет — хочу видеть только то, что ещё не сделано»); что развернул — помнится. */
+    var drows = "";
     tDone.forEach(function (t) {
-      trows += '<div class="owe-row closed"><span class="v paid">сделано</span>' + inl(t.text) +
+      drows += '<div class="owe-row closed"><span class="v paid">сделано</span>' + inl(t.text) +
                (t.closed ? '<div class="fsub">' + inl(t.closed) + "</div>" : "") + "</div>";
     });
+    if (tDone.length)
+      trows += '<details class="box" data-key="todos.done"' + (isOpen("todos.done", false) ? " open" : "") +
+               '><summary>сделано <span class="n">' + tDone.length + "</span></summary>" +
+               '<div class="plain" style="border: none; padding-top: 4px;">' + drows + "</div></details>";
     h += sec("todos", term("todo", "на потом — отложено агентом") + ' <span class="n">' + tOpen.length +
              (tDone.length ? " · сделано " + tDone.length : "") + "</span>",
              '<div class="plain">' + trows + "</div>", false);

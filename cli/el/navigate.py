@@ -188,16 +188,45 @@ def cmd_ctx(args):
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         rc = print_context_full(root, task, tdir, getattr(args, "section", None))
-    # THE COST OF A BOOT (recorder 2026-08-25: twelve session starts in an afternoon, each
-    # reading the whole picture — 54 000 characters a time): after a break the return needs
-    # `el status` · `el next`; the whole picture is for when the picture is the question.
+    # BOUNDED BY DEFAULT (feedback 2026-08-26, third time: «el context выдал 463 строки и
+    # 49 KB — tool output был обрезан; ожидал bounded default»; recorder 2025-08-25: twelve
+    # session starts, each reading 54 000 characters). A picture longer than one screen is
+    # handed over as its TABLE OF CONTENTS — every section, its size and first line — and
+    # the reader opens what the question needs: --section <раздел>, or --full for the whole.
     from .term import SCREEN_BUDGET as _budget
-    if len(buf.getvalue()) > _budget:
-        print("после обрыва целиком читать не обязательно: el status · el next — где мы и ход; "
-              "el context --section <раздел> — один раздел; целиком — когда вопрос в самой картине")
-    emit(buf.getvalue(), parts="el ctx --section <раздел> · разделы: " +
+    whole = buf.getvalue()
+    if len(whole) > _budget and not getattr(args, "full", False) and not getattr(args, "section", None):
+        print(f"ОГЛАВЛЕНИЕ  картина целиком — {len(whole)} символов, больше одного экрана; "
+              "по разделам ниже")
+        print("            раздел: el context --section <раздел> · целиком: el context --full · "
+              "после обрыва хватает el resume")
+        idx = ctx_index(tdir)
+        for key, rel, title, n_lines, first in idx:
+            print(f"  {key:<14} {title[:44]:<44} {n_lines:>4} стр · {first}")
+        if not idx:
+            print("  разделов на диске ещё нет — длина от заголовков; целиком: el context --full")
+        return rc
+    emit(whole, parts="el ctx --section <раздел> · разделы: " +
          " · ".join(k for k, _r, _t in ctx_sections(tdir)))
     return rc
+
+
+def ctx_index(tdir):
+    """(key, rel, title, lines, first content line) for every section that exists on disk."""
+    out = []
+    for key, rel, title in ctx_sections(tdir):
+        path = os.path.join(tdir, rel)
+        if not os.path.exists(path):
+            continue
+        try:
+            lines = open(path, encoding="utf-8").read().splitlines()
+        except OSError:
+            continue
+        body = [l.strip() for l in lines if l.strip() and not l.strip().startswith("#")
+                and not l.strip().startswith("_")]
+        first = (body[0] if body else "").lstrip("-*• ").strip()
+        out.append((key, rel, title, len(lines), first[:90] + ("…" if len(first) > 90 else "")))
+    return out
 
 
 def ctx_sections(tdir):

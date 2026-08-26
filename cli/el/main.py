@@ -166,6 +166,9 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     — every source with its findings count and size, and the
 #                                     command that opens it whole: el ctx --section <source>
 #   el context [--section X]          THE WHOLE CONTEXT OF THE TASK, top to bottom, AS CONTENT
+#                                     — bounded: longer than one screen → a TABLE OF CONTENTS
+#                                     (section · size · first line); --section <раздел> opens one,
+#                                     --full prints the whole (feedback 2026-08-26, thrice)
 #                                     — original request · questions with their answers ·
 #                                     clarified task · boundary · requirements · ideal result ·
 #                                     what reaches past it · summary · what is still unknown ·
@@ -505,7 +508,7 @@ def _dispatch(argv):
         p.add_argument("--line", action="store_true")
         p.add_argument("--json", action="store_true")
         p.add_argument("--task")
-        p.add_argument("--section")
+        p.add_argument("--section"); p.add_argument("--full", action="store_true")
         p.set_defaults(fn=cmd_ctx)
         inner = p.add_subparsers(dest="ctx_cmd")
         q = inner.add_parser("qa", add_help=False)
