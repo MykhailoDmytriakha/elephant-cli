@@ -191,6 +191,19 @@ STATUS_MARK = {"open": "·", "active": "▶", "waiting": "⏸", "blocked": "✗"
                "done": "✓"}
 
 
+def status_ru(node):
+    """The status in words — «не потребовался» for a cancelled node (parked for the gates,
+    but not «later»: feedback 2026-08-26, a conditional task whose condition did not come)."""
+    st = node_status(node)
+    if st == "parked" and node.get("cancelled"):
+        return "не потребовался"
+    return STATUS_RU.get(st, st)
+
+
+def status_mark(node):
+    return "⊘" if node_status(node) == "parked" and node.get("cancelled") else STATUS_MARK.get(node_status(node), "·")
+
+
 def node_status(node):
     return (node.get("status") or "open").strip() or "open"
 
@@ -277,6 +290,8 @@ def cmd_plan(args):
         return plan_set(root, task, tdir, words[1:], getattr(args, "replace", False))
     if verb in ("rm", "drop"):
         return plan_rm(root, task, tdir, words[1:])
+    if verb == "cancel":
+        return plan_cancel(root, task, tdir, words[1:], getattr(args, "why", None))
     if verb == "rename":
         return plan_rename(root, task, tdir, words[1:], getattr(args, "why", None))
     if verb == "reopen":
@@ -587,10 +602,10 @@ def plan_tree(tdir, root=None, task=None):
         depth = n["id"].count(".")
         pad = "  " * depth
         st = node_status(n)
-        mark = STATUS_MARK.get(st, "·")
+        mark = status_mark(n)
         note = {"waiting": n.get("waiting_note"), "blocked": n.get("block_note"),
                 "parked": n.get("park_note")}.get(st)
-        state = STATUS_RU.get(st, st) + (f": {str(note)[:80]}" if note else "")
+        state = status_ru(n) + (f": {str(note)[:80]}" if note else "")
         if st == "open":
             state = "заполняется" if gaps else "готов к старту"
         sm = sync_mark(n)
@@ -1538,6 +1553,56 @@ def plan_hold(root, task, tdir, words, status, why, owe_n=None):
                       f'«потому что»: el validate {nid.lower()} <N> --declined "потому что …"')
         except Exception:
             pass
+    return 0
+
+
+def plan_cancel(root, task, tdir, words, why):
+    """CONDITIONAL WORK THAT WAS NOT NEEDED (feedback 2026-08-26: T8 «resolve a confirmed
+    firewall issue» — the comparison found none; `park` said «отложен», which reads as «later»,
+    and left the criterion without a verdict for a second command by hand). One explicit act:
+    the node closes for the gates as «не потребовался», every open criterion of it is declined
+    with the same «потому что» — explicit, once, written down — and reopen stays possible.
+    Parent nodes are not cancelled through their children: cancel a leaf, or a node whose
+    children are all closed."""
+    why = (why or "").strip()
+    if not words or not why:
+        print('el plan cancel s1 wp6 t8 --why "<почему работа не потребовалась>"', file=sys.stderr)
+        return 1
+    nid = path_to_id(words)
+    node = node_read(tdir, nid)
+    if not node:
+        print(f"нет узла {nid}", file=sys.stderr)
+        return 1
+    st = node_status(node)
+    if st in TERMINAL:
+        print(f"{nid} уже {status_ru(node)} — отменять нечего; вернуть: el plan reopen {nid.lower()} --why \"…\"",
+              file=sys.stderr)
+        return 1
+    kids_open = [n["id"] for n in nodes_all(tdir) if (n.get("parent") or "") == nid and node_open(n)]
+    if kids_open:
+        print(f"внутри {nid} открыты узлы: {', '.join(kids_open)} — отмени или закрой их первыми", file=sys.stderr)
+        return 1
+    from .validate import checklist_node, criteria_of, validation_parse, validation_render
+    raw = validation_parse(tdir)
+    crits = criteria_of(node)
+    declined = []
+    for i in range(1, len(crits) + 1):
+        if raw.get((nid, i), ("open", ""))[0] == "open":
+            raw[(nid, i)] = ("declined", why)
+            declined.append(i)
+    if declined:
+        vnodes = [n for n in nodes_all(tdir) if criteria_of(n)] + checklist_node(tdir)
+        validation_render(tdir, vnodes, raw)
+    _set_status(root, task, tdir, node, "parked",
+                {"park_note": why, "cancelled": True, "waiting_note": None, "block_note": None,
+                 "started_at": None},
+                "node-cancelled", why)
+    for i in declined:
+        journal(root, task, "validated", f"{nid}.{i} declined: {why[:120]}")
+    touch(root, task)
+    print(f"не потребовался  {nid} · {node.get('name', '')} — {why}")
+    print(f"критерии {len(declined)} снят(о) тем же «потому что»" if declined else "критериев без вердикта не было")
+    print(f'вернуть  el plan reopen {nid.lower()} --why "<что изменилось>"')
     return 0
 
 

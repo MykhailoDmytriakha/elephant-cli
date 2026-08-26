@@ -482,6 +482,7 @@ def render_views(root, only=None):
                                      "artifacts": tr["artifacts"], "evidence": tr["evidence"],
                                      "started_at": n.get("started_at", ""),
                                      "reopen_note": n.get("reopen_note") or "",
+                                     "cancelled": bool(n.get("cancelled")),
                                      "stop": sync_mark(n), "design": design})
                 act = active_node(tdir)
                 stops = [n for n in nodes_all(tdir) if node_sync(n)]
@@ -523,6 +524,7 @@ def render_views(root, only=None):
                     plan_nodes.append({"id": n["id"], "level": n.get("level", ""),
                                        "name": n.get("name", ""),
                                        "status": n.get("status", ""), "fields": fields,
+                                       "cancelled": bool(n.get("cancelled")),
                                        # the stage's layout: none · pending · accepted (2026-08-26)
                                        "decomp": decomp_state(root, t, tdir, n) if "." not in n["id"] else ""})
             except Exception:

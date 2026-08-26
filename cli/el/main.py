@@ -285,6 +285,9 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     deps is read as ORDER: «после S1» / «after S1» — S1 is a
 #                                     prerequisite; «перед S3» / «before S3» — S3 waits for this
 #                                     node (not a prerequisite); a cycle names its edges
+#   el plan cancel s1 wp6 t8 --why "…"   CONDITIONAL WORK NOT NEEDED (2026-08-26): closes for the
+#                                     gates as «не потребовался» and declines its open criteria
+#                                     with the same reason — one explicit act, reopen stays
 #   el plan block s1 --why "…"        stuck on something named (--owe <n>: on the owner's debt)
 #                                     · el plan park s1 --why "…" sets a node aside ON PURPOSE
 #                                     (terminal for the gates, like done)

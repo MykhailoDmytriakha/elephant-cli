@@ -1411,7 +1411,8 @@ window.ELEPHANT_OVERVIEW = null;
         var key = "plan.node." + n.id;
         var st = n.status || "open";
         var STATUS = { active: "▶ " + term("active", "в работе"), waiting: "⏸ " + term("waiting", "ждёт владельца"),
-                       blocked: "✗ " + term("blocked", "заблокирован"), parked: "⏹ " + term("parked", "отложен") };
+                       blocked: "✗ " + term("blocked", "заблокирован"),
+                       parked: n.cancelled ? "⊘ " + term("cancelled", "не потребовался") : "⏹ " + term("parked", "отложен") };
         var stBadge = st === "done" ? '<span class="done">✓ ' + term("done", "закрыт") + "</span>" :
                       STATUS[st] ? '<span class="lvl">' + STATUS[st] + "</span>" : "";
         var ch = kids[n.id];
@@ -1570,14 +1571,14 @@ window.ELEPHANT_OVERVIEW = null;
         } else if (st === "waiting") {
           meta = "ждёт владельца"; sub = k.note ? inl(k.note) : "";
         } else if (st === "parked" || st === "blocked") {
-          meta = SRU[st]; sub = k.note ? inl(k.note) : "";
+          meta = k.cancelled ? "не потребовался" : SRU[st]; sub = k.note ? inl(k.note) : "";
         } else {
           meta = (xd.ready || []).indexOf(k.id) >= 0 ? "по графу следующая" : "";
           if (k.stop) meta += (meta ? " · " : "") + "остановка: " + esc(k.stop);
         }
         var kk = kidsX[k.id] || [];
         if (kk.length) { var pr2 = progress(k); meta = "внутри " + pr2.done + "/" + pr2.total + (meta ? " · " + meta : ""); }
-        out += '<div class="trow ' + st + (depth ? " sub" : "") + '"><span class="tm">' + (STM[k.status] || "·") + '</span>' +
+        out += '<div class="trow ' + st + (depth ? " sub" : "") + '"><span class="tm">' + (k.cancelled ? "⊘" : (STM[k.status] || "·")) + '</span>' +
                '<span class="tid" title="' + esc(k.id) + '">' + esc(k.id.split(".").slice(depth ? -2 : -1).join(".")) + "</span>" +
                '<span class="tn">' + esc(k.name) + (sub ? '<div class="tsub">' + sub + "</div>" : "") + "</span>" +
                '<span class="tmeta">' + meta + "</span></div>";
@@ -1681,7 +1682,7 @@ window.ELEPHANT_OVERVIEW = null;
       if (!list.length) return;
       rows += '<div class="crit-node">' + STN[stt] + ' <span class="n">' + list.length + "</span></div>";
       list.forEach(function (n) {
-        rows += '<div class="exrow"><span class="exmark">' + STM[stt] + '</span><span class="nid">' + esc(n.id) +
+        rows += '<div class="exrow"><span class="exmark">' + (n.cancelled ? "⊘" : STM[stt]) + '</span><span class="nid">' + esc(n.id) +
                 "</span> " + esc(n.name) + ' <span class="lvl">' +
                 (n.crit_total ? n.crit_done + "/" + n.crit_total + " критериев" : "") +
                 (n.artifacts.length || n.evidence.length ? " · следов " + (n.artifacts.length + n.evidence.length) : "") +

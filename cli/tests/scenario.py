@@ -592,7 +592,12 @@ def scenario(ws):
     add(S(["accept", "одобряю", "--for", "stage:s4", "--on", "wp1 первый пакет · wp2 второй"],
           label="accept --for stage:s4 --on: his word over the layout, before the nodes"))
     add(S(["plan", "new", "s4", "wp1", "первый пакет"], label="plan new s4 wp1 after his word"))
-    add(S(["plan", "park", "s4.wp1", "--why", "тест"]))
+    add(S(["plan", "set", "s4.wp1", "check", "- условие наступило"]))
+    add(S(["plan", "cancel", "s4.wp1"], rc=1, label="plan cancel: --why required"))
+    add(S(["plan", "cancel", "s4.wp1", "--why", "условие не наступило — работа не потребовалась"],
+          label="plan cancel: not needed — closed for the gates, its criterion declined with the same reason"))
+    add(S(["plan", "cancel", "s4.wp1", "--why", "ещё раз"], rc=1, label="plan cancel: already"))
+    add(S(["plan", "s4"], label="plan s4: the cancelled package reads «не потребовался»"))
     add(S(["validate", "s4", "1", "--declined", "тест порядка этапов — работа снята"]))
     add(S(["plan", "park", "s4", "--why", "тест"]))
     add(S(["plan", "start", "s1", "wp1", "--force"], label="baton test: s1.wp1 back in work"))
