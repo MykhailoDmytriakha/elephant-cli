@@ -354,14 +354,16 @@ THINK_RUNG_TOOLS = {
 }
 
 THINK_STEPS = [
-    ("forks", "records.jsonl#forks", "развилки — где его слово меняет маршрут", "owner",
-     "СКВОЗНОЙ поток: вопрос, ответ на который меняет дорогу, а не одну запись. Развилка "
+    ("forks", "records.jsonl#forks", "нужны его решения — где его слово меняет маршрут", "owner",
+     "СКВОЗНОЙ поток: вопрос, ответ на который меняет дорогу, а не одну запись. Нужное решение "
      "открывается, когда ответ живёт только у него; если агент может решить сам — решает и "
-     "показывает, а не спрашивает. У каждой развилки: варианты с плюсом и минусом, "
-     "рекомендация агента, «почему это твоё решение» и одно уточнение, которое сделало бы "
-     "выбор лёгким. Закрывается его словом (событие decision) — или «сам реши» (решение в его "
-     "место, помечено). Гейт фазы: все развилки закрыты — не обходится",
-     'el think fork "<вопрос>" --option "<имя · плюс · минус>" … --recommend "<какой и почему>" '
+     "показывает, а не спрашивает. ЯЗЫКОМ ВЛАДЕЛЬЦА (его правка 2026-08-27): вопрос и варианты "
+     "говорят, что меняется для него — «с чего начинать, когда возвращаешься к задаче», а не "
+     "«фаза plan после reopen»; без имён команд, фаз и файлов. У каждого: варианты с плюсом и "
+     "минусом, рекомендация агента, «почему это твоё решение» и одно уточнение, которое сделало "
+     "бы выбор лёгким. Закрывается его словом (событие decision) — или «сам реши» (решение в его "
+     "место, помечено). Гейт фазы: все решения приняты — не обходится",
+     'el think need "<вопрос его словами>" --option "<имя · плюс · минус>" … --recommend "<какой и почему>" '
      '--why-yours "<что знаешь только ты>" · el think decide <id> "<вариант>" --words "<его слова>"'),
     ("risks", "records.jsonl#risks", "риски — что может пойти не так и чем это стоит", "both",
      "СКВОЗНОЙ поток, как в контексте: что случится · насколько вероятно · чем обойдётся · "
@@ -374,7 +376,7 @@ THINK_STEPS = [
      'el think mirror "<кто>" --does "<что делает>" --affected "<чем заденет>"'),
     ("form", "records.jsonl#form", "в каком виде человек получит результат", "both",
      "форма результата в его руках: экран, файл, команда, письмо. Вариантов несколько — "
-     "каждый записью, это ветки; выбор — развилка",
+     "каждый записью, это ветки; выбор за ним — нужное решение",
      'el think form "<в каком виде>"'),
     ("core", "records.jsonl#core", "что здесь главное, что потом, чего не делаем", "agent",
      "каждая часть с меткой: core — без этого результата нет · later — можно после · never — "
@@ -402,7 +404,7 @@ THINK_STEPS = [
      'el think stress "<как ломал>" --path <id> --promise <id> --held yes|no --why "<…>"'),
     ("crystal", "records.jsonl#crystal", "какая тропа выжила и почему", "both",
      "записи по мере вызревания; последняя — решение: выжившая тропа со ссылками на "
-     "развилки, на которые опирается. Отсечённые пути не стираются — остаются с «почему»",
+     "решения, на которые опирается. Отсечённые пути не стираются — остаются с «почему»",
      'el think crystal "<как вызревает / решение>" [--path <id>] [--decided f1,f2]'),
     ("route", "records.jsonl#route", "что первым, что потом, что от чего зависит", "both",
      "кандидаты в этапы с зависимостями — план их подхватит и нарежет; здесь порядок, не "
@@ -678,11 +680,11 @@ PHASE_MAP = {
                 "with deps, the plan cuts them) → HIS WORD over the decision. A tool is a field "
                 "on the record it produced (--tool); the eight categories of the box count from "
                 "it — soft asks for диагностика · расширение · опровержение"),
-        "gate": ("все развилки закрыты (не обходится) · обязательные следы лестницы (их считает el status; остальное — --waive с причиной) · "
+        "gate": ("все нужные решения приняты (не обходится) · обязательные следы лестницы (их считает el status; остальное — --waive с причиной) · "
                  "поправки к контексту, сделанные здесь, покрыты свежим словом владельца"),
         "cmds": ['el think <шаг> "<текст>"  ·  el think crystal "<что прояснилось · почему>" --ref f1',
-                 'el think fork <id> "<вопрос>" --who owner|agent --decide "<что решить>"',
-                 'el think fork <id> --option "<вариант>" --cost "<цена>" --model "<что это>" '
+                 'el think need "<вопрос его словами>" --option "<имя · плюс · минус>" --recommend "<какой и почему>" --why-yours "<…>"',
+                 'el think need <id> --option "<вариант>" --cost "<цена>" --model "<что это>" '
                  '--falsifier "<что убьёт>"  ·  --preview <html>  ·  --recommendation "<…>"',
                  'el think decide <id> "<вариант>" --words "<его слова>" --fixed "<что зафиксировано>"',
                  'el log "<aha>" --type insight'],
@@ -970,7 +972,7 @@ STAGE0_BEATS = [
 PHASE_BRIEF = {
     "init":     "из разговора родилась задача: хранилище · проект · запрос пользователя его словами",
     "context":  "собрать картину: вопросы человеку · границы · требования · ИФР · свёртка — и его слово над картиной",
-    "think":    "думать как инженер: кто и зачем · форма · ядро · идеалы · исследование · варианты с ценой · развилки его словами · кристалл",
+    "think":    "думать как инженер: кто и зачем · форма · ядро · идеалы · исследование · варианты с ценой · нужные решения его словами · кристалл",
     "plan":     "сетевой план и узлы с контрактом — ДО работы, не после; остановки назначены заранее; его слово над планом",
     "execute":  "узел за узлом: активный один · el log ложится к нему · критерии по ходу · следы к узлу · остановки по плану · эстафета",
     "validate": "матрёшка сошлась: вердикт по каждому критерию каждого узла, свёртка вверх до самой задачи, чек-лист ИФР; показано так, что можно потрогать; приёмка его словами",
@@ -1008,7 +1010,7 @@ def phase_beats(ph):
 # was good, it only reports what the files show and which command moves things on.
 NEXT_MOVE = {
     "context":  "collect context and write it into context/; then: el forward --why \"<what is established>\"",
-    "think":    "name the options and their cost, let the crystal ripen record by record (el think crystal), close the forks; then: el forward --why \"...\"",
+    "think":    "name the options and their cost, let the crystal ripen record by record (el think crystal), get his decisions; then: el forward --why \"...\"",
     "plan":     "write the order of steps and how the result is measured — BEFORE the work, never after it; then: el forward --why \"...\"",
     "execute":  "node by node: el plan start → do → criteria as you go (el validate … --evidence) → traces --node → el plan wait at the stop → el plan done; then: el forward --why \"...\"",
     "validate": "attach proof to evidence/ and compare against the before-measurement; then: el forward --why \"...\"",
@@ -1085,17 +1087,19 @@ HOW IT WORKS
     `completed` also requires every `el todo` to be closed: an open item is an unfinished
     promise, so "destination reached" would contradict the project's own record.
 
-  A FORK IS A GATE — and a gate has a form (owner, 2026-08-21)
+  A NEEDED DECISION IS A GATE — and a gate has a form (owner, 2026-08-21; named «need
+  decisions» → «decision» on 2026-08-27, `fork` is the old spelling). Written in HIS words:
+  what changes for him, never a command or a phase name.
     question · who decides · a PREVIEW he can touch: one page, every variant side by side,
     real content, toggles — copied into thinking/previews/ so the project page opens it ·
     each option: model · cost · falsifier (which observation kills it) · the agent's working
     recommendation · what exactly he must decide · his words VERBATIM and what they fixed.
-        el think fork <id> "<question>" --who owner --decide "<what to decide>"
-        el think fork <id> --option "<name>" --cost "…" --model "…" --falsifier "…"
-        el think fork <id> --preview <html>   ·   --recommendation "…"
+        el think need "<question, his words>" --option "<name · plus · minus>" --recommend "…" --why-yours "…"
+        el think need <id> --option "<name>" --cost "…" --model "…" --falsifier "…"
+        el think need <id> --preview <html>   ·   --recommendation "…"
         el think decide <id> "<option>" --words "<his words>" --fixed "<what is now settled>"
     One command writes both files — decisions.md (the ledger the gates read) and options.md
-    (the dossier, gate by gate, append only). A fork the owner decides is not shown without
+    (the dossier, gate by gate, append only). A decision the owner makes is not shown without
     a preview: a description of variants is not a presentation. The next gate grows out of
     the previous decision.
 

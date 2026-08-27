@@ -728,7 +728,7 @@ def progress_lines(root, task, part=None):
             out += ["── 2 · кристалл — как вызревало решение · records.jsonl#crystal"] + [x["text"] for x in _cr[-3:]] + [""]
         _fk = forks_read(tdir)
         if _fk:
-            out += ["── 2 · развилки и решения · records.jsonl#forks"] + \
+            out += ["── 2 · нужные решения и что решено · records.jsonl#forks"] + \
                    [f"  {'✓' if f['decision'] else '▶'} {f['id']} {f['q']}" + (f" → {f['decision']}" if f['decision'] else "") for f in _fk] + [""]
     if want("plan"):
         nodes = sorted(nodes_all(tdir), key=lambda x: x["id"])
@@ -1234,8 +1234,8 @@ def cmd_next(args):
         if forks:
             for f in forks:
                 mark = "✓" if f["decision"] else "▶"
-                print(f"развилка {mark} {f['id']} · {f['q']}  [{f['who']}]  "
-                      f"{len(f['options'])} вар.{'' if f['decision'] else '  ← ОТКРЫТА'}")
+                print(f"решение  {mark} {f['id']} · {f['q']}  [{f['who']}]  "
+                      f"{len(f['options'])} вар.{'' if f['decision'] else '  ← ЖДЁТ'}")
         if step:
             key, rel, title, src, do, cmd = step
             who = {"owner": "У ВЛАДЕЛЬЦА — выбор направления его, а не твой",
@@ -1249,7 +1249,7 @@ def cmd_next(args):
             move = f"закрой шаг «{title}»"
         else:
             open_forks = [f["id"] for f in forks if not f["decision"]]
-            move = (f"развилки без выбора: {', '.join(open_forks)} — закрой их"
+            move = (f"ждут его решения: {', '.join(open_forks)} — предъяви и запиши его слово"
                     if open_forks else
                     'думание закрыто; дальше: el forward --why "<что решено и чем обосновано>"')
 
@@ -1300,7 +1300,7 @@ def cmd_next(args):
             if auto_on:
                 print('         автономия: его нет — реши в его место: el think decide <id> "<вариант>" '
                       '--assumed "<почему>" --undo "<как откатить>"; предпочти обратимый путь')
-        print('         el think forks — состояние · el think decide <id> "<вариант>"')
+        print('         el think — что ждёт решения · el think decide <id> "<вариант>"')
     elif phase in ("execute", "validate") and [n for n in nodes_all(tdir) if node_open(n)]:
         left_g = [n for n in nodes_all(tdir) if node_open(n)]
         wl_g = worklog(root, task)
@@ -1578,12 +1578,12 @@ def cmd_forward(args):
     if phase_f == "think":
         left = [f for f in forks_read(tdir_f) if not f["decision"]]
         if left:
-            print("НЕ ПУЩУ — из думания с открытыми развилками выхода нет.", file=sys.stderr)
+            print("НЕ ПУЩУ — из думания с непринятыми решениями выхода нет.", file=sys.stderr)
             for f in left:
                 print(f"  {f['id']} · {f['q']}   [решает: {f['who']}]", file=sys.stderr)
             print('  закрой: el think decide <id> "<вариант>" --words "<его слова>"',
                   file=sys.stderr)
-            print("  развилка без выбора уезжает в план догадкой, и на исполнении", file=sys.stderr)
+            print("  решение, не принятое им, уезжает в план догадкой, и на исполнении", file=sys.stderr)
             print("  выясняется, что строили не то, что он имел в виду.", file=sys.stderr)
             return 1
     if phase_f == "plan":

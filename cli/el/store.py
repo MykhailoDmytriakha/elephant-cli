@@ -56,7 +56,9 @@ ID_PREFIX = {
 
     "clarified": "cl", "summary": "sm", "ifr": "ifr", "word": "acc", "amend": "am",
     # думание (2026-08-27) — each type its own prefix, so `form` and `fork` never share one
-    "person": "who", "form": "fm", "core": "co", "fork": "fk", "decision": "d", "irreversible": "ir",
+    "person": "who", "form": "fm", "core": "co", "fork": "nd", "decision": "d", "irreversible": "ir",
+    # `fork` records are the NEEDED DECISIONS (owner, 2026-08-27: «для меня fork звучит как
+    # вилка» → need decisions → decision); the type stays `fork` on disk, the ids read nd1…
     "path": "pt", "attack": "at", "crystal": "cy", "stage_seed": "rt", "skip": "sk", "toolnote": "tn",
     "todo": "td", "todo_done": "tdd", "node": "n", "set": "st", "request": "rq", "brief": "br", "origin": "og",
     # checks.jsonl

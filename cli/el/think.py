@@ -21,10 +21,16 @@ from .term import wrap
 # ── reading ─────────────────────────────────────────────────────────────────────────────
 
 def forks_read(tdir):
-    """The forks with their standing — the shape every reader knew from the ledger, now
-    folded out of `fork` records and the `decision` events over them."""
+    """The NEEDED DECISIONS with their standing (owner, 2026-08-27: «need decisions» on the
+    page, the result is the «decision») — folded out of `fork` records and the `decision`
+    events over them. A record that a later one `replaces` (rewritten in his language) is
+    folded away, not lost."""
     out, by = [], {}
-    for r in live(tdir, rtype="fork"):
+    recs = list(live(tdir, rtype="fork"))
+    replaced = {x for r in recs for x in (r.get("replaces") or [])}
+    for r in recs:
+        if r["id"] in replaced:
+            continue
         f = {"id": r["id"], "q": r.get("q", ""), "who": r.get("who", "owner"),
              "options": [], "details": [], "decision": None, "decide": r.get("decide", ""),
              "preview": r.get("preview", ""), "recommendation": r.get("recommend", ""),
@@ -156,17 +162,23 @@ def cmd_forks(args):
         return 1
     fs = forks_read(tdir)
     if not fs:
-        print("развилок ещё нет.")
-        print('hint     el think fork "<вопрос>" --option "<имя · плюс · минус>" --option … '
+        print("решений от него пока не нужно.")
+        print('hint     el think need "<вопрос его словами>" --option "<имя · плюс · минус>" --option … '
               '--recommend "<какой и почему>" --why-yours "<что знаешь только ты>"')
         return 0
     nd = sum(1 for f in fs if f["decision"])
-    print(f"РАЗВИЛКИ  решено {nd}/{len(fs)}")
+    print(f"НУЖНЫ РЕШЕНИЯ  принято {nd} из {len(fs)}")
     for f in fs:
         mark = "✓" if f["decision"] else "▶"
         print(f"  {mark} {f['id']:<4} [{f['who']}] {f['q']}")
-        for o in f["opts"]:
-            print(f"        · {o.get('name', '')}" + (f"  +{o['plus']}" if o.get("plus") else "") + (f"  −{o['minus']}" if o.get("minus") else ""))
+        for i, o in enumerate(f["opts"]):
+            # one option — three lines: the name, «за», «против» (owner, 2026-08-27: «в одну
+            # строку читается непонятно»)
+            print(f"        {i + 1}. {o.get('name', '')}")
+            if o.get("plus"):
+                print(f"           за:      {wrap(o['plus'], indent='                    ')}")
+            if o.get("minus"):
+                print(f"           против:  {wrap(o['minus'], indent='                    ')}")
         if f["recommendation"]:
             print(f"        рекомендация: {f['recommendation']}")
         if f["why_yours"]:
@@ -177,8 +189,16 @@ def cmd_forks(args):
     return 0
 
 
+NEED_CMD = ('el think need "<вопрос его словами>" --option "<имя · плюс · минус>" … '
+            '--recommend "<какой и почему>" --why-yours "<что знаешь только ты>"')
+
+
 def cmd_fork(args):
-    """Open a fork — a question whose answer changes the road. Offering a choice obliges the
+    """Open a NEEDED DECISION (`el think need`; `fork` stays as the old spelling) — a question
+    whose answer changes the road. Written in HIS language (owner, 2026-08-27: «записывать
+    по-человечески, адаптированно к человеку»): the question and the options say what changes
+    for him, not which command or phase — «с чего начинать, когда ты возвращаешься», not
+    «фаза plan после reopen». Offering a choice obliges the
     agent to say why it could not choose itself (--why-yours) and to recommend."""
     root, task, tdir = _open(args)
     if not root:
@@ -194,7 +214,8 @@ def cmd_fork(args):
         bits = [b.strip() for b in o.split("·")]
         opts.append({"name": bits[0], "plus": bits[1] if len(bits) > 1 else "", "minus": bits[2] if len(bits) > 2 else ""})
     if len(opts) < 2:
-        print("развилка — это два и больше вариантов: --option \"<имя · плюс · минус>\" на каждый", file=sys.stderr)
+        print("нужное решение — это два и больше вариантов: --option \"<имя · плюс · минус>\" на каждый", file=sys.stderr)
+        print("языком владельца: что меняется для него, без имён команд, фаз и файлов", file=sys.stderr)
         return 1
     rec = {"step": "forks", "type": "fork", "by": "agent", "q": q, "who": (args.who or "owner"),
            "options": opts, "status": "open"}
@@ -205,10 +226,14 @@ def cmd_fork(args):
     if rec["who"] == "owner" and not rec.get("why_yours"):
         print("предложил выбор — скажи, почему не выбрал сам: --why-yours \"<что живёт только у него>\"", file=sys.stderr)
         return 1
-    out = _put(root, task, args, rec, "развилки", "fork", q)
+    reps = [x.strip() for x in (getattr(args, "replaces", None) or "").split(",") if x.strip()]
+    if reps:
+        rec["replaces"] = reps
+    out = _put(root, task, args, rec, "нужные решения", "fork", q)
     if not out:
         return 1
-    print(f"recorded  {out['id']} · развилка · {len(opts)} варианта · решает {rec['who']}")
+    print(f"recorded  {out['id']} · нужно решение · {len(opts)} варианта · решает {rec['who']}"
+          + (f" · вместо {', '.join(reps)}" if reps else ""))
     print(f"next      предъяви ему: варианты с плюсом и минусом, рекомендацию · el think decide {out['id']} \"<вариант>\" --words \"<его слова>\"")
     return 0
 
@@ -220,7 +245,7 @@ def cmd_decide(args):
     fid = (args.id or "").strip()
     fs = {f["id"]: f for f in forks_read(tdir)}
     if fid not in fs:
-        print(f"нет развилки {fid or '?'} — el think forks", file=sys.stderr)
+        print(f"нет такого решения: {fid or '?'} — список: el think", file=sys.stderr)
         return 1
     if getattr(args, "undo", None):
         dec = [r for r in live(tdir, rtype="decision") if r.get("of") == fid]
@@ -241,7 +266,7 @@ def cmd_decide(args):
     if not words and not assumed:
         print("его слова дословно: --words \"…\" — или в его место под грантом: --assumed \"<почему>\"", file=sys.stderr)
         return 1
-    if assumed and not autonomy.guard(root, task, "решение на развилке в его место"):
+    if assumed and not autonomy.guard(root, task, "решение в его место"):
         return 1
     rec = {"step": "forks", "type": "decision", "of": fid, "choice": choice,
            "by": "agent" if assumed else "owner", "words": words}
@@ -258,7 +283,7 @@ def cmd_decide(args):
     touch(root, task)
     left = [f for f in forks_read(tdir) if not f["decision"]]
     print(f"решено    {fid} → {choice}" + (" · В ЕГО МЕСТО, под грантом" if assumed else ""))
-    print(f"развилки  открытых {len(left)}" + (": " + ", ".join(f["id"] for f in left) if left else " — все закрыты"))
+    print(f"решений   ждёт {len(left)}" + (": " + ", ".join(f["id"] for f in left) if left else " — все приняты"))
     return 0
 
 

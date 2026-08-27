@@ -420,7 +420,7 @@
     { color: var(--accent); border-color: var(--accent); }
   details.band.ahead .bname { color: var(--muted); }
   .band-empty { color: var(--muted); font-size: 14px; font-style: italic; padding: 6px 0 2px; }
-  /* РАЗВИЛКИ — вопрос, кто решает, варианты с ценой, выбор. */
+  /* НУЖНЫЕ РЕШЕНИЯ (на диске — forks) — вопрос его словами, кто решает, варианты, выбор. */
   .fork { border-top: 1px solid var(--line); padding: 8px 0; }
   .fork:first-child { border-top: none; }
   .fork .fq { font-weight: 600; }
@@ -435,6 +435,26 @@
   .fork .fmeta { font-size: 13px; color: var(--muted); margin: 3px 0; }
   .fork .fmeta.fixed { color: var(--ink); }
   .fork .fsub { font-size: 13px; color: var(--muted); margin-left: 2px; }
+  /* карточка нужного решения: вопрос · карточки вариантов · вынос с советом · решение */
+  .nd { border-top: 1px solid var(--line); padding: 14px 0 10px; }
+  .nd:first-child { border-top: none; padding-top: 4px; }
+  .nd .ndh { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .nd .ndq { font-size: 17px; font-weight: 600; line-height: 1.4; margin-top: 4px; max-width: 880px; }
+  .nd .ndo { display: grid; gap: 10px; margin-top: 12px; }
+  .nd .ndc { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+  .nd .ndc.rec { border-color: var(--accent); }
+  .nd .ndc.chosen { border-color: var(--done); box-shadow: inset 0 0 0 1px var(--done); }
+  .nd .ndn { display: flex; align-items: baseline; gap: 8px; font-size: 14.5px; font-weight: 600; line-height: 1.35; }
+  .nd .ndn .oi { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted); font-weight: 400; }
+  .nd .ndl { display: flex; gap: 8px; font-size: 13px; line-height: 1.5; }
+  .nd .ndl i { display: inline-block; width: 6px; height: 6px; border-radius: 3px; flex: none; margin-top: 8px; }
+  .nd .ndl.plus i { background: var(--done); } .nd .ndl.minus i { background: var(--bad); } .nd .ndl.minus { color: var(--muted); }
+  .nd .ndr { margin-top: auto; font-size: 12px; color: var(--accent); font-weight: 600; } .nd .ndr.done { color: var(--done); }
+  .nd .ndcall { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; border-radius: 10px; background: var(--bg);
+                border-left: 3px solid var(--accent); margin-top: 12px; }
+  .nd .ndcall .r { font-size: 14px; line-height: 1.5; } .nd .ndcall .w { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .nd .ndhint { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+  .nd .nddec { margin-top: 10px; font-size: 14.5px; color: var(--done); }
   /* ДОСКА ИСПОЛНЕНИЯ */
   .exnow { font-size: 17px; font-weight: 600; }
   .exmark { color: var(--accent); margin-right: 4px; }
@@ -1112,7 +1132,7 @@ window.ELEPHANT_OVERVIEW = null;
       orows += '<div class="owe-row"><span class="v ' + (think ? "stand" : "held") + '">' +
                (think ? "стоим" : "держит") + "</span>" +
                '<span class="kind">решить</span>' + esc(f.id) + " · " + inl(f.q) +
-               '<div class="fsub"><b>держит:</b> развилка ' + esc(f.id) +
+               '<div class="fsub"><b>держит:</b> решение ' + esc(f.id) +
                ' <a class="jump" href="#" data-jump="think.decision">→</a>' +
                (f.options && f.options.length ? " · вариантов: " + f.options.length : "") +
                "</div></div>";
@@ -1274,13 +1294,16 @@ window.ELEPHANT_OVERVIEW = null;
   /* КАРТОЧКА-СТУПЕНЬ (макет владельца, 2026-08-27): название слева, полоса через всю карточку,
      счётчик у правого края; раскрытие — внутри той же карточки. Пустая ступень — та же карточка
      приглушённо, с 0/N или «—», чтобы маршрут был виден до того, как по нему пошли. */
+  /* имя ступени на странице, когда оно не совпадает с ключом в потоке: записи `forks`
+     остались на диске, а читаются как «need decisions» (его слово 2026-08-27) */
+  var KEY_EN = { forks: "need decisions" };
   function crow(k, st, inner, dflt, here) {
     /* справа — сколько записей и ✓, когда ступень закрыта; полосы и «8/8» на строках сняты
        (его правка 2026-08-27 11:15: «иногда вопросов нужно больше, иногда меньше — всего нет»);
        полоса фазы остаётся в шапке ленты, у неё естественное целое — обязательные ступени */
     var n = (st.n !== undefined && st.n !== null) ? st.n : (st.bar ? st.bar.n : 0);
     var right = '<span class="cnt">' + (n ? n + (st.done ? ' <span class="ok">✓</span>' : "") : "—") + "</span>";
-    var title = '<span class="mark">' + (here ? "▶" : "") + "</span>" + term(k, st.title.split(" — ")[0]) + right;
+    var title = '<span class="mark">' + (here ? "▶" : "") + "</span>" + term(KEY_EN[k] || k, st.title.split(" — ")[0]) + right;
     var cls = "crow" + ((st.n || (st.bar && st.bar.n)) ? "" : " blank") + (here ? " here" : "");
     if (!inner) return '<div class="' + cls + '"><div class="crow-h">' + title + "</div></div>";
     return '<details class="' + cls + '" data-key="ctx.' + esc(k) + '"' + (isOpen("ctx." + k, dflt) ? " open" : "") +
@@ -1536,17 +1559,39 @@ window.ELEPHANT_OVERVIEW = null;
       var k = st.key, it = st.items || [], inner = "";
       if (!st.n) { t += crow(k, st, "", false, k === hereT); return; }
       if (k === "forks") {
+        /* карточка нужного решения (его выбор 2026-08-27: карточки вариантов + рекомендация
+           выносом): вопрос заголовком, варианты равными карточками — зелёная точка «что даёт»,
+           красная «чем плохо», синяя рамка — совет агента; под ними вынос «Я бы взял N — …» и
+           «Решать тебе: …»; принятое решение — зелёной строкой */
         it.forEach(function (f) {
-          inner += '<div class="pr">' + idTag(f.id) + (f.decision ? pill("решено", "#85b795") : pill("открыта", "#d0a35c")) +
-                   "<b>" + inl(f.q) + "</b>" + ' <span class="area">' + esc(f.who) + "</span>" +
-                   "<ul style=\"margin: 6px 0 4px 20px; padding: 0;\">" +
-                   (f.opts || []).map(function (o) {
-                     return "<li>" + inl(o.name) + (o.plus ? ' <span class="g">+ ' + inl(o.plus) + "</span>" : "") +
-                            (o.minus ? ' <span class="g">− ' + inl(o.minus) + "</span>" : "") + "</li>"; }).join("") + "</ul>" +
-                   (f.recommendation ? '<div class="fsub"><b>рекомендация:</b> ' + inl(f.recommendation) + "</div>" : "") +
-                   (f.why_yours ? '<div class="fsub"><b>почему твоё:</b> ' + inl(f.why_yours) + "</div>" : "") +
-                   (f.decision ? '<div class="a">→ ' + inl(f.decision) + (f.words ? ' <span class="g">«' + inl(f.words) + "»</span>" : "") +
-                                 (f.assumed ? ' <span class="area loan">в его место</span>' : "") + "</div>" : "") + "</div>";
+          var opts = f.opts || [], rec = f.recommendation || "", recIdx = -1;
+          opts.forEach(function (o, i) {
+            if (recIdx < 0 && rec && o.name && rec.toLowerCase().indexOf(o.name.toLowerCase()) === 0) recIdx = i;
+          });
+          var cols = Math.min(3, Math.max(1, opts.length));
+          inner += '<div class="nd' + (f.decision ? " done" : "") + '"><div class="ndh">' + idTag(f.id) +
+                   (f.decision ? '<span class="pst green">решено</span>' : '<span class="pst yellow">ждёт твоего слова</span>') +
+                   (f.who === "agent" ? '<span class="area">решает агент</span>' : "") + phTag(f) + "</div>" +
+                   '<div class="ndq">' + inl(f.q) + "</div>" +
+                   '<div class="ndo" style="grid-template-columns: repeat(' + cols + ', minmax(0, 1fr));">' +
+                   opts.map(function (o, i) {
+                     var chosen = f.decision && o.name && f.decision.toLowerCase() === o.name.toLowerCase();
+                     return '<div class="ndc' + (i === recIdx ? " rec" : "") + (chosen ? " chosen" : "") + '">' +
+                            '<div class="ndn"><span class="oi">' + (i + 1) + "</span>" + inl(o.name) + "</div>" +
+                            (o.plus ? '<div class="ndl plus"><i></i><span>' + inl(o.plus) + "</span></div>" : "") +
+                            (o.minus ? '<div class="ndl minus"><i></i><span>' + inl(o.minus) + "</span></div>" : "") +
+                            (chosen ? '<div class="ndr done">выбрано</div>' : i === recIdx ? '<div class="ndr">советую</div>' : "") + "</div>";
+                   }).join("") + "</div>" +
+                   (rec || f.why_yours
+                     ? '<div class="ndcall">' +
+                       (rec ? '<div class="r"><b>' + (recIdx >= 0 ? "Я бы взял " + (recIdx + 1) : "Советую") + "</b> — " + inl(rec) + "</div>" : "") +
+                       (f.why_yours ? '<div class="w">Решать тебе: ' + inl(f.why_yours) + "</div>" : "") + "</div>"
+                     : "") +
+                   (f.decision
+                     ? '<div class="nddec">→ ' + inl(f.decision) + (f.words ? ' <span class="g">«' + inl(f.words) + "»</span>" : "") +
+                       (f.assumed ? ' <span class="area loan">в его место</span>' : "") + "</div>"
+                     : '<div class="ndhint">скажи агенту номер или «сам реши» — он запишет твои слова дословно</div>') +
+                   "</div>";
         });
       } else if (k === "promises") {
         /* the ROOT'S COLOUR — folded out of every promise on the root and below: the worst
@@ -2246,7 +2291,7 @@ window.ELEPHANT_OVERVIEW = null;
   /* СЛОВАРЬ — как сказать агенту: термин · по-русски · команда. Один список на страницу. */
   var WORDS = [
     ["context", "фаза 1 — контекст: что у нас есть", "el context"],
-    ["think", "фаза 2 — думать: варианты, развилки, кристалл", "el think"],
+    ["think", "фаза 2 — думать: варианты, нужные решения, кристалл", "el think"],
     ["plan", "фаза 3 — план: узлы, зависимости, контракты", "el plan"],
     ["execute", "фаза 4 — исполнение: узел за узлом", "el plan start <узел>"],
     ["validate", "фаза 5 — проверка на живом, вердикты", "el validate"],
@@ -2263,7 +2308,7 @@ window.ELEPHANT_OVERVIEW = null;
     ["clarified", "задача после уточнений", "context/task.clarified.md"],
     ["summary", "свёртка контекста — что установлено фактом", "context/summary.md"],
     ["unknown", "чего я не знаю — явный вопрос перед спуском", "context/unknown.md"],
-    ["fork · decide", "развилка и её выбор", "el think decide <id>"],
+    ["need · decide", "нужное решение и его выбор (раньше — fork)", "el think decide <id>"],
     ["ideals · crystal", "семья идеалов · как вызревало решение", "thinking/"],
     ["node · stage · WP", "узел плана · этап · пакет работ", "el plan new"],
     ["result · check · artifacts", "поля узла: результат · критерии · артефакты", "el plan set"],

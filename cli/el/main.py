@@ -211,8 +211,10 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     overwritten — a new record, and his stale word re-asked
 #
 # think (phase 2/8) — ten rungs and two flows in records.jsonl (2026-08-27); a tool is a field
-#   el think                          the forks with their standing — решено N/N
-#   el think fork "<question>"        open a FORK: his word changes the road. Two or more
+#   el think                          the NEEDED DECISIONS with their standing — принято N из M
+#   el think need "<question>"        open a NEEDED DECISION (2026-08-27; `fork` still works):
+#                                     his word changes the road. WRITTEN IN HIS LANGUAGE — what
+#                                     changes for him, no command or phase names. Two or more
 #                --option "<name · plus · minus>"   one per option · --recommend "<which and
 #                                     why>" · --why-yours "<what only he knows>" REQUIRED when
 #                                     he decides: offering a choice obliges you to say why you
@@ -612,12 +614,13 @@ def _dispatch(argv):
     def _common(x):
         x.add_argument("--tool"); x.add_argument("--from", dest="from_")
         x.add_argument("--why"); x.add_argument("--ref", action="append"); x.add_argument("--task")
-    f = ti.add_parser("fork", add_help=False)
-    f.add_argument("id", nargs="?"); f.add_argument("text", nargs="?")
-    f.add_argument("--who"); f.add_argument("--option", action="append")
-    f.add_argument("--recommend"); f.add_argument("--why-yours", dest="why_yours")
-    f.add_argument("--decide"); f.add_argument("--preview")
-    _common(f); f.set_defaults(fn=cmd_fork)
+    for _name in ("need", "fork"):          # `need` is the name; `fork` — the old spelling
+        f = ti.add_parser(_name, add_help=False)
+        f.add_argument("id", nargs="?"); f.add_argument("text", nargs="?")
+        f.add_argument("--who"); f.add_argument("--option", action="append")
+        f.add_argument("--recommend"); f.add_argument("--why-yours", dest="why_yours")
+        f.add_argument("--decide"); f.add_argument("--preview"); f.add_argument("--replaces")
+        _common(f); f.set_defaults(fn=cmd_fork)
     d = ti.add_parser("decide", add_help=False)
     d.add_argument("id", nargs="?"); d.add_argument("choice", nargs="?")
     d.add_argument("--words"); d.add_argument("--why"); d.add_argument("--fixed"); d.add_argument("--fidelity")

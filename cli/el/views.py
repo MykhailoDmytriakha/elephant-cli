@@ -404,7 +404,7 @@ def think_view(tdir):
               "n": len(items), "items": items, "tools": THINK_RUNG_TOOLS.get(key, ""),
               "skipped": bool(ctx_live(tdir, step=key, rtype="skip"))}
         if key == "forks":
-            st["bar"] = {"n": sum(1 for f in forks if f["decision"]), "m": len(forks), "what": "развилок решено"}
+            st["bar"] = {"n": sum(1 for f in forks if f["decision"]), "m": len(forks), "what": "решений принято"}
         if key == "options":
             sc, tot = cells(tdir)
             st["bar"] = {"n": sc, "m": tot, "what": "клеток пути × обещания оценено"}
