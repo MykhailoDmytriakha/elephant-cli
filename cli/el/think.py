@@ -10,7 +10,7 @@ cells «paths × promises» scored · the categories of the box touched. None of
 stored — all of it is folded out of the records.
 """
 import os, sys
-from .protocol import (THINK_CATS, THINK_CATS_MIN, THINK_FLOWS, THINK_MIN, THINK_STEPS,
+from .protocol import (THINK_CATS, THINK_CATS_MIN, THINK_FLOWS, THINK_MIN, THINK_STEPS, THINK_TOOLBOX,
                        THINK_TOOLS, THINK_RUNG_TOOLS, required_in)
 from . import autonomy, store
 from .context import _open, _amend_fields, live, records, last_seq, word_over, promises_at_root
@@ -58,18 +58,35 @@ def cells(tdir):
     return scored, total
 
 
-def tool_cats(tdir):
-    """Which categories of the box were TOUCHED — read from the `tool` field of the records
-    born on думание. A tool is matched to its category by name inside the box's line."""
-    used = set()
+def _cats_of(tool):
+    """The categories a named tool falls into — matched by name inside the box's line."""
+    t = tool.strip().lower()
+    out = []
+    for cat, line in THINK_TOOLS:
+        if any(tok.strip().lower() and tok.strip().lower() in t or t in tok.strip().lower()
+               for tok in line.split("·")):
+            out.append(cat)
+    return out
+
+
+def tools_taken(tdir):
+    """{category: [{id, step, tool}]} — every record born on думание that named a tool, by
+    the category it fell into. The page opens a category on click and shows exactly this
+    (owner, 2026-08-27: «нажать на каждый — что за tools внутри — а там ничего нету»)."""
+    out = {}
     for r in live(tdir):
-        t = (r.get("tool") or "").strip().lower()
+        t = (r.get("tool") or "").strip()
         if not t or r.get("phase") != "think":
             continue
-        for cat, line in THINK_TOOLS:
-            if any(tok.strip().lower() and tok.strip().lower() in t or t in tok.strip().lower()
-                   for tok in line.split("·")):
-                used.add(cat)
+        for cat in _cats_of(t):
+            out.setdefault(cat, []).append({"id": r.get("id", ""), "step": r.get("step", ""), "tool": t})
+    return out
+
+
+def tool_cats(tdir):
+    """Which categories of the box were TOUCHED — read from the `tool` field of the records
+    born on думание."""
+    used = set(tools_taken(tdir))
     return [c for c in THINK_CATS if c in used]
 
 
@@ -356,6 +373,27 @@ def cmd_think_tools(args):
     if not root:
         return 1
     text = (getattr(args, "text", None) or "").strip()
+    if text and text.lower() in THINK_TOOLBOX:
+        # ONE CATEGORY, tool by tool — the catalogue the page opens on a click (owner,
+        # 2026-08-27: «что за tools внутри, как работает, когда применять, какой outcome»)
+        cat = text.lower()
+        box = THINK_TOOLBOX[cat]
+        taken = tools_taken(tdir).get(cat, [])
+        print(f"{cat.upper()} — {box['for']} · приёмов {len(box['tools'])}\n")
+        for t in box["tools"]:
+            print(f"  {t['name']}")
+            print(f"           {wrap(t['what'], indent='           ')}")
+            if t.get("about"):
+                print(f"           {wrap(t['about'], indent='           ')}")
+            for lab, key in (("когда", "when"), ("как", "how"), ("даёт", "gives")):
+                print(f"    {lab:<6} {wrap(t[key], indent='           ')}")
+            print()
+        if taken:
+            print("взято в этой задаче: " + " · ".join(f"{x['id']} {x['tool']} ({x['step']})" for x in taken))
+        else:
+            print("в этой задаче ещё не брали")
+        print('запись   любая команда думания принимает --tool "<приём>"')
+        return 0
     if text:
         rec = {"step": "tools", "type": "toolnote", "text": text, "by": "agent"}
         tool = (getattr(args, "tool", None) or "").strip() or text.split("—")[0].split(":")[0].strip()
@@ -376,7 +414,8 @@ def cmd_think_tools(args):
     print("на ступенях:")
     for k, t in THINK_RUNG_TOOLS.items():
         print(f"  {k:<14} {t}")
-    print('\nзапись   любая команда думания принимает --tool "<приём>" · заметка о приёме: el think tools "<что взял — что дал>"')
+    print('\nвнутри   el think tools <категория> — приёмы категории: что это · когда · как · что даёт')
+    print('запись   любая команда думания принимает --tool "<приём>" · заметка о приёме: el think tools "<что взял — что дал>"')
     return 0
 
 

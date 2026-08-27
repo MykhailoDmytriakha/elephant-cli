@@ -278,7 +278,7 @@ def card_extras(tdir):
             if node_status(n) in TERMINAL:
                 nodes_done += 1
         _o, info = rollup(tdir)
-        rt = info["TASK"]
+        rt = info["ROOT"]
         val_done, val_total = rt["sub"]["done"], rt["sub"]["total"]
         verdict = rt["verdict"]
     except Exception:
@@ -325,8 +325,10 @@ def context_view(tdir):
                       "done": step_done(tdir, key, mode), "n": n, "items": items})
     # BARS — only where a NATURAL WHOLE exists (owner's drawing, 2026-08-27: «context ── 12/12 ·
     # 5W+H ── 5/5 · не больше»): the required rungs of the phase · the areas he owes · the three
-    # layers of «now» · the six dimensions · the parts of the ideal. A rung with no whole shows
-    # a count and a tick — a 1/5 bar over an optional rung would read as a debt.
+    # layers of «now» · the six dimensions · the parts of the ideal. Later the same day he took
+    # the ROW bars off the page («иногда вопросов нужно больше, иногда меньше — всего нет»):
+    # the page now draws a count and a tick on every rung and keeps the bar on the band only;
+    # the data below still carries the whole for `el status` / `el next`.
     from .context import area_coverage
     from .protocol import AREA_KEYS, QA_AREAS
     cov = area_coverage(tdir)
@@ -353,7 +355,19 @@ def context_view(tdir):
     phase_bar = {"n": sum(1 for st in req if st["done"]), "m": len(req), "what": "обязательных ступеней"}
     # THE FLOWS — everything that runs through every phase, gathered once for the tabs;
     # each record carries the phase it was born on, so a tab can filter by it.
-    flows = {"research": ctx_live(tdir, step="research"),
+    # a research topic carries its FILE'S TEXT into the page data: the page opens by file://,
+    # where the browser refuses fetch() of a sibling file, so the modal preview (owner,
+    # 2026-08-27: «открыть, просмотреть — или открыть в отдельном окне») reads from here
+    research = [dict(r) for r in ctx_live(tdir, step="research")]
+    for r in research:
+        if r.get("type") == "research" and r.get("file"):
+            fp = r["file"] if os.path.isabs(r["file"]) else os.path.join(tdir, r["file"])
+            try:
+                with open(fp, encoding="utf-8") as fh:
+                    r["body"] = fh.read(200_000)
+            except OSError:
+                r["body"] = ""
+    flows = {"research": research,
              "unknown": ctx_live(tdir, step="unknown"), "definitions": ctx_live(tdir, step="definitions")}
     root_, task_ = os.path.dirname(os.path.abspath(tdir)), os.path.basename(os.path.abspath(tdir))
     w, stale = word_over(tdir, "context")
@@ -368,8 +382,9 @@ def think_view(tdir):
     """ДУМАНИЕ FOR THE PAGE — the rungs with their records and the three measurements of
     thinking as bars: forks решено N/N · cells paths × promises · categories of the box."""
     from .context import live as ctx_live, last_seq, promises_at_root, word_over
-    from .think import cells, forks_read, step_done, tool_cats
-    from .protocol import THINK_CATS, THINK_CATS_MIN, THINK_FLOWS, THINK_MIN, THINK_STEPS, THINK_RUNG_TOOLS
+    from .think import cells, forks_read, step_done, tool_cats, tools_taken
+    from .protocol import (THINK_CATS, THINK_CATS_MIN, THINK_FLOWS, THINK_MIN, THINK_STEPS,
+                           THINK_RUNG_TOOLS, THINK_TOOLBOX)
     from . import store
     mode = task_mode(tdir)
     forks = forks_read(tdir)
@@ -402,6 +417,8 @@ def think_view(tdir):
     return {"steps": steps, "seq": last_seq(tdir),
             "bar": {"n": sum(1 for st in req if st["done"]), "m": len(req), "what": "обязательных ступеней"},
             "tools": {"cats": THINK_CATS, "used": used, "need": need,
+                      "box": THINK_TOOLBOX,                             # what is inside each category, tool by tool
+                      "taken": tools_taken(tdir),                       # which records took which
                       "bar": {"n": len(used), "m": len(THINK_CATS), "what": "категорий приёмов"}},
             "colour": store.colour(root_, task_),
             "word": dict(w, stale=stale) if w else None}
@@ -589,7 +606,7 @@ def render_views(root, only=None):
                                      "own": [rec["own"]["done"], rec["own"]["total"]],
                                      "sub": [rec["sub"]["done"], rec["sub"]["total"]],
                                      "items": rec["items"]})
-                rt = vinfo["TASK"]
+                rt = vinfo["ROOT"]
                 word = None
                 if word_given_on(root, t, "validate"):
                     for e in entries:

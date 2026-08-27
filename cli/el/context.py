@@ -133,18 +133,39 @@ def research_files(tdir):
     return [by[k] for k in sorted(by)]
 
 
+def research_topics(tdir):
+    """The research as TOPICS (owner, 2026-08-27: «research — это выжимка: тема, краткое summary
+    ясным языком, ссылка на файл, где всё собрано»). Returns (topics, loose): the topic records
+    in order, and the old per-finding records no topic has folded in yet — shown apart, never
+    lost."""
+    recs = live(tdir, step="research")
+    topics = [r for r in recs if r.get("type") == "research"]
+    folded = set()
+    for t in topics:
+        folded.update(t.get("folds") or [])
+    loose = [r for r in recs if r.get("type") != "research" and r["id"] not in folded]
+    return topics, loose
+
+
+RESEARCH_CMD = 'el research "<тема>" --summary "<выжимка ясным языком>" --file research/<имя>.md [--area <область>] [--folds f1,f2]'
+
+
 def research_lines(tdir):
-    files = research_files(tdir)
-    if not files:
-        return ['  — ещё ничего: el research <источник> "<находка>" --ref <якорь>']
-    out = [f"  поток: {os.path.join(tdir, 'records.jsonl')}"]
-    for r in files:
-        out.append(f"  {r['name']} · находок {r['findings']}")
-        for line in r["lines"][:3]:
-            out.append(f"      · {line[:110]}")
-        if r["findings"] > 3:
-            out.append(f"      · … и ещё {r['findings'] - 3} — целиком: el ctx --section {r['name']}")
-    out.append('  добавить: el research <источник> "<находка>" --ref <якорь>')
+    topics, loose = research_topics(tdir)
+    if not topics and not loose:
+        return [f"  — ещё ничего: {RESEARCH_CMD}"]
+    out = []
+    for t in topics:
+        out.append(f"  {t['id']:<4} {t.get('topic', '')}" + (f"  [{t['area']}]" if t.get("area") else ""))
+        out.append(f"       {wrap(t.get('summary', ''), indent='       ')}")
+        out.append(f"       файл: {t.get('file', '')}")
+    if loose:
+        out.append(f"  находки без темы ({len(loose)}) — сверни в тему: --folds " + ",".join(r["id"] for r in loose[:6]))
+        for r in loose[:3]:
+            out.append(f"      {r['id']:<4} [{r.get('source', '')}] {r.get('finding', '')[:100]}")
+        if len(loose) > 3:
+            out.append(f"      … и ещё {len(loose) - 3}: el ctx --section research")
+    out.append(f"  добавить: {RESEARCH_CMD}")
     return out
 
 
@@ -347,23 +368,53 @@ def cmd_qa(args):
 
 
 def cmd_ctx_add(args):
-    """A RESEARCH finding: what was looked at, what it showed, where to re-check."""
+    """RESEARCH — a topic: what was investigated · the digest in plain words · the file that
+    holds the material (owner, 2026-08-27). The file is the research; the record is its
+    address. The old per-finding form (`el research <источник> "<находка>" --ref`) still
+    writes a finding, listed apart as «без темы» until a topic folds it in with --folds."""
     root, task, tdir = _open(args)
     if not root:
         return 1
-    if not args.source and not args.finding:
-        print(f"ИССЛЕДОВАНИЯ  {task} · records.jsonl#research")
+    summary = (getattr(args, "summary", None) or "").strip()
+    if not args.source and not args.finding and not summary:
+        print(f"ИССЛЕДОВАНИЯ  {task} · records.jsonl#research · файлы: {os.path.join(tdir, 'research')}")
         for l in research_lines(tdir):
             print(l)
         return 0
-    if not args.source or not args.finding:
-        print("a source and a finding are required.", file=sys.stderr)
-        print('hint     el research code "current copy sends name + lyric only" '
-              '--ref path/to/File.kt:318', file=sys.stderr)
-        return 1
     area = (getattr(args, "area", None) or "").strip().lower()
     if area and area not in AREA_KEYS:
         print(f"unknown --area '{area}'. one of: {', '.join(AREA_KEYS)}", file=sys.stderr)
+        return 1
+    if summary or getattr(args, "file", None):
+        topic = (args.source or "").strip()
+        fpath = (getattr(args, "file", None) or "").strip()
+        if not topic or not summary or not fpath:
+            print("тема · --summary · --file — все три: тема одной строкой, выжимка ясным языком, "
+                  "файл с материалом (короткий — тоже файл).", file=sys.stderr)
+            print(f"hint     {RESEARCH_CMD}", file=sys.stderr)
+            return 1
+        full = fpath if os.path.isabs(fpath) else os.path.join(tdir, fpath)
+        if not os.path.exists(full):
+            print(f"нет файла {fpath} — положи материал в research/ этой задачи и укажи путь к нему",
+                  file=sys.stderr)
+            return 1
+        rec = {"step": "research", "type": "research", "by": "agent", "topic": topic,
+               "summary": summary, "file": fpath, "refs": list(args.ref or [])}
+        folds = [x.strip() for x in (getattr(args, "folds", None) or "").split(",") if x.strip()]
+        if folds:
+            rec["folds"] = folds
+        if area:
+            rec["area"] = area
+        out = store.append(root, task, "records", rec)
+        journal(root, task, "source", f"{topic}: {summary[:70]}",
+                {"id": out["id"], "file": fpath, "area": area or None, "folds": folds or None})
+        print(f"recorded  {out['id']} · research · «{topic}» · {fpath}"
+              + (f" · свёрнуто: {', '.join(folds)}" if folds else ""))
+        print("next      el research — темы · el context — the big picture")
+        return 0
+    if not args.source or not args.finding:
+        print("тема и выжимка нужны обе.", file=sys.stderr)
+        print(f"hint     {RESEARCH_CMD}", file=sys.stderr)
         return 1
     rec = {"step": "research", "type": "finding", "by": "agent", "source": args.source.strip(),
            "finding": args.finding.strip(), "refs": list(args.ref or [])}
@@ -878,10 +929,17 @@ def section_lines(tdir, key):
                     L.append(f"       (в его место, под грантом: {p['assumed']})")
         return L
     if key == "research":
-        for r in live(tdir, step="research"):
-            L.append(f"  {r['id']:<4} [{r.get('source', '')}] {r.get('finding', '')}")
-            for ref in r.get("refs") or []:
-                L.append(f"       якорь: {ref}")
+        topics, loose = research_topics(tdir)
+        for t in topics:
+            L.append(f"  {t['id']:<4} {t.get('topic', '')}" + (f"  [{t['area']}]" if t.get("area") else ""))
+            L.append(f"       {t.get('summary', '')}")
+            L.append(f"       файл: {t.get('file', '')}" + (f" · свёрнуто: {', '.join(t['folds'])}" if t.get("folds") else ""))
+        if loose:
+            L.append(f"  находки без темы ({len(loose)}):")
+            for r in loose:
+                L.append(f"  {r['id']:<4} [{r.get('source', '')}] {r.get('finding', '')}")
+                for ref in r.get("refs") or []:
+                    L.append(f"       якорь: {ref}")
         return L
     if key == "scope":
         st = scope_read(tdir)

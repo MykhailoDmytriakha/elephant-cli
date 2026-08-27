@@ -93,6 +93,12 @@ def pre_out_files(ws):
     _write(os.path.join(ws["A"], "out", "log.txt"), "build ok\ntests green\n")
 
 
+def pre_research_topic(ws):
+    """A research TOPIC's file — the record points at it (owner's form, 2026-08-27)."""
+    _write(os.path.join(_task_dir(ws, "share-songs-from-journal-now"), "research", "share-flow.md"),
+           "# Как шлётся копия\n\nкопия шлёт имя и текст — app/Share.kt:318\n")
+
+
 def pre_plan_md_A(ws):
     _write(os.path.join(_task_dir(ws, "share-songs-from-journal-now"), "plan.md"),
            "# Сетевой план\n\nS1 → S1.WP1 → S2; остановка после S1.WP1.\n")
@@ -384,6 +390,15 @@ def scenario(ws):
     add(S(["research"], label="research (bare): sources with findings and size"))
     add(S(["ctx", "--section", "code"], label="ctx --section: a research file is readable"))
     add(S(["research", "web", "находка", "--area", "bogus"], rc=1))
+    # research as a TOPIC (owner, 2026-08-27): topic · --summary · --file; folds old findings
+    add(S(["research", "Как шлётся копия", "--summary", "копия уходит с именем и текстом, без ссылки",
+           "--file", "research/share-flow.md", "--area", "what", "--folds", "f1,f2"],
+          pre=pre_research_topic, label="research topic: тема · выжимка · файл, folds f1,f2"))
+    add(S(["research", "Тема без файла", "--summary", "выжимка"], rc=1, label="research topic: --file required"))
+    add(S(["research", "Тема", "--summary", "выжимка", "--file", "research/nope.md"], rc=1,
+          label="research topic: the file must exist"))
+    add(S(["research"], label="research (bare): topics, folded findings hidden"))
+    add(S(["ctx", "--section", "research"], label="ctx --section research: topics with summary and file"))
     add(S(["context"]))
     add(S(["context", "--section", "требован"]))
     add(S(["context", "--section", "источник"], rc=1, label="context --section: sources moved to research/"))

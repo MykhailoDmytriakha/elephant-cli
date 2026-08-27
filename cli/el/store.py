@@ -52,6 +52,8 @@ STREAMS = {"records": "records.jsonl", "context": "records.jsonl", "research": "
 ID_PREFIX = {
     "qa": "q", "now": "n", "dim": "w", "condition": "o", "req": "r", "beyond": "b",
     "risk": "x", "part": "p", "unknown": "u", "definition": "t", "finding": "f",
+    "research": "rs",   # a research TOPIC (owner, 2026-08-27); `r` was already the requirements'
+
     "clarified": "cl", "summary": "sm", "ifr": "ifr", "word": "acc", "amend": "am",
     # думание (2026-08-27) — each type its own prefix, so `form` and `fork` never share one
     "person": "who", "form": "fm", "core": "co", "fork": "fk", "decision": "d", "irreversible": "ir",

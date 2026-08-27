@@ -170,7 +170,11 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     "а · б · в" the choices you offered · --new-round the
 #                                     next round · --assumed "<why>" autonomy: an answer in
 #                                     his place, marked, his word over the picture pays it
-#   el research <src> "<finding>"     what was looked AT (code · db · logs · web · any name)
+#   el research "<тема>"              a research TOPIC: what was investigated · --summary the
+#                --summary "<…>"      digest in plain words · --file research/<имя>.md the file
+#                --file <path>        that holds the material, long or short (owner 2026-08-27)
+#                [--folds f1,f2]      · --area marks coverage · --folds folds old findings in
+#   el research <src> "<finding>"     (old form) one finding by source — listed as «без темы»
 #                --ref <path:line>    and where to re-check · --area marks coverage like a pair
 #   el context unknown "<gap>"        «what do I NOT know that I should?» — written WHEN it
 #                --how "<…>"          surfaced · --blocking if it holds the gate
@@ -232,6 +236,8 @@ the parser that registers the commands sit together and cannot drift apart.
 #   el think risk "<…>" --chance low|mid|high --cost "<…>" --then "<…>"   the risks flow
 #   el think tools                    the box by category, which categories this task TOUCHED
 #                                     (from the `tool` field), what the mode asks for
+#   el think tools <категория>        ONE category tool by tool: what it is · when · how · what
+#                                     it gives — the catalogue the page opens on a click
 #   el think tools "<took — gave>"    a note about a tool · every command takes --tool "<приём>"
 #   el think skip <rung> --why "<…>"  skip a rung on purpose — counts as done, reason kept
 #   el accept "<his words>"           HIS WORD over the decision (scope design), with the seq
@@ -706,7 +712,8 @@ def _dispatch(argv):
     p = sub.add_parser("lesson", add_help=False)
     p.add_argument("text"); p.add_argument("--task"); p.set_defaults(fn=cmd_lesson)
     p = sub.add_parser("research", add_help=False)
-    p.add_argument("source", nargs="?"); p.add_argument("finding", nargs="?")
+    p.add_argument("source", nargs="?"); p.add_argument("finding", nargs="?")   # topic · (legacy finding)
+    p.add_argument("--summary"); p.add_argument("--file"); p.add_argument("--folds")
     p.add_argument("--ref", action="append"); p.add_argument("--area")
     p.add_argument("--task"); p.set_defaults(fn=cmd_ctx_add)
     p = sub.add_parser("ui", add_help=False)

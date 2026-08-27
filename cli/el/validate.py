@@ -305,8 +305,11 @@ def rollup(tdir):
     `order` — node ids in tree order, only nodes whose subtree holds at least one
     criterion; IFR last. `info[id]` — name · level · status · depth · parent ·
     items [{text, status, proof}] · own / sub counters {met, failed, declined,
-    unverified, open, done, total} · verdict (see _fold). `info["TASK"]` is the root:
-    own = the IFR checklist, sub = everything."""
+    unverified, open, done, total} · verdict (see _fold). `info["ROOT"]` is the root —
+    the task itself: own = the IFR checklist, sub = everything. It is NOT `info["TASK"]`:
+    that id belongs to the pseudo-node holding the root's other promises (success · metric ·
+    engineering), which the page lists like any node (owner, 2026-08-27: the root used to
+    overwrite it, so k1/k2 showed twice and s1…m2 nowhere)."""
     real = sorted(nodes_all(tdir), key=lambda n: n["id"])
     verdicts, _cycles = resolve_verdicts(real + checklist_node(tdir), validation_parse(tdir))
     info, kids = {}, {}
@@ -347,7 +350,7 @@ def rollup(tdir):
     ifr = info.get("IFR") or {"own": {"met": 0, "failed": 0, "declined": 0,
                                       "unverified": 0, "open": 0, "total": 0, "done": 0},
                               "items": []}
-    info["TASK"] = {"id": "TASK", "name": "задача целиком", "level": "", "status": "",
+    info["ROOT"] = {"id": "ROOT", "name": "задача целиком", "level": "", "status": "",
                     "depth": -1, "parent": None, "items": ifr["items"],
                     "own": ifr["own"], "sub": task_sub, "verdict": _fold(task_sub)}
     order = []
@@ -552,7 +555,7 @@ def cmd_validate(args):
             proof = f"{proof} [{ev}]"
         raw[(node["id"], num)] = (kind, proof)
         validation_render(tdir, nodes, raw)
-        if node["id"] != "IFR" and node_status(node) == "open":
+        if node["id"] not in ("IFR", "TASK") and node_status(node) == "open":
             # a verdict on a node nobody started — the work happened off the board (2026-08-26)
             print(f"узел      {node['id']} не в работе — вердикт записан, но объяви узел до работы: "
                   f"el plan start {node['id'].lower()}")
@@ -589,7 +592,7 @@ def cmd_validate(args):
         idw = max(12 - len(pad), len(nid))
         print(f"{pad}{ROLL_MARK[rec['verdict']]} {nid:<{idw}} {rec['name'][:44]:<46}{cnt}" +
               (f"  ✗ {sub['failed']}" if sub["failed"] else ""))
-    root_rec = info["TASK"]
+    root_rec = info["ROOT"]
     word = word_given_on(root, task, "validate")
     sub = root_rec["sub"]
     print(f"ЗАДАЧА    {ROLL_MARK[root_rec['verdict']]} {ROLL_RU[root_rec['verdict']]} · "

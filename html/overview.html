@@ -159,9 +159,35 @@
   .sub { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
   .sub:first-child { border-top: none; padding-top: 0; margin-top: 0; }
   .sub-h { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
-  .sub-h .mark { font-size: 12px; color: var(--muted); }
+  details.sub { margin-left: 18px; }   /* nested under the section — seen as such (owner, 2026-08-27) */
+  details.sub > summary.sub-h { cursor: pointer; list-style: none; }
+  details.sub > summary.sub-h::-webkit-details-marker { display: none; }
+  details.sub > summary.sub-h::before { content: "▸"; font-size: 12px; color: var(--muted); }
+  details.sub[open] > summary.sub-h::before { content: "▾"; }
+  .sub-h.flat { margin-bottom: 8px; }
   .sub-h .t { text-transform: uppercase; letter-spacing: .04em; }
   .plain.ifr { background: var(--bg); margin-top: 8px; padding: 12px 16px; }
+  .plain.scroll { max-height: min(66vh, 1000px); overflow-y: auto; overscroll-behavior: contain; }
+  /* исследование — темой: заголовок · выжимка · файл */
+  .rs { border-top: 1px solid var(--line); padding: 10px 0; }
+  .rs:first-child { border-top: none; padding-top: 0; }
+  .rs .rsh { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .rs .rst { font-size: 15px; font-weight: 600; }
+  .rs .rss { margin-top: 4px; }
+  .rs .rsf { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .rs .rsf .path { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .rs .rsf .g { font-size: 12px; margin-left: 0; }
+  .rs .rsf .sp { flex: 1 1 auto; }
+  .rs .rsf .cbtn { text-decoration: none; }
+  /* раскрытие текста файла под карточкой (вариант C): рамка карточки — цветом, текст — во
+     вложенном поле на фоне страницы */
+  .rs.open { border-top-color: transparent; }
+  .rs.open .rsh, .rs.open .rss, .rs.open .rsf { position: relative; }
+  .rs .rsb { display: none; margin-top: 12px; padding: 4px 18px 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; font-size: 14px; }
+  .rs.open .rsb { display: block; }
+  .rs.open { box-shadow: inset 3px 0 0 var(--accent); padding-left: 12px; margin-left: -12px; border-radius: 0 10px 10px 0; }
+  .file .fname { font-weight: 500; }
+  .file .cbtn { text-decoration: none; }
   .tabs { margin-top: 26px; }
   .tab-h { display: flex; flex-wrap: wrap; gap: 6px; }
   .tb { display: inline-flex; align-items: baseline; gap: 4px; border: 1px solid var(--line); border-radius: 99px;
@@ -178,6 +204,28 @@
   table.grid th { color: var(--muted); font-family: ui-monospace, Menlo, monospace; font-weight: 500; border-top: none; }
   table.grid td.blank { color: var(--muted); }
   .tb.need { border-style: dashed; }
+  .tcats .tb.cur { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .tcats .tb.cur .n, .tcats .tb.cur .g { color: #fff; }
+  /* каталог приёмов одной категории: шапка · строки-приёмы с раскрытием · подвал */
+  .tch { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .tch b { font-size: 15px; } .tch .g { margin-left: 0; font-size: 14px; }
+  .tch .n { margin-left: auto; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  details.tool { border-top: 1px solid var(--line); }
+  details.tool:first-child { border-top: none; }
+  details.tool > summary { display: flex; align-items: baseline; gap: 10px; padding: 8px 0; cursor: pointer; list-style: none; }
+  details.tool > summary::-webkit-details-marker { display: none; }
+  details.tool > summary::before { content: "▸"; width: 12px; flex: none; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); }
+  details.tool[open] > summary::before { content: "▾"; }
+  details.tool .tn { font-size: 14.5px; font-weight: 600; white-space: nowrap; }
+  details.tool .tw { color: var(--muted); font-size: 13.5px; }
+  details.tool .tbody { display: flex; flex-direction: column; gap: 5px; margin: 0 0 10px 22px; padding: 10px 14px;
+                        background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+  details.tool .tra { font-size: 13.5px; line-height: 1.55; margin: 2px 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .trl { display: flex; gap: 10px; align-items: baseline; font-size: 13px; line-height: 1.5; }
+  .trk { flex: none; width: 46px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; letter-spacing: .04em;
+         text-transform: uppercase; color: var(--muted); }
+  .trk.gives { color: var(--done); }
+  .tfoot { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; color: var(--muted); font-size: 12px; }
   .waves { display: flex; flex-direction: column; gap: 6px; }
   .wave { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .wave .wn { font-size: 12px; color: var(--muted); min-width: 64px; }
@@ -534,6 +582,7 @@
           border-top: 1px solid var(--line); flex-wrap: wrap; }
   .file:first-child { border-top: none; }
   .file .size { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+  .file .ftype { min-width: 76px; text-align: center; }   /* тип файла — колонкой перед именем */
   audio { width: 100%; height: 36px; margin-top: 4px; }
   .entry { border-top: 1px solid var(--line); padding: 8px 0; }
   .entry:first-child { border-top: none; }
@@ -985,6 +1034,13 @@ window.ELEPHANT_OVERVIEW = null;
   var MEM_KEY = "el.overview." + (d.dir || location.pathname);
   var mem = {};
   try { mem = JSON.parse(localStorage.getItem(MEM_KEY) || "{}") || {}; } catch (e) { mem = {}; }
+  var RSB = {};   /* research topics by id — the inline preview reads the file's text from here */
+  /* иконки — SVG-штрихи, не глифы: раскрыть · открыть в новом окне · свернуть */
+  var ICO = {
+    eye: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"></path><circle cx="8" cy="8" r="2"></circle></svg>',
+    ext: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5H3.5v9h9V9.5"></path><path d="M9.5 2.5h4v4"></path><path d="M13.5 2.5 7.5 8.5"></path></svg>',
+    x: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"></path></svg>'
+  };
   /* ПОТОКИ — ОДНА СЕКЦИЯ С ВКЛАДКАМИ (владелец, 2026-08-27): всё, что идёт через все фазы —
      вопросы · research · обещания · развилки · риски · незнание · определения · поправки ·
      за тобой · автономия · на потом — собирается сюда по ходу сборки и рисуется одной коробкой
@@ -1219,16 +1275,24 @@ window.ELEPHANT_OVERVIEW = null;
      счётчик у правого края; раскрытие — внутри той же карточки. Пустая ступень — та же карточка
      приглушённо, с 0/N или «—», чтобы маршрут был виден до того, как по нему пошли. */
   function crow(k, st, inner, dflt, here) {
-    var right = st.bar ? barHtml(st.bar)
-              : '<span class="cnt">' + (st.n ? st.n + (st.done ? ' <span class="ok">✓</span>' : "") : "—") + "</span>";
+    /* справа — сколько записей и ✓, когда ступень закрыта; полосы и «8/8» на строках сняты
+       (его правка 2026-08-27 11:15: «иногда вопросов нужно больше, иногда меньше — всего нет»);
+       полоса фазы остаётся в шапке ленты, у неё естественное целое — обязательные ступени */
+    var n = (st.n !== undefined && st.n !== null) ? st.n : (st.bar ? st.bar.n : 0);
+    var right = '<span class="cnt">' + (n ? n + (st.done ? ' <span class="ok">✓</span>' : "") : "—") + "</span>";
     var title = '<span class="mark">' + (here ? "▶" : "") + "</span>" + term(k, st.title.split(" — ")[0]) + right;
     var cls = "crow" + ((st.n || (st.bar && st.bar.n)) ? "" : " blank") + (here ? " here" : "");
     if (!inner) return '<div class="' + cls + '"><div class="crow-h">' + title + "</div></div>";
     return '<details class="' + cls + '" data-key="ctx.' + esc(k) + '"' + (isOpen("ctx." + k, dflt) ? " open" : "") +
            '><summary class="crow-h">' + title + '</summary><div class="crow-b">' + inner + "</div></details>";
   }
-  function sub(kind, title, inner) {
-    return '<div class="sub"><div class="sub-h"><span class="mark">▾</span>' + title + "</div>" + inner + "</div>";
+  /* a SUB-SECTION inside a section: foldable on its own, remembered like everything else
+     (owner, 2026-08-27: «success · metric · checklist должны сворачиваться по отдельности»);
+     flat=true — a plain heading with no mark, for what is always visible (the IFR paragraph) */
+  function sub(key, title, inner, flat) {
+    if (flat) return '<div class="sub"><div class="sub-h flat">' + title + "</div>" + inner + "</div>";
+    return '<details class="sub" data-key="' + esc(key) + '"' + (isOpen(key, true) ? " open" : "") +
+           '><summary class="sub-h">' + title + "</summary>" + inner + "</details>";
   }
   function band(ph, inner, bar) {
     var i = ORDER.indexOf(ph);
@@ -1273,12 +1337,45 @@ window.ELEPHANT_OVERVIEW = null;
       });
     });
 
-    var rh = "";
-    (F.research || []).forEach(function (r) {
-      rh += '<div class="qa"><div class="q">' + idTag(r.id) + '<span class="area">' + esc(r.source || "") + "</span> " + inl(r.finding || "") + phTag(r) + "</div>" +
-            ((r.refs || []).length ? '<div class="a blank">якорь: ' + esc(r.refs.join(" · ")) + "</div>" : "") + "</div>";
+    /* ИССЛЕДОВАНИЯ — темами (его форма 2026-08-27): тема · выжимка ясным языком · файл с
+       материалом. Старые находки без темы — отдельно внизу, пока тема их не свернула. */
+    var rh = "", RT = (F.research || []).filter(function (r) { return r.type === "research"; }), folded = {};
+    RT.forEach(function (r) { (r.folds || []).forEach(function (f) { folded[f] = 1; }); });
+    /* карточка темы (его выбор 2026-08-27, вариант C): текст файла раскрывается ПРЯМО ПОД
+       карточкой — без окон; «открыть» — в новую вкладку. Заголовок файла и абзац «Выжимка»
+       в раскрытии не повторяются — они уже в карточке. */
+    function rsBody(text) {
+      var lines = (text || "").split("\n"), i = 0;
+      while (i < lines.length && !lines[i].trim()) i++;
+      if (i < lines.length && /^#\s+/.test(lines[i])) i++;
+      while (i < lines.length && !lines[i].trim()) i++;
+      if (i < lines.length && /^\*\*Выжимка\.?\*\*/.test(lines[i])) { while (i < lines.length && lines[i].trim()) i++; }
+      return md(lines.slice(i).join("\n"));
+    }
+    RT.forEach(function (r) {
+      var key = "rs.open." + r.id, open = isOpen(key, false);
+      rh += '<div class="rs' + (open ? " open" : "") + '" data-rs="' + esc(r.id) + '"><div class="rsh">' + idTag(r.id) + '<span class="rst">' + esc(r.topic || "") + "</span>" +
+            (r.area ? '<span class="area">' + esc(r.area) + "</span>" : "") + phTag(r) + "</div>" +
+            '<div class="rss">' + md(r.summary || "") + "</div>" +
+            '<div class="rsf"><span class="path">' + esc(r.file || "") + "</span>" +
+            ((r.refs || []).length ? '<span class="g">· якоря: ' + esc(r.refs.join(" · ")) + "</span>" : "") +
+            '<span class="sp"></span>' +
+            '<button type="button" class="cbtn rsview" data-rs="' + esc(r.id) + '">' + (open ? ICO.x + "свернуть" : ICO.eye + "посмотреть") + "</button>" +
+            '<a class="cbtn" href="' + encodeURI(r.file || "") + '" target="_blank">' + ICO.ext + "открыть</a></div>" +
+            '<div class="rsb md">' + (r.body ? rsBody(r.body) : '<span class="fsub">текст файла не попал в данные страницы — обнови: el ui</span>') + "</div></div>";
+      RSB[r.id] = r;
     });
-    tab("research", term("research", "исследование"), '<div class="plain">' + (rh || '<span class="fsub">ещё ничего не смотрели</span>') + "</div>", ' <span class="n">' + (F.research || []).length + "</span>");
+    var loose = (F.research || []).filter(function (r) { return r.type !== "research" && !folded[r.id]; });
+    if (loose.length) {
+      rh += '<div class="crit-node">находки без темы — сверни в тему: el research "<тема>" --summary "…" --file research/<имя>.md --folds ' +
+            esc(loose.map(function (r) { return r.id; }).join(",")) + "</div>";
+      loose.forEach(function (r) {
+        rh += '<div class="qa"><div class="q">' + idTag(r.id) + '<span class="area">' + esc(r.source || "") + "</span> " + inl(r.finding || "") + phTag(r) + "</div>" +
+              ((r.refs || []).length ? '<div class="a blank">якорь: ' + esc(r.refs.join(" · ")) + "</div>" : "") + "</div>";
+      });
+    }
+    tab("research", term("research", "исследование"), '<div class="plain">' + (rh || '<span class="fsub">ещё ничего не смотрели</span>') + "</div>",
+        ' <span class="n">' + RT.length + (loose.length ? " + " + loose.length : "") + "</span>");
     function simpleTab(key, en, ru, rows, fmt) {
       var hh = "";
       rows.forEach(function (r) { hh += '<div class="pr">' + idTag(r.id) + fmt(r) + phTag(r) + "</div>"; });
@@ -1288,9 +1385,24 @@ window.ELEPHANT_OVERVIEW = null;
       return inl(r.text) + (r.how ? ' <span class="g">· как закрываем: ' + inl(r.how) + "</span>" : "") + (r.blocking ? ' <span class="area loan">держит гейт</span>' : ""); });
     simpleTab("definitions", "definitions", "определения", F.definitions || [], function (r) {
       return "<b>" + inl(r.term) + "</b> — " + inl(r.means) + (r.heard_from ? ' <span class="g">(его слова: «' + inl(r.heard_from) + "»)</span>" : ""); });
-    var fboxes = "", nFiles = 0;
-    Object.keys(files).forEach(function (f) { nFiles += (files[f] || []).length; fboxes += filesBox(f, f); });
-    if (nFiles) tab("files", term("files", "файлы"), fboxes, ' <span class="n">' + nFiles + "</span>");
+    /* файлы — одним списком, тип файла (папка) чипом перед именем (его правка 2026-08-27:
+       «не надо заголовок research — и так понятно, что это файлы; тип перед файлом») */
+    var frows = "", nFiles = 0, RSBF = {};
+    Object.keys(RSB).forEach(function (id) { if (RSB[id].file) RSBF[RSB[id].file] = id; });
+    Object.keys(files).forEach(function (f) {
+      (files[f] || []).forEach(function (x) {
+        nFiles++;
+        var href = encodeURI(x.path), rs = RSBF[x.path];
+        frows += '<div class="file"><span class="area ftype">' + esc(f) + "</span>" +
+                 (rs ? '<span class="fname">' + esc(x.name) + "</span>" +
+                       '<button type="button" class="cbtn rsgo" data-rs="' + esc(rs) + '" title="раскрыть в исследованиях">' + ICO.eye + "посмотреть</button>" +
+                       '<a class="cbtn" href="' + href + '" target="_blank">' + ICO.ext + "открыть</a>"
+                     : '<a href="' + href + '">' + esc(x.name) + "</a>") +
+                 '<span class="size">' + kb(x.size) + "</span>" +
+                 (x.kind === "audio" ? '<audio controls preload="none" src="' + href + '"></audio>' : "") + "</div>";
+      });
+    });
+    if (nFiles) tab("files", term("files", "файлы"), '<div class="plain">' + frows + "</div>", ' <span class="n">' + nFiles + "</span>");
     var hereKey = null;
     X.steps.forEach(function (st) { if (!hereKey && st.required && !st.done && !st.flow) hereKey = st.key; });
     X.steps.forEach(function (st) {
@@ -1331,9 +1443,9 @@ window.ELEPHANT_OVERVIEW = null;
             ph += '<div class="pr">' + idTag(p.id) + pill(p.status) + "<span>" + inl(p.text || p.name || "") + tail + "</span>" +
                   '<div class="fsub">чем проверим: ' + inl(p.how || "") + "</div>" + amendNote(p) + "</div>";
           });
-          inner += sub(kind, term(kind, KIND[kind]) + ' <span class="n">' + rows.length + "</span>", ph);
+          inner += sub("ideal." + kind, term(kind, KIND[kind]) + ' <span class="n">' + rows.length + "</span>", ph);
         });
-        if (it.ifr.length) inner += sub("ifr", term("ifr", "сам идеал — одним абзацем"), '<div class="plain ifr">' + md(it.ifr[it.ifr.length - 1]) + "</div>");
+        if (it.ifr.length) inner += sub("ideal.ifr", term("ifr", "сам идеал — одним абзацем"), '<div class="plain ifr">' + md(it.ifr[it.ifr.length - 1]) + "</div>", true);
       } else if (k === "approval") {
         it.forEach(function (w) {
           inner += '<div class="pr">' + idTag(w.id) + '<span class="pst ' + (w.assumed ? "yellow" : "green") + '">' +
@@ -1383,14 +1495,43 @@ window.ELEPHANT_OVERVIEW = null;
   if (T) {
     var hereT = null;
     T.steps.forEach(function (st) { if (!hereT && st.required && !st.done) hereT = st.key; });
-    /* приёмы — первой строкой: категории закрашены, где взяли */
-    var tl = T.tools || {}, catsHtml = "";
+    /* приёмы — первой строкой: категории закрашены, где взяли. Каждая категория
+       РАСКРЫВАЕТСЯ по клику (и сворачивается повторным): что внутри ящика и какие записи
+       этой задачи её взяли (owner, 2026-08-27: «нажать на каждый — а там ничего нету») */
+    var tl = T.tools || {}, catsHtml = "", pansHtml = "", tbox = tl.box || {};
+    var curCat = mem["think.tools.cat"] || "";
+    /* один приём — строка «имя — что это», раскрывается в «когда · как · даёт» (его выбор
+       2026-08-27: вариант C, список с раскрытием) */
+    function toolRow(cat, t) {
+      var key = "think.tool." + cat + "." + t.name;
+      var line = function (lab, txt, cls) {
+        return '<div class="trl"><span class="trk' + (cls ? " " + cls : "") + '">' + lab + "</span><span>" + esc(txt || "") + "</span></div>";
+      };
+      return '<details class="tool" data-key="' + esc(key) + '"' + (isOpen(key, false) ? " open" : "") + "><summary>" +
+             '<span class="tn">' + esc(t.name) + '</span><span class="tw">— ' + esc(t.what || "") + "</span></summary>" +
+             '<div class="tbody">' + (t.about ? '<div class="tra">' + esc(t.about) + "</div>" : "") +
+             line("когда", t.when) + line("как", t.how) + line("даёт", t.gives, "gives") + "</div></details>";
+    }
     (tl.cats || []).forEach(function (c) {
-      var on = (tl.used || []).indexOf(c) >= 0, need = (tl.need || []).indexOf(c) >= 0;
-      catsHtml += '<span class="tb' + (on ? " on" : "") + (!on && need ? " need" : "") + '">' + esc(c) + (on ? " ✓" : need ? " ▶" : "") + "</span>";
+      var on = (tl.used || []).indexOf(c) >= 0, need = (tl.need || []).indexOf(c) >= 0, cur = curCat === c;
+      catsHtml += '<span class="tb' + (on ? " on" : "") + (!on && need ? " need" : "") + (cur ? " cur" : "") +
+                  '" data-cat="' + esc(c) + '">' + esc(c) + (on ? " ✓" : need ? " ▶" : "") + "</span>";
+      var taken = (tl.taken || {})[c] || [], th = "";
+      taken.forEach(function (x) {
+        th += '<div class="pr">' + idTag(x.id) + '<span class="area">' + esc(x.step || "") + "</span> " + esc(x.tool) + "</div>";
+      });
+      var bx = tbox[c] || {}, tools = bx.tools || [], rows = "";
+      tools.forEach(function (t) { rows += toolRow(c, t); });
+      pansHtml += '<div class="tab-p' + (cur ? " on" : "") + '" data-cat="' + esc(c) + '"><div class="plain">' +
+                  '<div class="tch"><b>' + esc(c) + "</b><span class=\"g\">— " + esc(bx["for"] || "") + "</span>" +
+                  '<span class="n">' + tools.length + " приём" + (tools.length === 1 ? "" : tools.length < 5 ? "а" : "ов") + "</span></div>" +
+                  '<div class="tlist">' + rows + "</div>" +
+                  '<div class="tfoot">' + (th ? "взято в этой задаче:" + th
+                      : "в этой задаче ещё не брали" + (need ? " — режим просит эту категорию" : "")) + "</div></div></div>";
     });
     t += crow("tools", { title: "приёмы — какие категории ящика взяли", bar: tl.bar, n: (tl.used || []).length, done: false },
-              '<div class="tab-h" style="margin-top: 4px;">' + catsHtml + '</div><div class="fsub" style="margin-top: 8px;">▶ — режим просит · любая команда думания принимает --tool</div>', false, false);
+              '<div class="tcats"><div class="tab-h" style="margin-top: 4px;">' + catsHtml + "</div>" + pansHtml + "</div>" +
+              '<div class="fsub" style="margin-top: 8px;">✓ — взяли · ▶ — режим просит · нажми на категорию — что внутри и что взяли · любая команда думания принимает --tool</div>', false, false);
     T.steps.forEach(function (st) {
       var k = st.key, it = st.items || [], inner = "";
       if (!st.n) { t += crow(k, st, "", false, k === hereT); return; }
@@ -1408,13 +1549,23 @@ window.ELEPHANT_OVERVIEW = null;
                                  (f.assumed ? ' <span class="area loan">в его место</span>' : "") + "</div>" : "") + "</div>";
         });
       } else if (k === "promises") {
-        var col = T.colour || {};
-        var dot = col.colour === "green" ? "🟢" : col.colour === "yellow" ? "🟡" : "🔴";
-        inner += '<div class="fsub" style="margin-bottom: 6px;">' + dot + " корень: " +
-                 ((col.open || []).length ? "не проверено " + col.open.map(function (x) { return x[1]; }).join(", ") : "") +
-                 ((col.red || []).length ? " · не сошлось " + col.red.map(function (x) { return x[1]; }).join(", ") : "") +
-                 ((col.yellow || []).length ? " · с долгом " + col.yellow.map(function (x) { return x[1]; }).join(", ") : "") +
-                 (!(col.open || []).length && !(col.red || []).length && !(col.yellow || []).length ? "всё сошлось" : "") + "</div>";
+        /* the ROOT'S COLOUR — folded out of every promise on the root and below: the worst
+           news wins. Named and explained, not a bare dot (owner, 2026-08-27: «что за
+           красненькая штучка — непонятно»). */
+        var col = T.colour || {}, cO = col.open || [], cR = col.red || [], cY = col.yellow || [];
+        var ids = function (xs) { return xs.map(function (x) { return x[1]; }).join(", "); };
+        var cName = col.colour === "green" ? "зелёный" : col.colour === "yellow" ? "жёлтый" : "красный";
+        var cWhy = cR.length ? "есть обещания, которые НЕ сошлись" :
+                   cO.length ? "есть обещания без вердикта — их ещё никто не проверял" :
+                   cY.length ? "все сошлись, но часть — под долгом (решено в его место)" : "все обещания проверены и сошлись";
+        var cBits = [];
+        if (cR.length) cBits.push("не сошлось " + cR.length + ": " + ids(cR));
+        if (cO.length) cBits.push("не проверено " + cO.length + ": " + ids(cO));
+        if (cY.length) cBits.push("с долгом " + cY.length + ": " + ids(cY));
+        inner += '<div class="plain" style="margin-bottom: 10px;"><span class="pst ' + esc(col.colour || "red") + '">' +
+                 "цвет корня: " + cName + "</span><span>" + cWhy + (cBits.length ? " — " + cBits.join(" · ") : "") + "</span>" +
+                 '<div class="fsub">цвет = худшая новость среди обещаний задачи и её узлов: не сошлось или не проверено → красный · ' +
+                 "только долг → жёлтый · всё сошлось → зелёный. Вердикты ставятся на проверке: el validate &lt;узел&gt; &lt;n&gt; --met «чем доказано»</div></div>";
         it.forEach(function (p) {
           var head = p.text || p.name || "";
           if (p.kind === "metric") head += " · порог " + esc(String(p.threshold)) + " " + esc(p.unit || "") + " " + esc(p.direction || "") + (p.baseline !== undefined && p.baseline !== null ? " · сейчас " + esc(String(p.baseline)) : "");
@@ -2137,9 +2288,49 @@ window.ELEPHANT_OVERVIEW = null;
   });
   wh += "</div>";
   tab("terms", term("terms", "терминология"), wh, ' <span class="n">' + WORDS.length + "</span>");
-  tab("journal", term("journal", "журнал"), '<div class="plain">' + jh + "</div>", ' <span class="n">' + entries.length + "</span>");
+  /* журнал — в рост экрана, не в бесконечность (его правка 2026-08-27): не выше двух третей
+     окна, прокрутка внутри; последнее — сверху, так что хвост уходит вниз */
+  tab("journal", term("journal", "журнал"), '<div class="plain scroll">' + jh + "</div>", ' <span class="n">' + entries.length + "</span>");
   document.getElementById("second").innerHTML = "";
   document.getElementById("flows").innerHTML = tabsHtml();
+  /* категории приёмов: клик раскрывает, повторный — сворачивает; память как у вкладок */
+  document.querySelectorAll(".tcats .tb").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var k = b.getAttribute("data-cat"), box = b.closest(".tcats"), was = b.classList.contains("cur");
+      box.querySelectorAll(".tb").forEach(function (x) { x.classList.toggle("cur", !was && x === b); });
+      box.querySelectorAll(".tab-p").forEach(function (x) { x.classList.toggle("on", !was && x.getAttribute("data-cat") === k); });
+      mem["think.tools.cat"] = was ? "" : k;
+      try { localStorage.setItem(MEM_KEY, JSON.stringify(mem)); } catch (e) {}
+    });
+  });
+  /* файл исследования — раскрывается под карточкой (его выбор 2026-08-27, вариант C) или
+     открывается в новой вкладке; из вкладки files «посмотреть» ведёт к раскрытой карточке */
+  function rsToggle(id, want) {
+    var card = document.querySelector('.rs[data-rs="' + id + '"]');
+    if (!card) return;
+    var open = want === undefined ? !card.classList.contains("open") : !!want;
+    card.classList.toggle("open", open);
+    var b = card.querySelector(".rsview");
+    if (b) b.innerHTML = open ? ICO.x + "свернуть" : ICO.eye + "посмотреть";
+    mem["rs.open." + id] = open;
+    try { localStorage.setItem(MEM_KEY, JSON.stringify(mem)); } catch (e) {}
+    return card;
+  }
+  document.querySelectorAll(".rsview").forEach(function (b) {
+    b.addEventListener("click", function () { rsToggle(b.getAttribute("data-rs")); });
+  });
+  document.querySelectorAll(".rsgo").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var id = b.getAttribute("data-rs"), tabs = b.closest(".tabs");
+      if (tabs) {   /* переключить ленту на «исследование», как клик по вкладке */
+        tabs.querySelectorAll(".tb").forEach(function (x) { x.classList.toggle("on", x.getAttribute("data-tab") === "research"); });
+        tabs.querySelectorAll(".tab-p").forEach(function (x) { x.classList.toggle("on", x.getAttribute("data-tab") === "research"); });
+        mem["flows.tab"] = "research";
+      }
+      var card = rsToggle(id, true);
+      if (card) card.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  });
   /* переключение вкладок — и память о том, какая открыта */
   document.querySelectorAll(".tabs .tb").forEach(function (b) {
     b.addEventListener("click", function () {
