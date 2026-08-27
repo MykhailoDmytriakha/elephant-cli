@@ -111,7 +111,8 @@ def qa_read(tdir):
     for r in live(tdir, rtype="qa"):
         rnd = rounds.setdefault(r.get("round", 1), {"round": r.get("round", 1),
                                                     "ts": r.get("ts", "")[:16], "pairs": []})
-        pair = {"id": r["id"], "area": r.get("area", ""), "q": r.get("q", ""), "a": r.get("a", "")}
+        pair = {"id": r["id"], "area": r.get("area", ""), "q": r.get("q", ""), "a": r.get("a", ""),
+                "ts": r.get("ts", "")[:16]}
         if r.get("options"):
             pair["options"] = r["options"]
         if r.get("assumed"):

@@ -122,6 +122,36 @@
   .qa .a { margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .qa .a.blank { color: var(--muted); font-style: italic; }
   .qa .q .area.loan { color: var(--loan); border-color: var(--loan); }
+  /* QUESTIONS — карточками (его выбор 2026-08-27, вариант C): вопрос — заголовок карточки,
+     ответ владельца сразу под ним через тире, варианты агента свёрнуты в одну строку
+     «N вариантов предлагал агент»; раунд — подпись с датой по-человечески и числом вопросов. */
+  .qround { display: flex; align-items: baseline; gap: 10px; padding: 12px 4px 0; }
+  .qround .rn { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .qround .rm { font-size: 13px; color: var(--muted); }
+  .qlist { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+  .qcard { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px 13px;
+           display: flex; flex-direction: column; gap: 6px; }
+  .qcard .qm { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .qcard .qm .rid { margin-right: 0; }
+  .qcard .qm .area { font-size: 12px; color: var(--accent); border: 1px solid var(--accent); border-radius: 99px;
+                     padding: 0 7px; line-height: 1.5; }
+  .qcard .qm .area.loan { color: var(--loan); border-color: var(--loan); }
+  .qcard .qm .sep { color: var(--line); }
+  .qcard .q { font-weight: 600; line-height: 1.45; }
+  .qcard .a { display: flex; align-items: baseline; gap: 6px; font-size: 15.5px; line-height: 1.5; }
+  .qcard .a .dash { color: var(--done); font-weight: 600; flex: none; }
+  .qcard .a .md { min-width: 0; overflow-wrap: anywhere; }
+  .qcard .a.blank { color: var(--muted); font-style: italic; }
+  .qcard .why { font-size: 13px; color: var(--muted); }
+  details.qopts { margin-top: 2px; }
+  details.qopts > summary { list-style: none; cursor: pointer; font-size: 12.5px; color: var(--muted);
+                            display: inline-flex; align-items: center; gap: 6px; }
+  details.qopts > summary::-webkit-details-marker { display: none; }
+  details.qopts > summary::before { content: "▸"; font-size: 11px; }
+  details.qopts[open] > summary::before { content: "▾"; }
+  .qchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .qchips span { font-size: 12.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px;
+                 padding: 1px 8px; background: var(--card); line-height: 1.5; }
   .dim ul { margin: 4px 0 8px 20px; padding: 0; }
   .dim .out { color: var(--muted); }
   .dim .out::before { content: "не входит: "; }
@@ -1101,8 +1131,10 @@ window.ELEPHANT_OVERVIEW = null;
   function tab(key, label, inner, badge) { TABS.push({ key: key, label: label, inner: inner, badge: badge || "" }); }
   function tabsHtml() {
     if (!TABS.length) return "";
+    /* по умолчанию ни одна не раскрыта (его правка 2026-08-27, q10): только ряд вкладок;
+       клик — показать ленту, клик по той же — убрать; помнится и «ничего не выбрано» */
     var cur = mem["flows.tab"];
-    if (!TABS.some(function (t) { return t.key === cur; })) cur = TABS[0].key;
+    if (!TABS.some(function (t) { return t.key === cur; })) cur = "";
     var hh = "", pp = "";
     TABS.forEach(function (t) {
       hh += '<span class="tb' + (t.key === cur ? " on" : "") + '" data-tab="' + esc(t.key) + '">' + t.label + t.badge + "</span>";
@@ -1379,17 +1411,29 @@ window.ELEPHANT_OVERVIEW = null;
     function phTag(r) { return r.phase && r.phase !== "context" ? ' <span class="area">' + esc(RU[r.phase] || r.phase) + "</span>" : ""; }
     var qh = "", nQ = 0;
     var QR = ((X.steps.filter(function (st) { return st.key === "questions"; })[0] || {}).items) || [];
+    /* карточками (его выбор 2026-08-27, вариант C): id · область · когда — вопрос — ответ через
+       тире — варианты агента свёрнуты, чтобы главным было слово владельца */
     QR.forEach(function (r) {
-      if (QR.length > 1) qh += '<div class="crit-node">Раунд ' + r.round + " · " + esc(r.ts) + "</div>";
+      if (QR.length > 1) qh += '<div class="qround"><span class="rn">Раунд ' + r.round + '</span><span class="rm">' +
+                               when(r.ts) + " · " + plural(r.pairs.length, "вопрос", "вопроса", "вопросов") + "</span></div>";
+      qh += '<div class="qlist">';
       r.pairs.forEach(function (p) {
         nQ++;
-        qh += '<div class="qa"><div class="q">' + idTag(p.id) + inl(p.q) +
+        var opts = p.options || [];
+        qh += '<div class="qcard"><div class="qm">' + idTag(p.id) +
               (p.area ? '<span class="area">' + esc(p.area) + "</span>" : "") +
-              (p.assumed ? '<span class="area loan">в его место</span>' : "") + "</div>" +
-              (p.options ? '<div class="a blank">варианты: ' + esc(p.options.join(" · ")) + "</div>" : "") +
-              '<div class="a">' + md(p.a) + "</div>" +
-              (p.assumed ? '<div class="a blank">почему так принял: ' + esc(p.assumed) + "</div>" : "") + "</div>";
+              (p.assumed ? '<span class="area loan">в его место</span>' : "") +
+              (p.ts ? '<span class="sep">·</span><span>' + when(p.ts) + "</span>" : "") + "</div>" +
+              '<div class="q">' + inl(p.q) + "</div>" +
+              (p.a ? '<div class="a"><span class="dash">—</span>' + md(p.a) + "</div>"
+                   : '<div class="a blank"><span class="dash">—</span><div class="md">ответа пока нет</div></div>') +
+              (p.assumed ? '<div class="why">почему так принял: ' + esc(p.assumed) + "</div>" : "") +
+              (opts.length ? '<details class="qopts"><summary>' + plural(opts.length, "вариант", "варианта", "вариантов") +
+                             ' предлагал агент</summary><div class="qchips">' +
+                             opts.map(function (o) { return "<span>" + esc(o) + "</span>"; }).join("") + "</div></details>" : "") +
+              "</div>";
       });
+      qh += "</div>";
     });
 
     /* ИССЛЕДОВАНИЯ — темами (его форма 2026-08-27): тема · выжимка ясным языком · файл с
@@ -2498,13 +2542,14 @@ window.ELEPHANT_OVERVIEW = null;
       if (card) card.scrollIntoView({ block: "start", behavior: "smooth" });
     });
   });
-  /* переключение вкладок — и память о том, какая открыта */
+  /* переключение вкладок — и память о том, какая открыта; повторный клик по открытой
+     сворачивает ленту, остаётся один ряд вкладок (его правка 2026-08-27, q10) */
   document.querySelectorAll(".tabs .tb").forEach(function (b) {
     b.addEventListener("click", function () {
-      var k = b.getAttribute("data-tab"), box = b.closest(".tabs");
-      box.querySelectorAll(".tb").forEach(function (x) { x.classList.toggle("on", x === b); });
-      box.querySelectorAll(".tab-p").forEach(function (x) { x.classList.toggle("on", x.getAttribute("data-tab") === k); });
-      mem["flows.tab"] = k;
+      var k = b.getAttribute("data-tab"), box = b.closest(".tabs"), was = b.classList.contains("on");
+      box.querySelectorAll(".tb").forEach(function (x) { x.classList.toggle("on", !was && x === b); });
+      box.querySelectorAll(".tab-p").forEach(function (x) { x.classList.toggle("on", !was && x.getAttribute("data-tab") === k); });
+      mem["flows.tab"] = was ? "" : k;
       try { localStorage.setItem(MEM_KEY, JSON.stringify(mem)); } catch (e) {}
     });
   });
