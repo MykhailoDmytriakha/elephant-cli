@@ -437,9 +437,12 @@ def plan_view(tdir):
     keys = ["stages", "promises", "sync", "coverage", "network", "approval"]
     rows = []
     ig = {"covered": 0, "total": 0}
+    coverage = {}
     try:
-        from .integrity import integrity_state
+        from .integrity import integrity_state, GOAL_KINDS
         state_, _orph = integrity_state(tdir)
+        # the table the page draws under «покрытие» (owner, 2026-08-27: «ничего не показывается»)
+        coverage = {k: {"title": GOAL_KINDS[k][0], "items": v} for k, v in state_.items()}
         for items in state_.values():
             for it in items:
                 ig["total"] += 1
@@ -483,8 +486,12 @@ def plan_view(tdir):
         if r["key"] == "approval":
             r["n"] = 1 if w else 0
     req = [r for r in rows if r["required"]]
+    # the stop of every stage, for the «точки синхронизации» row: kind + his four lines
+    sync = {n["id"]: {"kind": node_sync(n), "text": (n.get("_fields") or {}).get("sync") or ""}
+            for n in st if node_sync(n)}
     return {"rows": rows, "bar": {"n": sum(1 for r in req if r["done"]), "m": len(req), "what": "обязательных ступеней"},
             "waves": waves, "missing": missing, "cycle": cycle, "deps": deps, "nodes": per,
+            "coverage": coverage, "sync": sync,
             "word": dict(w, stale=stale) if w else None, "seq": last_seq(tdir)}
 
 

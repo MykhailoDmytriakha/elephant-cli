@@ -134,7 +134,10 @@
   .prog.full .prog-f { background: var(--done); }
   .prog-n { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); }
   .prog.full .prog-n { color: var(--done); }
-  .band-h .prog { margin-left: auto; margin-right: 12px; }
+  /* полоса фазы — в одной колонке у всех лент (его правка 2026-08-27: «прогресс-бары не
+     выровнены»): заголовок растягивается, полоса и счётчик — фиксированной ширины */
+  .band-h .prog { margin-left: 12px; margin-right: 12px; flex: none; }
+  .band-h .prog-n { min-width: 44px; }
   .crow { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-top: 10px; }
   .crow.blank { opacity: .55; }
   .crow.here { opacity: 1; border-color: var(--accent); }
@@ -410,8 +413,8 @@
                 padding: 0 8px; }
   .band-h .bname { font-size: 15px; font-weight: 700; text-transform: uppercase;
                    letter-spacing: .06em; }
-  .band-h .btitle { font-size: 14px; color: var(--muted); }
-  .band-h .bmark { margin-left: auto; font-size: 13px; color: var(--muted); }
+  .band-h .btitle { font-size: 14px; color: var(--muted); flex: 1 1 auto; }
+  .band-h .bmark { margin-left: 0; min-width: 96px; text-align: right; flex: none; font-size: 13px; color: var(--muted); }
   details.band.passed .band-h { border-bottom-color: var(--done); }
   details.band.passed .bname, details.band.passed .bmark, details.band.passed .bn
     { color: var(--done); border-color: var(--done); }
@@ -455,6 +458,35 @@
   .nd .ndcall .r { font-size: 14px; line-height: 1.5; } .nd .ndcall .w { font-size: 13px; color: var(--muted); line-height: 1.5; }
   .nd .ndhint { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
   .nd .nddec { margin-top: 10px; font-size: 14.5px; color: var(--done); }
+  /* сетевой план — граф */
+  .netwrap { overflow-x: auto; padding: 4px 0; }
+  .netg { display: block; max-width: 100%; height: auto; }
+  .netleg { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+  .netleg span { display: inline-flex; align-items: center; gap: 6px; }
+  .netleg i { display: inline-block; }
+  .netleg i.arrow { width: 22px; height: 0; border-top: 1.4px solid var(--muted); position: relative; }
+  .netleg i.arrow::after { content: ""; position: absolute; right: -1px; top: -4px; border: 4px solid transparent; border-left: 6px solid var(--muted); }
+  .netleg i.col { width: 10px; height: 14px; border-left: 1px dashed var(--muted); border-right: 1px dashed var(--muted); }
+  .netleg i.box { width: 16px; height: 11px; border-radius: 3px; border: 1px solid var(--line); background: var(--card); }
+  .netleg i.box.done { border-color: var(--done); background: color-mix(in srgb, var(--done) 10%, var(--card)); }
+  .netleg i.box.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
+  /* план: остановки этапов и покрытие */
+  .sylist { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+  .syl { display: flex; gap: 10px; align-items: baseline; font-size: 13px; line-height: 1.5; }
+  .syk { flex: none; width: 74px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .cov { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+  .cov:first-of-type { border-top: none; }
+  .cov .v { flex: none; width: 14px; color: var(--done); } .cov.none .v { color: var(--bad); }
+  .cov .cn { flex: none; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted); width: 16px; }
+  .cov .cby { margin-left: auto; flex: none; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--accent); }
+  .cov.none .cby { color: var(--bad); }
+  .covv { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; color: var(--done); font-weight: 600; }
+  .covv.bad { color: var(--bad); }
+  .cdot { display: inline-block; width: 8px; height: 8px; border-radius: 4px; margin-right: 8px; flex: none; }
+  .cdot.red { background: var(--bad); } .cdot.yellow { background: var(--warn); } .cdot.green { background: var(--done); }
+  .lvl.sy.yellow { color: var(--warn); border-color: var(--warn); } .lvl.sy.red { color: var(--bad); border-color: var(--bad); }
+  .ncov { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; margin-top: 8px; font-size: 13px; color: var(--muted); }
+  .ncov span:not(.rid) { border: 1px solid var(--line); border-radius: 8px; padding: 1px 8px; }
   /* ДОСКА ИСПОЛНЕНИЯ */
   .exnow { font-size: 17px; font-weight: 600; }
   .exmark { color: var(--accent); margin-right: 4px; }
@@ -1301,7 +1333,7 @@ window.ELEPHANT_OVERVIEW = null;
     /* справа — сколько записей и ✓, когда ступень закрыта; полосы и «8/8» на строках сняты
        (его правка 2026-08-27 11:15: «иногда вопросов нужно больше, иногда меньше — всего нет»);
        полоса фазы остаётся в шапке ленты, у неё естественное целое — обязательные ступени */
-    var n = (st.n !== undefined && st.n !== null) ? st.n : (st.bar ? st.bar.n : 0);
+    var n = (st.n !== undefined && st.n !== null && st.n !== 0) ? st.n : (st.bar ? st.bar.n : (st.n || 0));
     var right = '<span class="cnt">' + (n ? n + (st.done ? ' <span class="ok">✓</span>' : "") : "—") + "</span>";
     var title = '<span class="mark">' + (here ? "▶" : "") + "</span>" + term(KEY_EN[k] || k, st.title.split(" — ")[0]) + right;
     var cls = "crow" + ((st.n || (st.bar && st.bar.n)) ? "" : " blank") + (here ? " here" : "");
@@ -1726,50 +1758,201 @@ window.ELEPHANT_OVERVIEW = null;
   /* ЦЕЛОСТНОСТЬ МАРШРУТА (его решение 2026-08-24) — проверка СВЕРХУ ВНИЗ: за каждым куском
      цели кто-то стоит. Стоит в ленте плана, потому что это свойство плана: свёртка снизу
      говорит «обещанное сделано», целостность сверху — «нужное обещано». */
+  /* Целостность — это ВЕРДИКТ над покрытием, а не вторая таблица (его вопрос 2026-08-27:
+     «чем integrity отличается от coverage?» — ничем, кроме итога). Поэтому отдельной секции
+     нет: таблица и вердикт живут в строке «покрытие» лестницы, слово владельца — последним. */
   var ig = d.integrity || null;
-  if (ig && ig.kinds && ig.kinds.length) {
-    var gh = '<div class="plain">', nHole = 0, nAll = 0, nOk = 0;
-    ig.kinds.forEach(function (k) {
-      if (!k.items.length) return;
-      gh += '<div class="crit-node">' + esc(k.title) + "</div>";
-      k.items.forEach(function (it) {
-        nAll++;
-        var by = (it.by || []), unf = (it.unfolded || []);
-        var cls = by.length ? "met" : unf.length ? "unverified" : "failed";
-        var word = by.length ? "покрыт" : unf.length ? "раскроется" : "НИКТО";
-        if (by.length || unf.length) nOk++; else nHole++;
-        gh += '<div class="crit"><span class="v ' + cls + '">' + word + "</span><span>" +
-              inl(it.text) + "</span>" +
-              ((by.length || unf.length)
-                ? '<span class="proof">' + esc(by.concat(unf).join(", ")) +
-                  (unf.length ? " · план достроится позже" : "") + "</span>" : "");
-        gh += "</div>";
-      });
-    });
-    if (ig.orphans && ig.orphans.length)
-      gh += '<div class="crit"><span class="v unverified">ничьи</span><span>' +
-            esc(ig.orphans.join(", ")) + " — эти ветки не работают ни на один кусок цели</span></div>";
-    gh += "</div>";
-    pl += sec("plan.integrity", term("integrity", "целостность маршрута") + ' <span class="n">' + nOk + "/" + nAll +
-              "</span>" + (nHole ? ' <span class="n">дыр: ' + nHole + "</span>" : ""), gh, true);
-  }
   /* ЛЕСТНИЦА ПЛАНА (2026-08-27) — карточки с полосами, как в контексте и думании; сеть —
      волны из deps, считается; дерево узлов — ниже, складное, у узла его обещания и цвет. */
   var PV = d.planv || null;
   var nodes = d.plan_nodes || [];
+  /* ДЕРЕВО УЗЛОВ — строится первым: оно и есть содержимое строки «этапы» (его правка
+     2026-08-27: «проблема — ничего не показывается»: строки лестницы плана были пустыми) */
+  var treeHtml = "", stageIds = [];
+  var SYNC_RU = { "ПОКАЗ": "показ", "РАЗВИЛКА": "решение", "РАЗРЕШЕНИЕ": "разрешение" };
+  var SYNC_CLS = { "ПОКАЗ": "open", "РАЗВИЛКА": "yellow", "РАЗРЕШЕНИЕ": "red" };
+  var SY = (PV && PV.sync) || {}, COVERS = {};
+  Object.keys((PV && PV.coverage) || {}).forEach(function (k) {
+    ((PV.coverage[k] || {}).items || []).forEach(function (it) {
+      (it.by || []).concat(it.unfolded || []).forEach(function (id) { (COVERS[id] = COVERS[id] || []).push(it.text); });
+    });
+  });
+  function syncLines(text) {
+    /* четыре части остановки — строками, даже если записаны в одну через « · » */
+    var parts = String(text || "").replace(/^\s*[-*•]\s*/gm, "").split(/\s·\s|\n/).map(function (x) { return x.trim(); }).filter(Boolean);
+    return parts.map(function (x) {
+      var m = x.match(/^(показываю|увидишь|потрогать|от тебя):\s*(.*)$/i);
+      return m ? '<div class="syl"><span class="syk">' + esc(m[1].toLowerCase()) + "</span><span>" + inl(m[2]) + "</span></div>"
+               : '<div class="syl"><span class="syk"></span><span>' + inl(x) + "</span></div>";
+    }).join("");
+  }
+  if (nodes.length) {
+    var byId = {}, kids = {}, roots = [];
+    nodes.forEach(function (n) { byId[n.id] = n; kids[n.id] = []; });
+    nodes.forEach(function (n) {
+      var p = /[.\-]/.test(n.id) ? n.id.replace(/[.\-][^.\-]+$/, "") : "";
+      if (p && byId[p]) kids[p].push(n); else roots.push(n);
+    });
+    var labels = d.node_labels || {};
+    function renderNode(n) {
+      var key = "plan.node." + n.id;
+      var st = n.status || "open";
+      var STATUS = { active: "▶ " + term("active", "в работе"), waiting: "⏸ " + term("waiting", "ждёт владельца"),
+                     blocked: "✗ " + term("blocked", "заблокирован"),
+                     parked: n.cancelled ? "⊘ " + term("cancelled", "не потребовался") : "⏹ " + term("parked", "отложен") };
+      var stBadge = st === "done" ? '<span class="done">✓ ' + term("done", "закрыт") + "</span>" :
+                    STATUS[st] ? '<span class="lvl">' + STATUS[st] + "</span>" : "";
+      var ch = kids[n.id];
+      var np = ((PV || {}).nodes || {})[n.id] || {}, npr = np.promises || [], ncol = np.colour || {};
+      /* цвет узла — точкой с подсказкой, не эмодзи (его правка 2026-08-27 про «красненькую штучку») */
+      var nOpen = (ncol.open || []).length, nRed = (ncol.red || []).length, nYel = (ncol.yellow || []).length;
+      var dotN = !npr.length && !nOpen && !nRed && !nYel ? ""
+                 : '<i class="cdot ' + (ncol.colour === "green" ? "green" : ncol.colour === "yellow" ? "yellow" : "red") + '" title="' +
+                   esc(nRed ? "не сошлось: " + nRed : nOpen ? "не проверено: " + nOpen : nYel ? "с долгом: " + nYel : "всё сошлось") + '"></i>';
+      var out = '<details class="node" data-key="' + esc(key) + '"' +
+                (isOpen(key, false) ? " open" : "") + '><summary>' + dotN + '<span class="nid">' +
+                esc(n.id.toUpperCase()) + '</span><span class="nname">' + esc(n.name) +
+                "</span>" + (LVL[n.level] ? '<span class="lvl">' + LVL[n.level] + "</span>" : "") +
+                stBadge + (ch.length ? '<span class="lvl">внутри ' + ch.length + "</span>" : "") +
+                (npr.length ? '<span class="lvl">обещаний ' + npr.filter(function (p) { return p.status === "passed"; }).length + "/" + npr.length + "</span>" : "") +
+                (SY[n.id] ? '<span class="lvl sy ' + (SYNC_CLS[SY[n.id].kind] || "open") + '">' + esc(SYNC_RU[SY[n.id].kind] || SY[n.id].kind) + "</span>" : "") +
+                /* раскладка этапа (владелец, 2026-08-26): не разложен · ждёт слова · принята */
+                (n.decomp === "pending" ? '<span class="lvl" style="color: var(--warn); border-color: var(--warn)">раскладка ждёт слова</span>' :
+                 n.decomp === "accepted" ? '<span class="lvl" style="color: var(--done); border-color: var(--done)">раскладка принята</span>' :
+                 (n.decomp === "none" && st !== "done" && ORDER.indexOf(d.phase) >= ORDER.indexOf("execute")) ?
+                   '<span class="lvl">не разложен</span>' : "") +
+                "</summary><div class=\"nbody\">";
+      /* суть — первая строка результата, без раскрытия контракта */
+      var gist = ((n.fields || {}).result || "").split("\n").filter(function (l) { return l.trim(); })[0] || "";
+      if (gist) out += '<div class="ngist">' + inl(gist.replace(/^[-*•]\s+/, "")) + "</div>";
+      if (npr.length) {
+        var prh = "";
+        npr.forEach(function (p) {
+          prh += '<div class="pr">' + idTag(p.id) + pill(p.status) + inl(p.text || p.name || "") + ' <span class="g">· из ' + esc(RU[p.born] || p.born || "") + "</span>" +
+                 '<div class="fsub">чем проверим: ' + inl(p.how || "") + "</div></div>";
+        });
+        out += box(key + ".promises", term("promises", "обещания узла") + ' <span class="n">' + npr.length + "</span>", prh, true);
+      }
+      /* остановка и покрытие — при этапе, а не отдельными строками ленты (его правка
+         2026-08-27: «всё это относится к галочкам и должно быть в районе этапов, вместе») */
+      if (SY[n.id])
+        out += box(key + ".sync", term("stop", "остановка") + ' <span class="pst ' + (SYNC_CLS[SY[n.id].kind] || "open") + '">' + esc(SYNC_RU[SY[n.id].kind] || SY[n.id].kind) + "</span>",
+                   '<div class="sylist">' + syncLines(SY[n.id].text) + "</div>", true);
+      if ((COVERS[n.id] || []).length)
+        out += '<div class="ncov"><span class="rid">покрывает</span>' + COVERS[n.id].map(function (t) { return "<span>" + inl(t) + "</span>"; }).join("") + "</div>";
+      var wlN = WL[n.id] || [];
+      if (wlN.length)
+        out += box(key + ".log", term("log", "ход работы") + ' <span class="n">' + wlN.length + "</span>",
+                   wlRows(wlN), false);
+      var fk = Object.keys(n.fields || {});
+      if (fk.length) out += box(key + ".fields", term("contract", "контракт узла") + ' <span class="n">' + fk.length + " полей</span>",
+                                contractHtml(n), false);
+      if (ch.length) {
+        out += '<div class="nkids">внутри · ' + ch.length + "</div>";
+        ch.forEach(function (c) { out += renderNode(c); });
+      }
+      out += "</div></details>";
+      return out;
+    }
+
+    roots.forEach(function (n) { treeHtml += renderNode(n); stageIds.push(n.id); });
+  }
   if (PV) {
     var hereP = null;
     (PV.rows || []).forEach(function (r) { if (!hereP && r.required && !r.done) hereP = r.key; });
     var pre = "";
     (PV.rows || []).forEach(function (r) {
+      /* обещания и остановки живут в карточках этапов — строками ленты не дублируются */
+      if (r.key === "promises" || r.key === "sync") return;
       var inner = "";
+      if (r.key === "stages") inner = treeHtml;
+      if (r.key === "coverage" && PV.coverage) {
+        var cAll = 0, cOk = 0, cHoles = [];
+        Object.keys(PV.coverage).forEach(function (k) {
+          var c = PV.coverage[k];
+          inner += '<div class="crit-node">' + esc(c.title) + "</div>";
+          (c.items || []).forEach(function (it) {
+            var by = it.by || [], unf = it.unfolded || [], ok = by.length || unf.length;
+            cAll++; if (ok) cOk++; else cHoles.push(it.text);
+            inner += '<div class="cov' + (ok ? "" : " none") + '"><span class="v">' + (ok ? "✓" : "✗") + "</span>" +
+                     '<span class="cn">' + esc(String(it.n)) + "</span><span>" + inl(it.text || "") + "</span>" +
+                     '<span class="cby">' + (by.length ? esc(by.join(", ")) : unf.length ? esc(unf.join(", ")) + " · раскроется" : "никто") + "</span></div>";
+          });
+        });
+        /* вердикт целостности — под таблицей: всё ли покрыто, есть ли ничьи ветки */
+        var orph = (ig && ig.orphans) || [];
+        inner += '<div class="covv' + (cHoles.length ? " bad" : "") + '">' +
+                 (cHoles.length ? "ДЫРА: " + cHoles.length + " из " + cAll + " без этапа — держит ворота выхода из плана"
+                                : cOk + "/" + cAll + " покрыто · маршрут целостен: за каждым куском цели стоит этап") + "</div>" +
+                 (orph.length ? '<div class="fsub">ничьи ветки: ' + esc(orph.join(", ")) + " — не работают ни на один кусок цели</div>" : "");
+      }
       if (r.key === "network" && (PV.waves || []).length) {
-        inner = '<div class="waves">' + PV.waves.map(function (w, i) {
-          return '<div class="wave"><span class="wn">волна ' + (i + 1) + "</span>" + w.map(function (id) {
-            var dp = (PV.deps || {})[id] || [];
-            return '<span class="wnode" title="' + esc(dp.length ? "после " + dp.join(", ") : "первый") + '">' + esc(id) + "</span>"; }).join("") + "</div>";
-        }).join("") + (Object.keys(PV.missing || {}).length ? '<div class="fsub">ссылки на узлы, которых нет: ' + esc(JSON.stringify(PV.missing)) + "</div>" : "") +
-        ((PV.cycle || []).length ? '<div class="fsub" style="color: var(--bad)">цикл: ' + esc(PV.cycle.join(", ")) + "</div>" : "") + "</div>";
+        /* СЕТЕВОЙ ПЛАН — графом (его правка 2026-08-27: «должно показывать граф зависимостей:
+           что за чем, где параллельно, где последовательно»). Ничего не рисуется руками: из
+           волн и deps, которые el ui пересчитывает из узлов, код здесь ВЫСТРАИВАЕТ граф при
+           каждом открытии. Правила восприятия: слева направо по волнам, подписи колонок,
+           узлы в колонке упорядочены по предшественникам (меньше пересечений), стрелки
+           входят слева, состояние — цветом рамки, легенда рядом. */
+        var NW = 220, NH = 54, GX = 72, GY = 14, PAD = 8, HEAD = 22;
+        var deps = PV.deps || {}, order = [], rowOf = {};
+        PV.waves.forEach(function (w, i) {
+          var col = w.slice();
+          if (i > 0) {   /* барицентр: узел ближе к тем, после кого он идёт */
+            col.sort(function (p, q) {
+              var bc = function (id) { var ds = (deps[id] || []).filter(function (d) { return d in rowOf; });
+                                       return ds.length ? ds.reduce(function (t, d) { return t + rowOf[d]; }, 0) / ds.length : 0; };
+              return bc(p) - bc(q) || w.indexOf(p) - w.indexOf(q);
+            });
+          }
+          col.forEach(function (id, j) { rowOf[id] = j; });
+          order.push(col);
+        });
+        var pos = {}, cols = order.length, rowsMax = 1;
+        order.forEach(function (col, i) {
+          rowsMax = Math.max(rowsMax, col.length);
+          col.forEach(function (id, j) { pos[id] = { x: PAD + i * (NW + GX), y: PAD + HEAD + j * (NH + GY) }; });
+        });
+        var W = PAD * 2 + cols * NW + (cols - 1) * GX, Hh = PAD * 2 + HEAD + rowsMax * NH + (rowsMax - 1) * GY;
+        function wrap2(t, n) {   /* имя узла — до двух строк */
+          var words = String(t || "").split(/\s+/), l1 = "", l2 = "";
+          words.forEach(function (w) { if (!l2 && (l1 + " " + w).trim().length <= n) l1 = (l1 + " " + w).trim(); else l2 = (l2 + " " + w).trim(); });
+          if (l2.length > n) l2 = l2.slice(0, n - 1) + "…";
+          return [l1, l2];
+        }
+        var svg = '<svg class="netg" viewBox="0 0 ' + W + " " + Hh + '" width="' + W + '" height="' + Hh + '" role="img" aria-label="сетевой план">' +
+                  '<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">' +
+                  '<path d="M0,1 L9,5 L0,9 z" fill="var(--muted)"></path></marker></defs>';
+        order.forEach(function (col, i) {
+          svg += '<text x="' + (PAD + i * (NW + GX)) + '" y="' + (PAD + 12) + '" font-family="ui-monospace, Menlo, monospace" font-size="11" fill="var(--muted)" letter-spacing=".04em">ВОЛНА ' + (i + 1) +
+                 (col.length > 1 ? " · параллельно" : "") + "</text>";
+        });
+        Object.keys(deps).forEach(function (id) {
+          (deps[id] || []).forEach(function (dp) {
+            var a = pos[dp], b = pos[id];
+            if (!a || !b) return;
+            var x1 = a.x + NW, y1 = a.y + NH / 2, x2 = b.x, y2 = b.y + NH / 2, cx = (x1 + x2) / 2;
+            svg += '<path d="M' + x1 + "," + y1 + " C" + cx + "," + y1 + " " + cx + "," + y2 + " " + (x2 - 2) + "," + y2 +
+                   '" fill="none" stroke="var(--muted)" stroke-width="1.4" marker-end="url(#arr)"></path>';
+          });
+        });
+        Object.keys(pos).forEach(function (id) {
+          var n = byId[id] || {}, P = pos[id], st = n.status || "open", nm = wrap2(n.name, 34);
+          var stroke = st === "done" ? "var(--done)" : st === "active" ? "var(--accent)" : "var(--line)";
+          var fill = st === "done" ? "color-mix(in srgb, var(--done) 10%, var(--card))" : st === "active" ? "color-mix(in srgb, var(--accent) 10%, var(--card))" : "var(--card)";
+          var after = (deps[id] || []);
+          svg += '<g><title>' + esc(id + " — " + (n.name || "") + (after.length ? " · после " + after.join(", ") : " · первый")) + "</title>" +
+                 '<rect x="' + P.x + '" y="' + P.y + '" width="' + NW + '" height="' + NH + '" rx="9" fill="' + fill + '" stroke="' + stroke + '" stroke-width="' + (st === "open" ? 1 : 1.6) + '"></rect>' +
+                 '<text x="' + (P.x + 12) + '" y="' + (P.y + 18) + '" font-family="ui-monospace, Menlo, monospace" font-size="12" font-weight="700" fill="' + (st === "done" ? "var(--done)" : "var(--accent)") + '">' + esc(id) +
+                 (st === "done" ? " ✓" : st === "active" ? " ▶" : "") + "</text>" +
+                 '<text x="' + (P.x + 12) + '" y="' + (P.y + 33) + '" font-size="11.5" fill="var(--ink)">' + esc(nm[0]) + "</text>" +
+                 (nm[1] ? '<text x="' + (P.x + 12) + '" y="' + (P.y + 46) + '" font-size="11.5" fill="var(--muted)">' + esc(nm[1]) + "</text>" : "") + "</g>";
+        });
+        svg += "</svg>";
+        inner = '<div class="netwrap">' + svg + "</div>" +
+                '<div class="netleg"><span><i class="arrow"></i>после</span><span><i class="col"></i>одна колонка — параллельно</span>' +
+                '<span><i class="box done"></i>закрыт</span><span><i class="box active"></i>в работе</span><span><i class="box"></i>ещё не начат</span></div>' +
+                (Object.keys(PV.missing || {}).length ? '<div class="fsub">ссылки на узлы, которых нет: ' + esc(JSON.stringify(PV.missing)) + "</div>" : "") +
+                ((PV.cycle || []).length ? '<div class="fsub" style="color: var(--bad)">цикл: ' + esc(PV.cycle.join(", ")) + "</div>" : "");
       }
       if (r.key === "approval" && PV.word) {
         var w = PV.word;
@@ -1777,72 +1960,11 @@ window.ELEPHANT_OVERVIEW = null;
                 '<div class="a">«' + inl(w.words || "") + "»</div></div>" +
                 (w.stale ? '<div class="pr stale">⚠ карта менялась после этого слова (сейчас #' + PV.seq + ") — нужно свежее</div>" : "");
       }
-      pre += crow(r.key, r, inner, r.key === "network" || r.key === "approval", r.key === hereP);
+      pre += crow(r.key, r, inner, r.key === "stages" || r.key === "network" || r.key === "approval", r.key === hereP);
     });
     pl = pre + pl;
-  }
-  if (nodes.length) {
-    if (nodes.length) {
-      var byId = {}, kids = {}, roots = [];
-      nodes.forEach(function (n) { byId[n.id] = n; kids[n.id] = []; });
-      nodes.forEach(function (n) {
-        var p = /[.\-]/.test(n.id) ? n.id.replace(/[.\-][^.\-]+$/, "") : "";
-        if (p && byId[p]) kids[p].push(n); else roots.push(n);
-      });
-      var labels = d.node_labels || {};
-      function renderNode(n) {
-        var key = "plan.node." + n.id;
-        var st = n.status || "open";
-        var STATUS = { active: "▶ " + term("active", "в работе"), waiting: "⏸ " + term("waiting", "ждёт владельца"),
-                       blocked: "✗ " + term("blocked", "заблокирован"),
-                       parked: n.cancelled ? "⊘ " + term("cancelled", "не потребовался") : "⏹ " + term("parked", "отложен") };
-        var stBadge = st === "done" ? '<span class="done">✓ ' + term("done", "закрыт") + "</span>" :
-                      STATUS[st] ? '<span class="lvl">' + STATUS[st] + "</span>" : "";
-        var ch = kids[n.id];
-        var np = ((PV || {}).nodes || {})[n.id] || {}, npr = np.promises || [], ncol = np.colour || {};
-        var dotN = !npr.length && !(ncol.open || []).length && !(ncol.red || []).length && !(ncol.yellow || []).length ? ""
-                   : ncol.colour === "green" ? "🟢" : ncol.colour === "yellow" ? "🟡" : "🔴";
-        var out = '<details class="node" data-key="' + esc(key) + '"' +
-                  (isOpen(key, false) ? " open" : "") + '><summary>' + (dotN ? '<span class="ndot">' + dotN + "</span>" : "") + '<span class="nid">' +
-                  esc(n.id.toUpperCase()) + '</span><span class="nname">' + esc(n.name) +
-                  "</span>" + (LVL[n.level] ? '<span class="lvl">' + LVL[n.level] + "</span>" : "") +
-                  stBadge + (ch.length ? '<span class="lvl">внутри ' + ch.length + "</span>" : "") +
-                  (npr.length ? '<span class="lvl">обещаний ' + npr.filter(function (p) { return p.status === "passed"; }).length + "/" + npr.length + "</span>" : "") +
-                  /* раскладка этапа (владелец, 2026-08-26): не разложен · ждёт слова · принята */
-                  (n.decomp === "pending" ? '<span class="lvl" style="color: var(--warn); border-color: var(--warn)">раскладка ждёт слова</span>' :
-                   n.decomp === "accepted" ? '<span class="lvl" style="color: var(--done); border-color: var(--done)">раскладка принята</span>' :
-                   (n.decomp === "none" && st !== "done" && ORDER.indexOf(d.phase) >= ORDER.indexOf("execute")) ?
-                     '<span class="lvl">не разложен</span>' : "") +
-                  "</summary><div class=\"nbody\">";
-        /* суть — первая строка результата, без раскрытия контракта */
-        var gist = ((n.fields || {}).result || "").split("\n").filter(function (l) { return l.trim(); })[0] || "";
-        if (gist) out += '<div class="ngist">' + inl(gist.replace(/^[-*•]\s+/, "")) + "</div>";
-        if (npr.length) {
-          var prh = "";
-          npr.forEach(function (p) {
-            prh += '<div class="pr">' + idTag(p.id) + pill(p.status) + inl(p.text || p.name || "") + ' <span class="g">· из ' + esc(RU[p.born] || p.born || "") + "</span>" +
-                   '<div class="fsub">чем проверим: ' + inl(p.how || "") + "</div></div>";
-          });
-          out += box(key + ".promises", term("promises", "обещания узла") + ' <span class="n">' + npr.length + "</span>", prh, true);
-        }
-        var wlN = WL[n.id] || [];
-        if (wlN.length)
-          out += box(key + ".log", term("log", "ход работы") + ' <span class="n">' + wlN.length + "</span>",
-                     wlRows(wlN), false);
-        var fk = Object.keys(n.fields || {});
-        if (fk.length) out += box(key + ".fields", term("contract", "контракт узла") + ' <span class="n">' + fk.length + " полей</span>",
-                                  contractHtml(n), false);
-        if (ch.length) {
-          out += '<div class="nkids">внутри · ' + ch.length + "</div>";
-          ch.forEach(function (c) { out += renderNode(c); });
-        }
-        out += "</div></details>";
-        return out;
-      }
-      var th = "";
-      roots.forEach(function (n) { th += renderNode(n); });
-      pl += sec("plan.tree", term("nodes", "дерево узлов"), th);
-    }
+  } else if (treeHtml) {
+    pl += sec("plan.tree", term("nodes", "дерево узлов"), treeHtml);
   }
   h += band("plan", pl, PV && PV.bar);
 
