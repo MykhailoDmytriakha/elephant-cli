@@ -100,6 +100,11 @@ def page_key(rel):
              "unknown": "ctx.unknown", "questions": "ctx.qa"}
     if k in fixed:
         return fixed[k]
+    if k:                                   # any other context rung — its own card
+        return "ctx." + k
+    tk = {rel_: key_ for key_, rel_, *_x in THINK_STEPS}.get(rel)
+    if tk:                                  # a думание rung (records.jsonl#form …)
+        return "think." + tk
     if rel.startswith("thinking/"):
         return "think." + rel.split("/")[-1].rsplit(".", 1)[0]
     if rel == "plan.md":
@@ -133,6 +138,9 @@ def amend_list(root, task, entries):
         text = e.get("text") or ""
         if e.get("part") == "scope":
             rel = CONTEXT_FILES["scope"]
+        elif e.get("retracts"):
+            # a struck record (2026-08-27): `part` is the rung — context or думание
+            rel = CONTEXT_FILES.get(e["part"]) or {k: r for k, r, *_x in THINK_STEPS}.get(e["part"]) or e["part"]
         elif e.get("late"):
             rel = text.split(" поздний след:", 1)[0].strip()
         else:

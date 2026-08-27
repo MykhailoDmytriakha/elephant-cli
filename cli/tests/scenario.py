@@ -382,6 +382,19 @@ def scenario(ws):
     add(S(["context", "summary", "всё собрано: кнопка, intent, список"]))
     add(S(["context", "unknown"], rc=1))
     add(S(["context", "unknown", "не знаю формат дневника", "--risk", "посмотрю код"]))
+    # CORRECTING A RECORD (feedback 2026-08-27): --retracts replaces in one go, retract strikes
+    add(S(["context", "now", "список собирают руками с бумажки", "--kind", "flow"], label="now: the first baseline record"))
+    add(S(["context", "now", "список собирают из заметок в телефоне", "--kind", "flow", "--retracts", "n1"],
+          label="now --retracts n1: the new record lands, n1 is struck by an amend"))
+    add(S(["context", "now", "ещё раз", "--kind", "flow", "--retracts", "n1"], rc=1,
+          label="--retracts an already struck id: refused, nothing written"))
+    add(S(["context", "retract", "n9", "--why", "x"], rc=1, label="retract: unknown id refused"))
+    add(S(["context", "retract"], rc=1, label="retract: bare prints the form"))
+    add(S(["context", "now", "на бумаге остался обходной список", "--kind", "state"]))
+    add(S(["context", "retract", "n3"], rc=1, label="retract without --why: refused"))
+    add(S(["context", "retract", "n3", "--why", "бумаги больше нет"], label="retract n3: struck, nothing in its place"))
+    add(S(["context", "now"], label="now: only n2 is live"))
+    add(S(["context", "--section", "now"], label="context --section now: the struck ones are out of the picture"))
     add(S(["context", "unknown", "второе незнание"]))
     add(S(["research"], label="research (bare): empty folder, listed"))
     add(S(["research", "code", "копия шлёт имя и текст", "--ref", "app/Share.kt:318",
@@ -830,6 +843,12 @@ def scenario(ws):
     add(S(["think", "reversibility", "всё откатывается", "--ref", "research/docs.md"]))
     add(S(["think", "undo"], label="think undo: alias prints reversibility"))
     add(S(["think", "form"], label="think form: print"))
+    add(S(["think", "form", "результат — одно сообщение в чате", "--why", "x"], label="think form: a record"))
+    add(S(["think", "form", "результат — одно сообщение в чате со ссылкой", "--retracts", "fm1", "--why", "уточнил"],
+          label="think form --retracts fm1: replaced in one go"))
+    add(S(["think", "form"], label="think form: only fm2 live"))
+    add(S(["think", "retract", "fm2", "--why", "снимаю"], label="think retract fm2"))
+    add(S(["think", "form"], rc=1, label="think form: nothing live any more"))
     add(S(["think", "nosuchstep", "x"], rc=2))
     add(S(["context", "outcomes", "поздний след: что появится", "--task", B_ID],
           label="late trace: a missing doc of a passed phase, no --why needed"))

@@ -457,12 +457,18 @@ def touch(root, tid):
 
 
 def task_state(tdir):
-    """Which of the three states the task is in — read from files, never from a flag."""
+    """Which of the three states the task is in — read from what is on disk, never from a
+    flag. Since the JSONL migration the two fold-ups are RECORDS (records.jsonl#clarified ·
+    #summary), so the stream is asked first; the old context/*.md files still count for a
+    storage that was never migrated (feedback 2026-08-27, Copilot: `el status` kept saying
+    «draft» over a records.jsonl that already held clarified and summary records — this
+    reader was the last one still looking only at files)."""
+    from .context import live
     c = os.path.join(tdir, "context")
     has = lambda n: os.path.exists(os.path.join(c, n))
-    if has("summary.md"):
+    if live(tdir, step="summary") or has("summary.md"):
         return "summary", "context folded into one read"
-    if has("task.clarified.md"):
+    if live(tdir, step="clarified") or has("task.clarified.md"):
         return "clarified", "questions answered"
     if request_records(tdir) or has("task.draft.md") or has("task.md"):
         return "draft", "as it arrived, not clarified yet"

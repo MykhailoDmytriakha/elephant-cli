@@ -198,6 +198,11 @@ the parser that registers the commands sit together and cannot drift apart.
 #   el context metric "<name>"        --threshold N --unit U --direction up|down|equal
 #                                     --how "<…>" [--baseline N — from the now rung]
 #   el context check "<by hand>"      --how "<как>" — the acceptance checklist, phase 5 walks it
+#   CORRECTING A RECORD — never edited, never deleted (feedback 2026-08-27):
+#   el context <cmd> "<new>" --retracts <id>   REPLACE: the new record lands, the old one is
+#                                     struck by an amend (kept on disk, out of the picture);
+#                                     past the phase --why and --ref as for any amendment
+#   el context retract <id> [<id>…]   strike with nothing in its place — --why "<…>" required
 #   el context ifr "<paragraph>"      the ideal itself, one paragraph, LAST
 #   el context part "<big piece>"     his picture of the road, one at a time · --covers k1,s2
 #                                     which promises this piece unfolds (plan integrity reads it)
@@ -235,6 +240,8 @@ the parser that registers the commands sit together and cannot drift apart.
 #                --why-held "<…>"     на прочность: a path nobody tried to break is empty
 #   el think crystal "<how it ripens / the decision>" [--path <id>] [--decided fk1,fk2]
 #   el think route "<stage>" [--after <id>,<id>]   stage seeds with deps — the plan cuts them
+#   el think <rung> "<new>" --retracts <id>   REPLACE a rung record (fm1, cr2…): new one lands,
+#                                     the old is struck by an amend · el think retract <id> --why
 #   el think risk "<…>" --chance low|mid|high --cost "<…>" --then "<…>"   the risks flow
 #   el think tools                    the box by category, which categories this task TOUCHED
 #                                     (from the `tool` field), what the mode asks for
@@ -299,7 +306,8 @@ from .term import emit
 from .protocol import MECHANICS
 from .context import (cmd_areas, cmd_beyond, cmd_check, cmd_condition, cmd_context_scope,
                       cmd_context_step, cmd_ctx_add, cmd_define, cmd_ifr, cmd_metric, cmd_now,
-                      cmd_part, cmd_qa, cmd_requirement, cmd_risk, cmd_success, cmd_unknown)
+                      cmd_part, cmd_qa, cmd_requirement, cmd_retract, cmd_risk, cmd_success,
+                      cmd_unknown)
 from .think import cmd_decide, cmd_fork, cmd_forks, cmd_think_skip, cmd_think_step, cmd_think_tools
 from .plan import cmd_plan, cmd_sync
 from .validate import cmd_validate
@@ -555,6 +563,16 @@ def _dispatch(argv):
             w.set_defaults(fn=cmd_context_step, step_key=_k)
         r = inner.add_parser("areas", add_help=False)
         r.add_argument("--task"); r.set_defaults(fn=cmd_areas)
+        # a correction that REPLACES: every writing command takes --retracts <id> (the old
+        # record is struck by an amend right after the new one); bare retract strikes only
+        rt = inner.add_parser("retract", add_help=False)
+        rt.add_argument("ids", nargs="*"); rt.add_argument("--why"); rt.add_argument("--ref", action="append")
+        rt.add_argument("--task"); rt.set_defaults(fn=cmd_retract)
+        _seen = set()
+        for _sp in inner.choices.values():
+            if id(_sp) in _seen or _sp.get_default("fn") in (cmd_areas, cmd_ctx_add, cmd_context_scope, cmd_retract):
+                continue
+            _seen.add(id(_sp)); _sp.add_argument("--retracts", action="append")
     p = sub.add_parser("blueprint", add_help=False); p.add_argument("part", nargs="?"); p.add_argument("--mode"); p.set_defaults(fn=cmd_blueprint)
     p = sub.add_parser("mode", add_help=False); p.add_argument("mode", nargs="?"); p.add_argument("--why"); p.add_argument("--task"); p.set_defaults(fn=cmd_mode)
     p = sub.add_parser("status", add_help=False); p.add_argument("--short", action="store_true"); p.set_defaults(fn=cmd_status)
@@ -614,6 +632,10 @@ def _dispatch(argv):
     def _common(x):
         x.add_argument("--tool"); x.add_argument("--from", dest="from_")
         x.add_argument("--why"); x.add_argument("--ref", action="append"); x.add_argument("--task")
+        x.add_argument("--retracts", action="append")     # replace: strike <id> as this lands
+    tr = ti.add_parser("retract", add_help=False)
+    tr.add_argument("ids", nargs="*"); tr.add_argument("--why"); tr.add_argument("--ref", action="append")
+    tr.add_argument("--task"); tr.set_defaults(fn=cmd_retract)
     for _name in ("need", "fork"):          # `need` is the name; `fork` — the old spelling
         f = ti.add_parser(_name, add_help=False)
         f.add_argument("id", nargs="?"); f.add_argument("text", nargs="?")

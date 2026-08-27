@@ -270,17 +270,120 @@ def _amend_fields(root, task, args, what):
 FLOW_STEPS = {"questions", "research", "unknown", "definitions", "risks"}
 
 
+# ── retracting: the one door for a correction that REPLACES instead of adding ──────────
+#
+# Feedback 2026-08-27 (Copilot, MLE): `el context now … --why` past the phase stamped
+# `amends` on the NEW record — and the old one stayed live and showed beside it; the
+# store's law («a picture that changed is a NEW record plus an `amend` that says which id
+# it retracts») had a door only in scope --drop, plan rm and think decide --undo. Now every
+# writing command of context and думание takes --retracts <id>, and `el context retract` /
+# `el think retract` strike a record with nothing in its place. Nothing is deleted: the
+# struck record stays on disk, out of live().
+
+def _split_ids(raw):
+    """--retracts n1 --retracts n2 · --retracts n1,n2 — one list, order kept."""
+    out = []
+    for chunk in (raw or []):
+        for x in str(chunk).split(","):
+            x = x.strip()
+            if x and x not in out:
+                out.append(x)
+    return out
+
+
+def resolve_retracts(tdir, ids):
+    """The records the ids point at — each must be LIVE (on disk and not struck yet) and a
+    record of the picture: a word, a verdict, a decision or an amendment has its own door.
+    Returns (records, error)."""
+    alive = {r.get("id"): r for r in live(tdir) if r.get("id")}
+    recs, bad = [], []
+    for i in ids:
+        r = alive.get(i)
+        if not r or r.get("type") in ("word", "amend", "verdict", "decision"):
+            bad.append(i)
+        else:
+            recs.append(r)
+    if bad:
+        return None, (f"нет живой записи {', '.join(bad)} — снимается запись картины по её id "
+                      "(el context --full · el think покажут id); снятую второй раз — нельзя, "
+                      "решение — el think decide --undo")
+    return recs, None
+
+
+def retract(root, task, tdir, args, recs, replaced_by=None):
+    """Strike records OUT OF THE PICTURE: one `amend` record per id — which id no longer
+    holds, why, on what grounds, and (when a write carried --retracts) which record stands
+    in its place. Journaled as `amend`, so the page's «Поправки» list and the sync question
+    («его слово над картиной устарело») see it like any other amendment."""
+    why = (getattr(args, "why", None) or "").strip()
+    if not why and replaced_by:
+        why = f"заменено записью {replaced_by}"
+    if not why:
+        print("снятие без причины не пишется: --why \"<почему запись больше не верна>\" "
+              "[--ref <основание>]", file=sys.stderr)
+        return None
+    refs = list(getattr(args, "ref", None) or [])
+    phase = task_meta(root, task).get("phase", "context")
+    out = []
+    for r in recs:
+        am = {"step": r.get("step"), "type": "amend", "by": "agent", "retracts": r["id"],
+              "why": why, "refs": refs, "phase": phase}
+        if replaced_by:
+            am["replaced_by"] = replaced_by
+        a = store.append(root, task, "records", am)
+        n_am = len(amendments(tdir))
+        gist = (r.get("text") or r.get("q") or r.get("term") or r.get("finding") or "").strip()[:60]
+        journal(root, task, "amend",
+                f"{r.get('step')} п{n_am}: снята {r['id']}" + (f" → {replaced_by}" if replaced_by else "")
+                + (f": «{gist}»" if gist else ""),
+                {"id": a["id"], "part": r.get("step"), "n": n_am, "why": why, "refs": refs,
+                 "phase": phase, "retracts": r["id"],
+                 **({"replaced_by": replaced_by} if replaced_by else {})})
+        print(f"снято     {r['id']} · {r.get('step')}" + (f" · «{gist}»" if gist else "")
+              + f" — поправка {a['id']}" + (f" · вместо неё {replaced_by}" if replaced_by else ""))
+        out.append(a)
+    return out
+
+
+def cmd_retract(args):
+    """el context retract <id> [<id>…] --why "<…>" [--ref …] — strike a record out of the
+    picture with nothing in its place. To REPLACE in one go, any writing command takes
+    --retracts <id>: el context now "<новое>" --kind flow --retracts n1 [--why …]."""
+    root, task, tdir = _open(args)
+    if not root:
+        return 1
+    ids = _split_ids(list(getattr(args, "ids", None) or []))
+    if not ids:
+        print('el context retract <id> [<id>…] --why "<почему>" [--ref <основание>]\n'
+              '  заменить одной командой: el context now "<новое>" --kind flow --retracts n1 · '
+              'думание: el think form "<новое>" --retracts fm1', file=sys.stderr)
+        return 1
+    recs, err = resolve_retracts(tdir, ids)
+    if err:
+        print(err, file=sys.stderr)
+        return 1
+    return 0 if retract(root, task, tdir, args, recs) else 1
+
+
 def _put(root, task, args, rec, what, event=None, text=None):
     """Append one context record with the amendment stamp when due; journal it; say so.
     A FLOW record (a question, a finding, a risk…) is never an amendment — flows run through
-    every phase by design (2026-08-27)."""
+    every phase by design (2026-08-27). --retracts <id>: the old record is struck by an
+    amend record right after the new one lands — a replacement, not a neighbour."""
     extra = {} if rec.get("step") in FLOW_STEPS else _amend_fields(root, task, args, what)
     if extra is None:
+        return None
+    tdir = os.path.join(root, task)
+    old, err = resolve_retracts(tdir, _split_ids(getattr(args, "retracts", None)))
+    if err:
+        print(err, file=sys.stderr)
         return None
     rec = dict(rec, **extra)
     out = store.append(root, task, "context", rec)
     journal(root, task, event or rec.get("type", "context"), (text or "")[:120],
             {"id": out["id"], "step": rec.get("step"), **({"amend": True} if extra else {})})
+    if old:
+        retract(root, task, tdir, args, old, replaced_by=out["id"])
     if extra:
         print(f"поправка  {out['id']} · {what} · {extra['phase']} · его слово над картиной "
               "устарело — предъяви и запиши ответ: el accept \"<его слова>\"")

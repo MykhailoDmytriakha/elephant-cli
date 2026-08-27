@@ -13,7 +13,8 @@ import os, sys
 from .protocol import (THINK_CATS, THINK_CATS_MIN, THINK_FLOWS, THINK_MIN, THINK_STEPS, THINK_TOOLBOX,
                        THINK_TOOLS, THINK_RUNG_TOOLS, required_in)
 from . import autonomy, store
-from .context import _open, _amend_fields, live, records, last_seq, word_over, promises_at_root
+from .context import (_open, _amend_fields, live, records, last_seq, word_over, promises_at_root,
+                      _split_ids, resolve_retracts, retract)
 from .state import journal, task_meta, task_mode, touch
 from .term import wrap
 
@@ -143,10 +144,18 @@ def _put(root, task, args, rec, what, event=None, text=None):
     frm = (getattr(args, "from_", None) or "").strip()
     if frm:
         rec["from"] = frm
+    # --retracts <id>: a REPLACEMENT — the old record is struck right after the new one lands
+    tdir = os.path.join(root, task)
+    old, err = resolve_retracts(tdir, _split_ids(getattr(args, "retracts", None)))
+    if err:
+        print(err, file=sys.stderr)
+        return None
     rec = dict(rec, **extra)
     out = store.append(root, task, "records", rec)
     journal(root, task, event or rec.get("type", "think"), (text or "")[:120],
             {"id": out["id"], "step": rec.get("step"), **({"amend": True} if extra else {})})
+    if old:
+        retract(root, task, tdir, args, old, replaced_by=out["id"])
     if extra:
         print(f"поправка  {out['id']} · {what} — его слово над решением устарело: el accept \"<его слова>\"")
     return out
