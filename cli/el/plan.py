@@ -7,7 +7,7 @@ import json, os, re, sys
 from .protocol import NODE_FIELDS, NODE_KEYS, NODE_KEYS_OPTIONAL, PHASES, PLAN_LEVELS
 from .state import path_marks
 from . import autonomy
-from .state import (pick_task, current_task, fm_read, fm_write, journal, now_iso, require_root,
+from .state import (pick_task, current_task, fm_read, fm_write, journal, now_iso, require_root, task_meta,
                     resolve_task, task_mode, touch, write)
 from .term import wrap
 
@@ -21,8 +21,58 @@ from .term import wrap
 PLAN_FIELD_SET = set(NODE_KEYS)
 
 
+# ── STORAGE: nodes are RECORDS in records.jsonl (2026-08-27), folded like everything else ──
+#
+# A node is born as one `node` record (id · level · parent · status · the nine fields); every
+# later change is a `set` event over it (field · value · was), never a rewrite; a removed node
+# is an `amend` that retracts it. node_read folds the base and its sets into the dict every
+# caller has always used ({"id", "name", "level", "parent", "status", …, "_fields": {…}}),
+# node_write diffs the dict against the fold and appends only what changed. The nodes/ folder
+# and plan.md are gone: the network is computed from `deps`, the page draws the tree.
+from . import store as _store
+
+
+def _rt(tdir):
+    tdir = os.path.abspath(tdir.rstrip("/"))
+    return os.path.dirname(tdir), os.path.basename(tdir)
+
+
+def _node_fold(tdir):
+    """{id: node dict} — base records with their `set` events folded in, retractions honoured."""
+    recs = _store.read(*_rt(tdir), "records")
+    gone = _store.retracted(recs)
+    nodes = {}
+    for r in recs:
+        if r.get("type") == "node" and r.get("id") and r["id"] not in gone:
+            n = {k: v for k, v in r.items() if k not in ("type", "step", "fields", "seq", "ts", "phase", "by")}
+            n["_fields"] = dict(r.get("fields") or {})
+            n["_seq"] = r.get("seq", 0); n["_ts"] = r.get("ts", ""); n["_rec"] = r["id"]
+            nodes[r["id"]] = n
+    # the node's promises ride along from the registry — `check` used to be a field, now
+    # it is the promises hung on the node (2026-08-27)
+    try:
+        by_at = {}
+        for p in _store.promises(*_rt(tdir)):
+            by_at.setdefault((p.get("at") or "").upper(), []).append(p)
+        for nid_, n in nodes.items():
+            n["_promises"] = by_at.get(nid_.upper(), [])
+    except Exception:
+        for n in nodes.values():
+            n["_promises"] = []
+    for r in recs:
+        if r.get("type") == "set" and r.get("of") in nodes and r.get("id") not in gone:
+            n = nodes[r["of"]]
+            f = r.get("field", "")
+            if f.startswith("fields."):
+                n["_fields"][f[7:]] = r.get("value", "")
+            elif f:
+                n[f] = r.get("value")
+            n["_ts"] = r.get("ts", n["_ts"])
+    return nodes
+
+
 def nodes_dir(tdir):
-    return os.path.join(tdir, "nodes")
+    return os.path.join(tdir, "nodes")     # legacy name; nothing is written there any more
 
 
 def node_path(tdir, nid):
@@ -30,40 +80,53 @@ def node_path(tdir, nid):
 
 
 def node_read(tdir, nid):
-    path = node_path(tdir, nid)
-    if not os.path.exists(path):
-        return None
-    meta, body = fm_read(path)
-    fields = {}
-    cur = None
-    for line in body.splitlines():
-        m = re.match(r"##\s+(\w+)\s+·", line)
-        if m:
-            cur = m.group(1)
-            fields[cur] = []
-        elif cur:
-            fields[cur].append(line)
-    # Fields written before the CLI unescaped "\n" hold the two characters literally; read
-    # them as newlines, so the four lines of a stop are lines and the page shows breaks.
-    meta["_fields"] = {k: "\n".join(v).strip().replace("\\n", "\n") for k, v in fields.items()}
-    meta["id"] = nid
-    return meta
+    return _node_fold(tdir).get(nid)
 
 
 def node_write(tdir, nid, meta, fields):
-    body = f"# {nid} · {meta.get('name','')}\n"
-    for key, head, _d in NODE_FIELDS:
-        body += f"\n## {key} · {head}\n{fields.get(key, '').strip() or '_пусто_'}\n"
-    fm_write(node_path(tdir, nid), {k: v for k, v in meta.items()
-                                    if k not in ("_fields", "id")}, body)
+    """Append what changed: a `node` record for a new node, `set` events for a known one."""
+    root, task = _rt(tdir)
+    cur = _node_fold(tdir).get(nid)
+    meta = {k: v for k, v in meta.items() if k not in ("_fields", "id", "_seq", "_ts", "_rec")}
+    fields = {k: (v or "").strip() for k, v in fields.items()}
+    if cur is None:
+        rec = {"step": "stages" if "." not in nid else "nodes", "type": "node", "id": nid, "by": "agent",
+               "fields": {k: v for k, v in fields.items() if v and v != "_пусто_"}}
+        rec.update(meta)
+        _store.append(root, task, "records", rec)
+        return
+    for k, v in meta.items():
+        if cur.get(k) != v and not (cur.get(k) in (None, "") and v in (None, "")):
+            _store.append(root, task, "records", {"step": "nodes", "type": "set", "of": nid, "field": k,
+                                                  "value": v, "was": cur.get(k), "by": "agent"})
+    for k, v in fields.items():
+        old = (cur["_fields"].get(k) or "").strip()
+        if v == "_пусто_":
+            v = ""
+        if old != v:
+            _store.append(root, task, "records", {"step": "nodes", "type": "set", "of": nid, "field": "fields." + k,
+                                                  "value": v, "was": old, "by": "agent"})
+
+
+def node_retract(tdir, nid, why):
+    """Retract a node — and the promises hung on it: a promise with no node under it would
+    keep the root red for work nobody does any more."""
+    root, task = _rt(tdir)
+    cur = _node_fold(tdir).get(nid)
+    if not cur:
+        return None
+    for p in _store.promises(root, task):
+        if (p.get("at") or "").upper() == nid.upper():
+            _store.append(root, task, "checks", {"type": "amend", "retracts": p["id"], "why": f"узел {nid}: {why}", "by": "agent"})
+    return _store.append(root, task, "records", {"step": "nodes", "type": "amend", "retracts": nid, "why": why, "by": "agent"})
+
+
+def node_exists(tdir, nid):
+    return nid in _node_fold(tdir)
 
 
 def nodes_all(tdir):
-    d = nodes_dir(tdir)
-    if not os.path.isdir(d):
-        return []
-    out = [node_read(tdir, f[:-3]) for f in sorted(os.listdir(d)) if f.endswith(".md")]
-    return [n for n in out if n]
+    return [n for _k, n in sorted(_node_fold(tdir).items())]
 
 
 def node_sync(node):
@@ -167,9 +230,14 @@ def node_gaps(node, mode="soft"):
     if (node.get("unfold") or "").strip():
         return []
     f = node.get("_fields", {})
-    keys = LIGHT_KEYS if mode == "light" else NODE_KEYS
-    return [k for k in keys if k not in NODE_KEYS_OPTIONAL
-            and (not f.get(k) or f[k].strip() in ("_пусто_", ""))]
+    # WHAT A NODE OWES (2026-08-27): result and its stop in the everyday mode, plus at least
+    # one PROMISE in the registry (the old `check` field); strict asks for the whole contract.
+    keys = {"light": ["result"], "soft": ["result", "sync"],
+            "strict": ["result", "sync", "executor", "resources", "artifacts", "storage", "inputs"]}.get(mode, ["result", "sync"])
+    gaps = [k for k in keys if (not f.get(k) or f[k].strip() in ("_пусто_", ""))]
+    if mode != "light" and not node.get("_promises") and not (f.get("check") or "").strip():
+        gaps.append("promise")
+    return gaps
 
 
 # ── THE LIFECYCLE of a node — what the live pilot lacked (owner, 2026-08-22) ──────────
@@ -219,9 +287,10 @@ def active_node(tdir):
     another node — the owner tests S2 on the phone while the agent builds S3 — they only hold
     the baton for THEIR scenario; `el next` names them separately."""
     nodes = sorted(nodes_all(tdir), key=lambda x: x["id"])
-    for n in nodes:
-        if node_status(n) == "active":
-            return n
+    # the DEEPEST active node: a task inside a package in work is where the hands are
+    act = [n for n in nodes if node_status(n) == "active"]
+    if act:
+        return max(act, key=lambda n: len(n["id"]))
     for n in nodes:
         if node_status(n) == "waiting":
             return n
@@ -283,7 +352,19 @@ def cmd_plan(args):
     verb = words[0].lower() if words else ""
 
     if verb in ("new", "add"):
-        return plan_new(root, task, tdir, words[1:], getattr(args, "force", False))
+        rc = plan_new(root, task, tdir, words[1:], getattr(args, "force", False))
+        # INSERT BETWEEN (owner, 2026-08-27): `--after s1 --before s2` — the new node waits for
+        # s1, and s2 now waits for the new node: one node record, one set on the follower.
+        aft, bef = (getattr(args, "after", None) or "").strip(), (getattr(args, "before", None) or "").strip()
+        if rc == 0 and (aft or bef):
+            nid = path_to_id([w for w in words[1:] if re.match(r"^[\w.]+$", w)] or words[1:2])
+            if aft:
+                plan_set(root, task, tdir, [nid, "deps", f"после {aft.upper()}"], replace=True)
+            if bef:
+                plan_set(root, task, tdir, [bef, "deps", f"после {nid}"], replace=True)
+        return rc
+    if verb == "promise":
+        return plan_promise(root, task, tdir, words[1:], getattr(args, "how", None))
     if verb == "set":
         if getattr(args, "file", None):
             return plan_populate(root, task, tdir, words[1:], args.file)
@@ -457,11 +538,14 @@ def plan_waves(tdir):
 
 def network_plan(tdir):
     """plan.md as text — the projection. None when there are no nodes."""
-    nodes = sorted(nodes_all(tdir), key=lambda x: x["id"])
+    # the network is the movement between STAGES (owner, 2026-08-27) — packages stay inside
+    nodes = sorted((n for n in nodes_all(tdir) if "." not in n["id"]), key=lambda x: x["id"])
     if not nodes:
         return None
     by_id = {n["id"]: n for n in nodes}
     waves, missing, cycle, deps = plan_waves(tdir)
+    waves = [[i for i in w if "." not in i] for w in waves]
+    waves = [w for w in waves if w]
     out = ["# Сетевой план — проекция дерева узлов", "",
            PROJECTION_MARK + ": строится из полей `deps` (что после чего) и `sync` (где "
            "остановки) командой `el`, рукой не правится. Почему порядок такой — "
@@ -497,37 +581,6 @@ def network_plan(tdir):
         for nid, miss in missing.items():
             out.append(f"- {nid} зависит от {', '.join(miss)} — таких узлов нет")
     return "\n".join(out) + "\n"
-
-
-def write_plan_md(tdir):
-    """Write plan.md as the projection. A hand-written plan.md (no projection mark) is moved
-    to notes/plan-by-hand.md first — the words are kept, the file stops being a source.
-    Returns «migrated» / «written» / None."""
-    text = network_plan(tdir)
-    if text is None:
-        return None
-    pm = os.path.join(tdir, "plan.md")
-    moved = None
-    try:
-        old = open(pm, encoding="utf-8").read()
-    except OSError:
-        old = None
-    if old is not None and PROJECTION_MARK not in old:
-        dst = os.path.join(tdir, "notes", "plan-by-hand.md")
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        try:
-            had = open(dst, encoding="utf-8").read()
-        except OSError:
-            had = ""
-        if old.strip() not in had:            # idempotent: the same text is never kept twice
-            with open(dst, "a", encoding="utf-8") as fh:
-                fh.write(("\n\n" if had else "")
-                         + f"<!-- рукописный plan.md, перенесён {now_iso()[:16]}: план теперь проекция дерева -->\n"
-                         + old.rstrip() + "\n")
-        moved = "migrated"
-    if old != text:
-        write(pm, text)
-    return moved or "written"
 
 
 def plan_drift(tdir):
@@ -648,13 +701,9 @@ def plan_tree(tdir, root=None, task=None):
                     print(f"  {ts}  {names.get(e['type'], e['type']):<14} "
                           f"{wrap(str(e.get('text', ''))[:150], indent='                             ')}")
 
-    moved = write_plan_md(tdir)
-    if moved == "migrated":
-        print("\nplan.md   рукописный план перенесён в notes/plan-by-hand.md — план теперь "
-              "проекция дерева (его решение 2026-08-24)")
     text = network_plan(tdir) or ""
     body = [l for l in text.splitlines()[1:] if not l.startswith(PROJECTION_MARK)]
-    print("\nСЕТЕВОЙ ПЛАН — проекция дерева (deps · sync) → plan.md")
+    print("\nСЕТЕВОЙ ПЛАН — движение по ЭТАПАМ: что за чем (считается из deps; пакеты живут внутри этапа)")
     print("\n".join(body).strip())
     print("\nподробно     el plan s1 · el plan s1 wp1 · el sync — только остановки · "
           'в работу: el plan start s1 · порядок: el plan set s2 deps "после S1"')
@@ -809,7 +858,6 @@ def plan_new(root, task, tdir, words, force=False):
         print("  повтор гипотезы? назови иначе — чем эта отличается; та же — продолжай её; "
               "сознательно снова: --force", file=sys.stderr)
         return 1
-    os.makedirs(nodes_dir(tdir), exist_ok=True)
     meta = {"level": level_of_depth(nid), "parent": parent, "name": name.strip(),
             "status": "open", "created_at": now_iso()}
     node_write(tdir, nid, meta, {})
@@ -1120,11 +1168,18 @@ def plan_done(root, task, tdir, words, force=False, dry=False):
         return 1
     kind = node_sync(node)
     if kind in ("РАЗВИЛКА", "РАЗРЕШЕНИЕ") and not force and not dry:
-        ap = os.path.join(tdir, "acceptance.md")
+        # his word counts only if it landed AFTER the node was last written — by the clock
+        # of the records, not the file system (2026-08-27)
         said_after = False
-        if os.path.exists(ap):
-            # his word counts only if it landed AFTER the node was last written
-            said_after = os.path.getmtime(ap) >= os.path.getmtime(node_path(tdir, nid))
+        try:
+            from .state import journal_path as _jp
+            import json as _json
+            for _l in open(_jp(root, task), encoding="utf-8"):
+                _e = _json.loads(_l)
+                if _e.get("type") == "accepted" and _e.get("ts", "") >= (node.get("_ts") or ""):
+                    said_after = True
+        except OSError:
+            pass
         if not said_after:
             print(f"НЕ ЗАКРОЮ — на {nid} стоит остановка ({kind}), а его слова нет.",
                   file=sys.stderr)
@@ -1392,7 +1447,10 @@ def plan_start(root, task, tdir, words, force=False, switch=None):
               f"· осознанно без ответа: el plan start {nid.lower()} --force", file=sys.stderr)
         return 1
     cur = active_node(tdir)
-    if cur and cur["id"] != nid and node_status(cur) == "active":
+    # GOING DEEPER IS NOT SWITCHING (2026-08-27): a task started under the package in work is
+    # the same work, one level down — the package stays in work, the chain is one.
+    inside = bool(cur) and nid.upper().startswith(cur["id"].upper() + ".")
+    if cur and cur["id"] != nid and node_status(cur) == "active" and not inside:
         if not (switch or "").strip():
             low = cur["id"].lower()
             print(f"{cur['id']} в работе — бросить молча нельзя. Сначала скажи, что с ним:",
@@ -1715,8 +1773,7 @@ def plan_rm(root, task, tdir, words):
         print("el plan rm s1 wp1", file=sys.stderr)
         return 1
     nid = path_to_id(words)
-    path = node_path(tdir, nid)
-    if not os.path.exists(path):
+    if not node_exists(tdir, nid):
         # Idempotent (feedback 2026-08-26: a chained «rm && rm && rm» stopped at the first
         # node already gone): nothing to remove is not an error.
         print(f"узла {nid} уже нет")
@@ -1725,7 +1782,7 @@ def plan_rm(root, task, tdir, words):
     if kids:
         print(f"внутри {nid} есть узлы: {', '.join(kids)} — сперва убери их", file=sys.stderr)
         return 1
-    os.remove(path)
+    node_retract(tdir, nid, "el plan rm")
     journal(root, task, "node-removed", nid)
     touch(root, task)
     print(f"убран {nid}")
@@ -1765,7 +1822,7 @@ def plan_rename(root, task, tdir, words, why):
             meta["parent"] = nid2.rsplit(".", 1)[0] if "." in nid2 else ""
             meta["level"] = level_of_depth(nid2)
             node_write(tdir, nid2, meta, n["_fields"])
-            os.remove(node_path(tdir, n["id"]))
+            node_retract(tdir, n["id"], f"переименован в {nid2}")
             moved.append((n["id"], nid2))
     # every `deps` that named the old id (or a node under it)
     touched = []
@@ -1846,3 +1903,58 @@ def cmd_sync(args):
     else:
         print("все остановки пройдены")
     return 0
+
+
+# ── THE PLAN AS A LADDER (2026-08-27): stages · their promises · their stops · coverage ──
+
+def stages(tdir):
+    return [n for n in nodes_all(tdir) if "." not in n["id"] and not n.get("cancelled")]
+
+
+def node_promises(tdir, nid):
+    root, task = _rt(tdir)
+    return [p for p in _store.promises(root, task) if (p.get("at") or "").upper() == nid.upper()]
+
+
+def plan_promise(root, task, tdir, words, how):
+    """`el plan promise s1 "<what the stage must deliver>" --how "<чем проверим>"` — a promise
+    hung on the node, born on this phase, not_validated until a verdict."""
+    if len(words) < 2:
+        print('el plan promise s1 "<что этап обязан выдать>" --how "<чем проверим>"', file=sys.stderr)
+        return 1
+    nid = path_to_id(words[:-1]); text = words[-1]
+    if not node_exists(tdir, nid):
+        print(f"нет узла {nid}", file=sys.stderr); return 1
+    phase = task_meta(root, task).get("phase", "plan")
+    out, reason = _store.promise(root, task, {"kind": "criterion", "at": nid, "born": phase, "text": text,
+                                              "how": how or "", "by": "agent"})
+    if reason:
+        print(f"обещание не записано: {reason}", file=sys.stderr); return 1
+    journal(root, task, "promise", text[:120], {"id": out["id"], "at": nid, "born": phase})
+    print(f"recorded  {out['id']} · обещание на {nid} · not_validated · чем проверим: {(how or '')[:60]}")
+    return 0
+
+
+def plan_step_done(tdir, key, mode=None):
+    from .state import task_mode as _tm
+    mode = mode or _tm(tdir)
+    st = stages(tdir)
+    if key == "stages":
+        return bool(st)
+    if key == "promises":
+        return bool(st) and all(node_promises(tdir, n["id"]) for n in st)
+    if key == "sync":
+        return bool(st) and all(node_sync(n) for n in st)
+    if key == "coverage":
+        try:
+            from .integrity import gaps, has_goal
+            return bool(st) and has_goal(tdir) and not any(gaps(tdir).values())
+        except Exception:
+            return False
+    if key == "network":
+        return bool(st)
+    if key == "approval":
+        from .context import word_over
+        w, stale = word_over(tdir, "plan")
+        return bool(w) and not stale
+    return False

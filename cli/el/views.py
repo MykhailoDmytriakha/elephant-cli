@@ -6,12 +6,12 @@ file for the index and one per project. Rebuilt once per command, only for the p
 the command touched (state._DIRTY). A broken view must never break the bookkeeping.
 """
 import json, os
-from .protocol import CONTEXT_FILES, IFR_PARTS, NODE_FIELDS, SCOPE_FRAME, THINK_STEPS, feedback_prompt
-from .state import _DIRTY, SKILL_ROOT, current_task, now_iso, task_meta, tasks_of, todo_items, write
+from .protocol import CONTEXT_FILES, IFR_PARTS, NODE_FIELDS, SCOPE_FRAME, THINK_STEPS, feedback_prompt, required_in
+from .state import _DIRTY, SKILL_ROOT, current_task, now_iso, task_meta, task_mode, tasks_of, todo_items, write
 from .context import qa_read, scope_notes, scope_read
 from .think import forks_read
 from .amend import pending_word, split_amendments, word_given_on
-from .plan import active_node, node_status, node_sync, nodes_all, sync_mark, waiting_nodes, write_plan_md
+from .plan import active_node, node_status, node_sync, nodes_all, sync_mark, waiting_nodes
 from .validate import criteria_of, rollup, validation_state
 from . import autonomy, owe
 from .worklog import stale, worklog
@@ -241,7 +241,7 @@ def phase_reached(tdir, meta):
     if meta.get("outcome") or meta.get("status") in ("done", "completed", "closed", "dropped"):
         return "close"
     try:
-        if os.path.exists(os.path.join(tdir, "validation.md")):
+        if os.path.exists(os.path.join(tdir, "checks.jsonl")):
             from .validate import validation_parse
             if any(v[0] != "open" for v in validation_parse(tdir).values()):
                 return "validate"
@@ -260,22 +260,14 @@ def phase_reached(tdir, meta):
 
 def card_extras(tdir):
     """(request line, [nodes done, total], [criteria with verdict, total], verdict)."""
-    ndir = os.path.join(tdir, "nodes")
-    vfile = os.path.join(tdir, "validation.md")
-    rfile = os.path.join(tdir, "init", "request.md")
     key = tdir
     stamp = tuple(os.path.getmtime(p) if os.path.exists(p) else 0.0
-                  for p in (ndir, vfile, rfile))
+                  for p in (os.path.join(tdir, "records.jsonl"), os.path.join(tdir, "checks.jsonl")))
     hit = _CARD_CACHE.get(key)
     if hit and hit[0] == stamp:
         return hit[1]
-    req = ""
-    try:
-        text = open(rfile, encoding="utf-8").read()
-        body = text.split("\n\n", 2)[-1].strip()
-        req = " ".join(body.split())[:160]
-    except OSError:
-        pass
+    from .state import request_line
+    req = request_line(tdir, 160)
     nodes_done = nodes_total = 0
     val_done = val_total = 0
     verdict = ""
@@ -295,6 +287,188 @@ def card_extras(tdir):
            "val": [val_done, val_total], "verdict": verdict}
     _CARD_CACHE[key] = (stamp, out)
     return out
+
+
+def context_view(tdir):
+    """THE CONTEXT FOR THE PAGE — folded out of records.jsonl · checks.jsonl
+    (2026-08-26): the ladder in the order the agent walks it, each beat with its records;
+    the registry of promises with their standing status and the root's colour; his word
+    with the seq it was said over, and whether the picture moved since."""
+    from .context import (amendments, last_seq, live as ctx_live, promises_at_root, qa_read,
+                          scope_read, step_done, word_over)
+    from .protocol import CONTEXT_FLOWS, CONTEXT_MIN, CONTEXT_STEPS
+    from . import store
+    mode = task_mode(tdir)
+    steps = []
+    for key, rel, title, src, _do, cmd in CONTEXT_STEPS:
+        if key == "questions":
+            items = qa_read(tdir)
+        elif key == "research":
+            items = ctx_live(tdir, step="research")
+        elif key == "scope":
+            items = scope_read(tdir)
+        elif key == "ideal":
+            items = {"promises": promises_at_root(tdir),
+                     "ifr": [r["text"] for r in ctx_live(tdir, rtype="ifr")]}
+        elif key == "approval":
+            items = ctx_live(tdir, rtype="word")
+        else:
+            items = ctx_live(tdir, step=key)
+        if isinstance(items, dict):
+            n = sum(len(v) for v in items.values()) if key == "ideal" else \
+                sum(len(v["in"]) + len(v["out"]) + len(v["blur"]) for v in items.values())
+        else:
+            n = sum(len(r["pairs"]) for r in items) if key == "questions" else len(items)
+        steps.append({"key": key, "rel": rel, "title": title, "src": src, "cmd": cmd,
+                      "flow": key in CONTEXT_FLOWS,
+                      "required": required_in(CONTEXT_MIN.get(key, "soft"), mode),
+                      "done": step_done(tdir, key, mode), "n": n, "items": items})
+    # BARS — only where a NATURAL WHOLE exists (owner's drawing, 2026-08-27: «context ── 12/12 ·
+    # 5W+H ── 5/5 · не больше»): the required rungs of the phase · the areas he owes · the three
+    # layers of «now» · the six dimensions · the parts of the ideal. A rung with no whole shows
+    # a count and a tick — a 1/5 bar over an optional rung would read as a debt.
+    from .context import area_coverage
+    from .protocol import AREA_KEYS, QA_AREAS
+    cov = area_coverage(tdir)
+    src = {k: v for k, _d, v in QA_AREAS}
+    need = {"light": ["goal", "check"], "soft": [a for a in AREA_KEYS if src[a] == "owner"],
+            "strict": list(AREA_KEYS)}[mode]
+    ideal_parts = ["checklist", "ifr"] if mode != "strict" else ["success", "metric", "checklist", "ifr"]
+    by_key = {st["key"]: st for st in steps}
+    have_parts = [k for k in ideal_parts if (by_key["ideal"]["items"]["ifr"] if k == "ifr"
+                  else [p for p in by_key["ideal"]["items"]["promises"] if p["kind"] == k])]
+    bars = {
+        "questions": (sum(1 for a in need if cov[a]), len(need), "областей, которые за ним"),
+        "now": (len({r.get("kind") for r in by_key["now"]["items"]}), 3, "слоя: ход · состояние · числа"),
+        "scope": (sum(1 for k, v in by_key["scope"]["items"].items() if v["in"] or v["out"]), 6, "измерений"),
+        "ideal": (len(have_parts), len(ideal_parts), "частей: " + " · ".join(ideal_parts)),
+    }
+    for st in steps:
+        if st["key"] in bars:
+            n, m, what = bars[st["key"]]
+            st["bar"] = {"n": n, "m": m, "what": what}
+    # The phase bar counts RUNGS only — the flows live in the tabs above the bands (owner,
+    # 2026-08-27: «одна секция, но табами можно переключаться»).
+    req = [st for st in steps if st["required"] and not st["flow"]]
+    phase_bar = {"n": sum(1 for st in req if st["done"]), "m": len(req), "what": "обязательных ступеней"}
+    # THE FLOWS — everything that runs through every phase, gathered once for the tabs;
+    # each record carries the phase it was born on, so a tab can filter by it.
+    flows = {"research": ctx_live(tdir, step="research"),
+             "unknown": ctx_live(tdir, step="unknown"), "definitions": ctx_live(tdir, step="definitions")}
+    root_, task_ = os.path.dirname(os.path.abspath(tdir)), os.path.basename(os.path.abspath(tdir))
+    w, stale = word_over(tdir, "context")
+    return {"steps": steps, "seq": last_seq(tdir), "bar": phase_bar, "flows": flows,
+            "promises": store.promises(root_, task_),
+            "colour": store.colour(root_, task_),
+            "word": dict(w, stale=stale) if w else None,
+            "amendments": amendments(tdir)}
+
+
+def think_view(tdir):
+    """ДУМАНИЕ FOR THE PAGE — the rungs with their records and the three measurements of
+    thinking as bars: forks решено N/N · cells paths × promises · categories of the box."""
+    from .context import live as ctx_live, last_seq, promises_at_root, word_over
+    from .think import cells, forks_read, step_done, tool_cats
+    from .protocol import THINK_CATS, THINK_CATS_MIN, THINK_FLOWS, THINK_MIN, THINK_STEPS, THINK_RUNG_TOOLS
+    from . import store
+    mode = task_mode(tdir)
+    forks = forks_read(tdir)
+    proms = promises_at_root(tdir)
+    steps = []
+    for key, rel, title, src, _do, cmd in THINK_STEPS:
+        if key == "forks":
+            items = forks
+        elif key == "promises":
+            items = proms
+        elif key == "approval":
+            items = [r for r in ctx_live(tdir, rtype="word") if r.get("scope") == "design"]
+        else:
+            items = [r for r in ctx_live(tdir, step=key) if r.get("type") != "skip"]
+        st = {"key": key, "rel": rel, "title": title, "src": src, "cmd": cmd, "flow": key in THINK_FLOWS,
+              "required": required_in(THINK_MIN.get(key, "soft"), mode), "done": step_done(tdir, key, mode),
+              "n": len(items), "items": items, "tools": THINK_RUNG_TOOLS.get(key, ""),
+              "skipped": bool(ctx_live(tdir, step=key, rtype="skip"))}
+        if key == "forks":
+            st["bar"] = {"n": sum(1 for f in forks if f["decision"]), "m": len(forks), "what": "развилок решено"}
+        if key == "options":
+            sc, tot = cells(tdir)
+            st["bar"] = {"n": sc, "m": tot, "what": "клеток пути × обещания оценено"}
+        steps.append(st)
+    used = tool_cats(tdir)
+    need = THINK_CATS_MIN.get(mode, [])
+    req = [st for st in steps if st["required"] and not st["flow"]]
+    root_, task_ = os.path.dirname(os.path.abspath(tdir)), os.path.basename(os.path.abspath(tdir))
+    w, stale = word_over(tdir, "design")
+    return {"steps": steps, "seq": last_seq(tdir),
+            "bar": {"n": sum(1 for st in req if st["done"]), "m": len(req), "what": "обязательных ступеней"},
+            "tools": {"cats": THINK_CATS, "used": used, "need": need,
+                      "bar": {"n": len(used), "m": len(THINK_CATS), "what": "категорий приёмов"}},
+            "colour": store.colour(root_, task_),
+            "word": dict(w, stale=stale) if w else None}
+
+
+def plan_view(tdir):
+    """THE PLAN FOR THE PAGE (2026-08-27): the ladder with its bars — stages · promises per
+    stage N/N · stops N/N · coverage N/M — the computed waves, and per node: its promises
+    from the registry and its colour."""
+    from .plan import node_promises, node_sync, nodes_all, plan_step_done, plan_waves, stages
+    from .protocol import PHASE_BEATS
+    from .context import word_over, last_seq
+    from . import store
+    mode = task_mode(tdir)
+    st = stages(tdir)
+    keys = ["stages", "promises", "sync", "coverage", "network", "approval"]
+    rows = []
+    ig = {"covered": 0, "total": 0}
+    try:
+        from .integrity import integrity_state
+        state_, _orph = integrity_state(tdir)
+        for items in state_.values():
+            for it in items:
+                ig["total"] += 1
+                if it["by"] or it["unfolded"]:
+                    ig["covered"] += 1
+    except Exception:
+        pass
+    for (title, who, trace, minmode, _d, cmd), key in zip(PHASE_BEATS["plan"], keys):
+        r = {"key": key, "title": title, "src": who, "cmd": cmd, "required": required_in(minmode, mode),
+             "done": plan_step_done(tdir, key, mode), "n": 0}
+        if key == "stages":
+            r["n"] = len(st)
+        elif key == "promises":
+            r["bar"] = {"n": sum(1 for n in st if node_promises(tdir, n["id"])), "m": len(st), "what": "этапов с обещанием"}
+        elif key == "sync":
+            r["bar"] = {"n": sum(1 for n in st if node_sync(n)), "m": len(st), "what": "этапов с остановкой"}
+        elif key == "coverage":
+            tot = ig.get("total", 0); r["bar"] = {"n": ig.get("covered", 0), "m": tot, "what": "кусков цели покрыто"}
+        elif key == "network":
+            r["n"] = len(st)
+        rows.append(r)
+    try:
+        waves, missing, cycle, deps = plan_waves(tdir)
+        # the network is the movement between STAGES — packages live inside their stage
+        # (owner, 2026-08-27: «Work Packages нет в Network Plan»)
+        waves = [[i for i in w if "." not in i] for w in waves]
+        waves = [w for w in waves if w]
+        deps = {k: [d for d in v if "." not in d] for k, v in deps.items() if "." not in k}
+    except Exception:
+        waves, missing, cycle, deps = [], {}, [], {}
+    root_, task_ = os.path.dirname(os.path.abspath(tdir)), os.path.basename(os.path.abspath(tdir))
+    tree = {}
+    for n in nodes_all(tdir):
+        tree.setdefault(n.get("parent") or store.ROOT, []).append(n["id"])
+    per = {}
+    for n in nodes_all(tdir):
+        per[n["id"]] = {"promises": node_promises(tdir, n["id"]),
+                        "colour": store.colour(root_, task_, tree, n["id"])}
+    w, stale = word_over(tdir, "plan")
+    for r in rows:
+        if r["key"] == "approval":
+            r["n"] = 1 if w else 0
+    req = [r for r in rows if r["required"]]
+    return {"rows": rows, "bar": {"n": sum(1 for r in req if r["done"]), "m": len(req), "what": "обязательных ступеней"},
+            "waves": waves, "missing": missing, "cycle": cycle, "deps": deps, "nodes": per,
+            "word": dict(w, stale=stale) if w else None, "seq": last_seq(tdir)}
 
 
 def render_views(root, only=None):
@@ -356,10 +530,6 @@ def render_views(root, only=None):
             data_path = os.path.join(meta_dir, t + ".js")
             if only is not None and t not in only and os.path.exists(data_path):
                 continue
-            try:
-                write_plan_md(tdir)            # plan.md — the projection of the tree
-            except Exception:
-                pass
             entries = []
             try:
                 with open(os.path.join(tdir, "journal.jsonl"), encoding="utf-8") as fh:
@@ -374,9 +544,8 @@ def render_views(root, only=None):
                 pass
             request = ""
             try:
-                request = open(os.path.join(tdir, "init", "request.md"),
-                               encoding="utf-8").read()
-                request = request.split("\n\n", 2)[-1].strip()
+                from .state import request_text
+                request = request_text(tdir)
             except OSError:
                 pass
 
@@ -577,12 +746,18 @@ def render_views(root, only=None):
                             forks=forks_read(tdir),
                             criteria=criteria, val_root=val_root, integrity=integrity,
                             qa=qa_read(tdir),
-                            plan=md_text("plan.md"), plan_nodes=plan_nodes,
+                            ctx=context_view(tdir),
+                            think=think_view(tdir),
+                            plan="", plan_nodes=plan_nodes, planv=plan_view(tdir),
                             node_labels={k: head for k, head, _d in NODE_FIELDS},
                             scope=scope, files=project_files(tdir),
                             journal=entries[-200:])))
     except Exception:
-        pass
+        # A broken view must never break the bookkeeping — but a TEST must see it:
+        # ELEPHANT_DEBUG=1 re-raises (the flow test sets it; a silent render failure hid a
+        # NameError for a whole evening, 2026-08-27).
+        if os.environ.get("ELEPHANT_DEBUG"):
+            raise
 
 
 def flush_renders():

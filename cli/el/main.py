@@ -158,159 +158,107 @@ the parser that registers the commands sit together and cannot drift apart.
 #                                     go (reread its contract), a fork it held is decided by
 #                                     his words · el owe drop <n> --why "…" — never came due
 #
-# context (phase 1/8)
-#   el research [<source> "<finding>" --ref <anchor>]
-#                                     a RESEARCH finding into research/<source>.md — the source
-#                                     is what you looked AT (code · db · cluster · jira · any
-#                                     name), the anchor is where to re-check · bare: the folder
-#                                     — every source with its findings count and size, and the
-#                                     command that opens it whole: el ctx --section <source>
+# context (phase 1/8) — one stream, records.jsonl: a record per line, nothing edited (2026-08-26)
 #   el context [--section X]          THE WHOLE CONTEXT OF THE TASK, top to bottom, AS CONTENT
-#                                     — bounded: longer than one screen → a TABLE OF CONTENTS
-#                                     (section · size · first line); --section <раздел> opens one,
-#                                     --full prints the whole (feedback 2026-08-26, thrice)
-#                                     — original request · questions with their answers ·
-#                                     clarified task · boundary · requirements · ideal result ·
-#                                     what reaches past it · summary · what is still unknown ·
-#                                     the owner's word. Prints the real files, never a link to
-#                                     them: a pointer is not a presentation, and that pointer
-#                                     is how the ideal result stayed invisible for a whole day
-#   el context qa "<q>" "<a>"         record a clarifying pair AFTER the owner answered.
-#                --area <area>        REQUIRED — which of the ten areas it covers. Counting
-#                                     pairs measured nothing; coverage shows where you never went
-#                --assumed "<why>"    autonomy: the question you WOULD have asked and the answer
-#                                     you assume (the narrowest one) — marked, a debt his word
-#                                     over the picture pays
-#   el context add <src> "<finding>"  record a LOCAL source: what was looked at and what it
-#                                     showed · --ref FILE[:LINE] for each anchor · --area to
-#                                     mark which area it covers, exactly like a Q&A pair does ·
-#                                     appends to context/<src>.md — code, db, logs, devices, ui
-#   el context scope [<dim>]          THE BOUNDARY, asked dimension by dimension. Bare it PRINTS
-#                                     THE SIX QUESTIONS (what·why·who·where·when·how) and shows
-#                                     which are still empty · --in / --out / --blur record one.
-#                                     A boundary is answers, never the agent's own prose
-#   el context areas                  THE COVERAGE MAP: ten areas, who each comes FROM (ask the
-#                                     owner / fetch it yourself), how many pairs each has
-#   el context definitions "<t — m>"  the project's shared vocabulary: a term heard in his
-#                                     speech lands here with what it means IN THIS project
-#   el context success "<…>"          THE IDEAL RESULT, five parts, each its own file, in order:
-#   el context outcomes "<…>"         success criteria (when is it a success, his words) ·
-#   el context metrics "<…>"          expected outcomes (what will exist) · quality metrics
-#   el context checklist "- …"        (numbers with thresholds) · the ACCEPTANCE CHECKLIST (what
-#   el context ifr "<…>"              he checks by hand — phase 5 walks it) · the ideal itself,
-#                                     one paragraph, written LAST. Grown from his answers to
-#                                     «как поймёшь, что получилось?» (--area check)
-#   el context beyond "<text>"        closes the frame: what sits RIGHT NEXT to the boundary
-#                                     and is deliberately NOT done — said BEFORE the work, or
-#                                     it surfaces mid-execution as "I thought that was in"
-#   el context unknown "<gap>"        "what do I NOT know that I should know?" — condition 2,
-#                                     the most ignored one; silence is not an answer
-#   el context <part> "…" --why "…" --ref <основание>   PAST CONTEXT the same command is an
-#                                     AMENDMENT: appended under its date and phase, never
-#                                     overwriting (--replace refused); --why is required. The
-#                                     boundary moves with el context scope <dim> --out "…"
-#                                     --drop "<old line>" — the old line is struck, not erased.
-#                                     An amendment after his word re-opens it: el next says so,
-#                                     el forward wants a fresh el accept (or --waive)
+#                                     — folded out of the stream, never a link to a file;
+#                                     bounded: longer than one screen → a TABLE OF CONTENTS,
+#                                     --section <раздел> opens one, --full prints the whole.
+#                                     This is what you show him before el accept
+#   FLOWS — written all phase long, the moment the thing happens:
+#   el context qa "<q>" "<a>"         a clarifying pair AFTER the owner answered · --area
+#                --area <area>        REQUIRED (eleven areas; coverage, not count) · --options
+#                                     "а · б · в" the choices you offered · --new-round the
+#                                     next round · --assumed "<why>" autonomy: an answer in
+#                                     his place, marked, his word over the picture pays it
+#   el research <src> "<finding>"     what was looked AT (code · db · logs · web · any name)
+#                --ref <path:line>    and where to re-check · --area marks coverage like a pair
+#   el context unknown "<gap>"        «what do I NOT know that I should?» — written WHEN it
+#                --how "<…>"          surfaced · --blocking if it holds the gate
+#   el context define "<t>" "<m>"     a term the moment it sounded, with what it means HERE ·
+#                --heard "<his words>" his image kept beside the plain phrase, never instead
+#   RUNGS — in order, each standing on the ones before; bare → prints what it holds:
+#   el context now "<…>" --kind K     how it happens TODAY — flow (his steps by hand) · state
+#                                     (what is built, in what shape) · number (the baseline)
+#   el context scope [<dim>]          THE BOUNDARY, dimension by dimension; bare PRINTS THE SIX
+#                                     QUESTIONS · --in/--out/--blur one line each · --drop
+#                                     "<line>" retracts (an amend record, the line stays)
+#   el context condition K "<…>"      forbidden · limit · resource · money · tool ·
+#                --none "<why>"       «условий нет» is an answer and gets recorded
+#   el context requirement "<…>"      --state have|missing|unknown · --ref <anchor>
+#   el context beyond "<…>"           right next to the boundary, NOT done · --candidate
+#                                     --why "<…>" worth pulling in — his call BEFORE the work
+#   el context risk "<…>"             --chance low|mid|high --cost "<…>" --then "<what we do>"
+#   THE IDEAL — its checkable parts are PROMISES on the root of the tree (checks.jsonl),
+#   not_validated from birth, each REFUSED without --how «чем проверим»:
+#   el context success "<his words>"  --observable "<чем видно>" --how "<чем проверим>"
+#   el context metric "<name>"        --threshold N --unit U --direction up|down|equal
+#                                     --how "<…>" [--baseline N — from the now rung]
+#   el context check "<by hand>"      --how "<как>" — the acceptance checklist, phase 5 walks it
+#   el context ifr "<paragraph>"      the ideal itself, one paragraph, LAST
+#   el context part "<big piece>"     his picture of the road, one at a time · --covers k1,s2
+#                                     which promises this piece unfolds (plan integrity reads it)
+#   el context clarified "<…>"        the task after clarification — remembers the seq it was
+#   el context summary "<…>"          folded over; so does the summary
+#   el context areas                  THE COVERAGE MAP: eleven areas, who each comes FROM
+#   el accept "<his words>"           HIS WORD over the picture — a record carrying the seq it
+#                                     was said over: anything written after it makes it stale
+#                                     and el forward asks for a fresh one
+#   PAST CONTEXT every command is an AMENDMENT: --why required, --ref <grounds>; nothing is
+#                                     overwritten — a new record, and his stale word re-asked
 #
-# think (phase 2/8)
-#   el think                          the state of every fork: who decides, how many options,
-#                                     what was chosen, which are still open
-#   el think fork <id> "<question>"   open a fork · --who owner|agent says whose call it is ·
-#                                     --decide "<what exactly he must decide at this gate>" ·
-#                                     --option "<name>" --cost "<what it costs>" [--model "<what
-#                                     it is>"] [--falsifier "<which observation kills it>"]
-#                                     [--recommend] adds an option · --preview <html|dir> — THE
-#                                     THING TO TOUCH: one interactive page with every variant
-#                                     side by side; copied into thinking/previews/ so the project
-#                                     page can open it and the link outlives scratch folders ·
-#                                     --recommendation "<the agent's working recommendation>".
-#                                     One command writes both files: decisions.md (the ledger the
-#                                     gates read) and options.md (the dossier, gate by gate)
-#   el think decide <id> "<option>"   close it · --words "<his words>" when the owner decides,
-#                                     --why when you did · fewer than three options is refused
-#                                     unless --narrow says why the rest fell away ·
-#                                     --fixed "<what his word settled — the basis the next gate
-#                                     stands on>" · --assumed "<why>" --undo "<how to reverse>"
-#                                     borrows HIS fork under a grant; prefer the reversible path
-#   el think tools                    THE OPEN BOX: families of thinking instruments to pick
-#                                     from · with text, records which was taken and what it gave
-#   el think skip <step> --why "..."  a step this task genuinely does not need — recorded, never
-#                                     silent; forks and the choice cannot be skipped
-#   el think <step> "<text>"          write one step of the ladder — mirror · form · core ·
-#                                     ideals · research · baseline · shoals · reversibility ·
-#                                     crystal · refute · order; bare it prints the step; text
-#                                     APPENDS (--ref <основание> adds a footnote)
-#   el think crystal "<record>" [--ref f1]   THE CRYSTALLISATION: every record lands under its
-#                                     own date — what became clear, what moved, why. The last
-#                                     record is the solution as it crystallised; the chain
-#                                     shows how it got there
-#
-# plan (phase 3/8)
-#   el plan                           the whole plan: the network plan, then the tree of nodes
-#                                     with fill state at every level
-#   el plan s1                        one node in full: its eight fields and what is inside it
-#   el plan s1 wp1                    the same, deeper. THE PATH IS THE HIERARCHY — depth says
-#                                     the level (stage · work · task · subtask) and the parent,
-#                                     so neither has to be declared
-#   el plan new s1 wp1 "<name>"       create it there. Refused if the parent still has empty
-#                                     THE ID SAYS THE LEVEL (2026-08-26): S1 · S1.WP1 · S1.WP1.T1 ·
-#                                     S1.WP1.T1.ST1 — a wrong prefix is refused with the right one.
-#                                     deps may name a sibling RELATIVELY («after WP7», «T3»): it is
-#                                     resolved under the node's own ancestors, never dropped
-#                                     fields: expand only the level you stand on (§5). A sibling
-#                                     with the SAME name is refused too (a repeated hypothesis —
-#                                     search tasks): name how this one differs, or --force
-#   el plan set s1 wp1 --file c.md    THE WHOLE CONTRACT at once — a markdown with «## <field>»
-#                                     sections (or «field:» lines); named fields are replaced,
-#                                     others kept; «--file -» reads stdin · ends with a digest
-#   el plan reopen s1 --why "…"       a closed or parked node back to OPEN with the reason —
-#                                     scope grew; `plan new` under a closed parent is refused
-#                                     until this; work starts separately (el plan start)
-#   el plan set s1 wp1 check "..."    fill one field · result · check · resources · artifacts ·
-#                                     storage · inputs · deps · executor · sync. Appends, so
-#                                     criteria accumulate one at a time · --replace to start over
-#   el plan done s1 wp1 "<result>"    close a node. REFUSED if it ends in a stop that has not
-#                                     happened yet — a stop you can drive past is not a stop
-#   el plan start s1 wp1              THE NODE IN WORK — one at a time (the previous steps back
-#                                     to open); prints its contract and what to do next. Work on
-#                                     EXECUTE goes node by node: start → do → criteria as you go
-#                                     → traces --node → wait at the stop → done. A STAGE does not
-#                                     start by itself (owner, 2026-08-26): lay it out into packages
-#                                     (el plan new s1 wp1 …), show the layout, record his word
-#                                     (el accept … --for stage:s1), start a package; light warns,
-#                                     soft/strict refuse; --force — on purpose, into the journal
-#   el plan wait s1 wp1 "<shown>"     the baton goes to the owner: shown, waiting for his word —
-#                                     the agent does not drive on; his word: el accept --for node:…
-#                                     deps is read as ORDER: «после S1» / «after S1» — S1 is a
-#                                     prerequisite; «перед S3» / «before S3» — S3 waits for this
-#                                     node (not a prerequisite); a cycle names its edges
-#   el plan cancel s1 wp6 t8 --why "…"   CONDITIONAL WORK NOT NEEDED (2026-08-26): closes for the
-#                                     gates as «не потребовался» and declines its open criteria
-#                                     with the same reason — one explicit act, reopen stays
-#   el plan block s1 --why "…"        stuck on something named (--owe <n>: on the owner's debt)
-#                                     · el plan park s1 --why "…" sets a node aside ON PURPOSE
-#                                     (terminal for the gates, like done)
-#   el plan cover s1 ifr 2 3          WHAT THIS NODE CLOSES from the goal — items of the
-#                                     acceptance checklist (ifr) and the owner's big pieces
-#                                     (part). Read top-down this is ROUTE INTEGRITY
-#   el plan integrity                 THE ROUTE SEEN TOP-DOWN: every piece of the goal and who
-#                                     covers it. A piece nobody covers is work we are simply not
-#                                     going to do — «целостность маршрута» (owner, 2026-08-24)
-#   el plan unfold s3 "<what becomes known>" --after s2
-#                                     A DECLARED BLANK SPOT: here the plan cannot be built until
-#                                     something is learned. Counts as coverage — a hole named out
-#                                     loud is part of the route; a silent one is a failure
-#   el plan rm s1 wp1                 remove a node that has nothing inside it (already gone =
-#                                     no-op, so a chain of rm never stops halfway)
-#   el plan rename s1.wp6.wp1 s1.wp6.t1 --why "…"   a node keeps its identity under a new id:
-#                                     the subtree moves, every deps naming it is rewritten, the
-#                                     validation ledger keeps its verdicts, the journal says why
-#   el sync                           THE STOPS ALONG THE ROAD: which are passed, which comes
-#                                     next, what exactly gets shown at each. Planned in the plan,
-#                                     never improvised — a stop decided in the moment is decided
-#                                     by whoever is tired, and the one that mattered gets skipped
-#
+# think (phase 2/8) — ten rungs and two flows in records.jsonl (2026-08-27); a tool is a field
+#   el think                          the forks with their standing — решено N/N
+#   el think fork "<question>"        open a FORK: his word changes the road. Two or more
+#                --option "<name · plus · minus>"   one per option · --recommend "<which and
+#                                     why>" · --why-yours "<what only he knows>" REQUIRED when
+#                                     he decides: offering a choice obliges you to say why you
+#                                     could not choose · --who agent for a fork you decide
+#   el think decide <id> "<choice>"   his decision — --words "<his words verbatim>" · --undo
+#                --assumed "<why>"    autonomy: decided in his place under a grant, marked
+#   el think mirror "<who>" --does "<…>" --affected "<…>"   one person or role per record
+#   el think form "<in what shape he gets the result>"
+#   el think core "<part>" --rank core|later|never
+#   el think promise "<what it must hold>" --how "<чем проверим>" [--breaks-if "<…>"]
+#                                     an ENGINEERING promise → checks.jsonl, born here,
+#                                     hung on the root; refused without --how
+#   el think irreversible "<what cannot be undone>" --guard "<how we protect it>"
+#   el think option "<name>" --text "<what it is>" --score <promise>=<value> …
+#                [--pros] [--cons] [--parent <id>]   a PATH, scored against every promise —
+#                                     the bar is the cells paths × promises
+#   el think stress "<how you tried to break it>" --path <id> --promise <id> --held yes|no
+#                --why-held "<…>"     на прочность: a path nobody tried to break is empty
+#   el think crystal "<how it ripens / the decision>" [--path <id>] [--decided fk1,fk2]
+#   el think route "<stage>" [--after <id>,<id>]   stage seeds with deps — the plan cuts them
+#   el think risk "<…>" --chance low|mid|high --cost "<…>" --then "<…>"   the risks flow
+#   el think tools                    the box by category, which categories this task TOUCHED
+#                                     (from the `tool` field), what the mode asks for
+#   el think tools "<took — gave>"    a note about a tool · every command takes --tool "<приём>"
+#   el think skip <rung> --why "<…>"  skip a rung on purpose — counts as done, reason kept
+#   el accept "<his words>"           HIS WORD over the decision (scope design), with the seq
+#   --tool "<приём>" · --from <id>    on any rung: what instrument gave it · what it grew from
+#   PAST THINK every command is an AMENDMENT: --why and --ref required; nothing overwritten
+
+# plan (phase 3/8) — stages as RECORDS in records.jsonl (2026-08-27): a node at birth, `set`
+#   events for every change, an `amend` for a removal; the network is computed from deps;
+#   there is no plan.md and no nodes/ folder. Promises of a stage live in checks.jsonl.
+#   el plan                           the map: stages, waves, what is empty, what changed last
+#   el plan new s1 "<stage>"          a stage · el plan new s1 wp1 "<package>" — under a stage
+#                --after s1 --before s2   INSERT BETWEEN: the new node waits for s1, s2 now
+#                                     waits for the new node (one record, one set)
+#   el plan set s1 <field> "<text>"   one field — result · sync · covers · deps · executor ·
+#                                     inputs · resources · artifacts · storage. sync takes the
+#                                     four lines: показываю · увидишь · потрогать · от тебя,
+#                                     headed ПОКАЗ · РАЗВИЛКА · РАЗРЕШЕНИЕ
+#   el plan promise s1 "<what it must deliver>" --how "<чем проверим>"
+#                                     a promise hung on the node (at: S1, born: plan) —
+#                                     not_validated until a verdict; the node's colour folds it
+#   el plan rm s1                     retracts the node AND its promises (nothing deleted)
+#   el plan cancel s1 --why "…"       the node was not needed — an event, the node stays
+#   el plan integrity                 coverage top-down: every root promise and big part has a
+#                                     stage behind it (covers), or a declared unfold
+#   el accept "<his words>"           HIS WORD over the map of stages (scope plan), with the seq
+#   el forward --why "…"              out of plan — only with his word
+
 # execute (phase 4/8)
 #   el artifact <file...> [--as NAME] put a produced file into the task's artifacts/ and log it ·
 #                                     --node s1 [--check 2] files it TO the node (and criterion)
@@ -341,8 +289,9 @@ the parser that registers the commands sit together and cannot drift apart.
 import argparse, os, re, signal, sys
 from .term import emit
 from .protocol import MECHANICS
-from .context import (cmd_areas, cmd_beyond, cmd_context_scope, cmd_context_step,
-                      cmd_ctx_add, cmd_qa, cmd_unknown)
+from .context import (cmd_areas, cmd_beyond, cmd_check, cmd_condition, cmd_context_scope,
+                      cmd_context_step, cmd_ctx_add, cmd_define, cmd_ifr, cmd_metric, cmd_now,
+                      cmd_part, cmd_qa, cmd_requirement, cmd_risk, cmd_success, cmd_unknown)
 from .think import cmd_decide, cmd_fork, cmd_forks, cmd_think_skip, cmd_think_step, cmd_think_tools
 from .plan import cmd_plan, cmd_sync
 from .validate import cmd_validate
@@ -522,44 +471,80 @@ def _dispatch(argv):
         p.add_argument("--section"); p.add_argument("--full", action="store_true")
         p.set_defaults(fn=cmd_ctx)
         inner = p.add_subparsers(dest="ctx_cmd")
+        # THE FLOWS — written all phase long, whenever the thing happens
         q = inner.add_parser("qa", add_help=False)
         q.add_argument("question", nargs="?"); q.add_argument("answer", nargs="?")
         q.add_argument("--list", action="store_true")
         q.add_argument("--round", type=int); q.add_argument("--new-round", action="store_true")
-        q.add_argument("--area"); q.add_argument("--assumed")
+        q.add_argument("--area"); q.add_argument("--options"); q.add_argument("--assumed")
+        q.add_argument("--why"); q.add_argument("--ref", action="append")
         q.add_argument("--task"); q.set_defaults(fn=cmd_qa)
         a = inner.add_parser("add", add_help=False)
         a.add_argument("source", nargs="?"); a.add_argument("finding", nargs="?")
         a.add_argument("--ref", action="append"); a.add_argument("--area")
         a.add_argument("--task"); a.set_defaults(fn=cmd_ctx_add)
         u = inner.add_parser("unknown", add_help=False)
-        u.add_argument("text", nargs="?"); u.add_argument("--risk")
+        u.add_argument("text", nargs="?"); u.add_argument("--how"); u.add_argument("--risk")
+        u.add_argument("--blocking", action="store_true")
+        u.add_argument("--why"); u.add_argument("--ref", action="append")
         u.add_argument("--task"); u.set_defaults(fn=cmd_unknown)
-        b = inner.add_parser("beyond", add_help=False)
-        b.add_argument("text", nargs="?")
-        b.add_argument("--why"); b.add_argument("--ref", action="append")
-        b.add_argument("--adds", action="store_true"); b.add_argument("--contradicts")
-        b.add_argument("--replace", action="store_true")
-        b.add_argument("--task"); b.set_defaults(fn=cmd_beyond)
-        # The free-text steps, each under its own name so the command is guessable.
-        # --why / --ref matter past context, when the same command is an AMENDMENT.
-        for _k in ("requirements", "constraints", "limitations", "resources", "finance",
-                   "tools", "definitions", "success", "outcomes", "metrics", "checklist",
-                   "ifr", "parts", "clarified", "summary"):
-            w = inner.add_parser(_k, add_help=False)
-            w.add_argument("text", nargs="?", default="")
-            w.add_argument("--replace", action="store_true"); w.add_argument("--task")
-            w.add_argument("--why"); w.add_argument("--ref", action="append")
-            # поправка к тому, над чем стоит его слово: дополняет или отменяет
-            w.add_argument("--adds", action="store_true"); w.add_argument("--contradicts")
-            w.set_defaults(fn=cmd_context_step, step_key=_k)
+        d = inner.add_parser("define", add_help=False)
+        d.add_argument("term", nargs="?"); d.add_argument("means", nargs="?"); d.add_argument("--heard")
+        d.add_argument("--why"); d.add_argument("--ref", action="append")
+        d.add_argument("--task"); d.set_defaults(fn=cmd_define)
+        # THE RUNGS — in order; every one prints what it holds when called bare
+        n = inner.add_parser("now", add_help=False)
+        n.add_argument("text", nargs="?"); n.add_argument("--kind"); n.add_argument("--ref", action="append")
+        n.add_argument("--why"); n.add_argument("--task"); n.set_defaults(fn=cmd_now)
         sc = inner.add_parser("scope", add_help=False)
         sc.add_argument("dim", nargs="?", default="")
         sc.add_argument("--in", dest="inside"); sc.add_argument("--out")
         sc.add_argument("--blur"); sc.add_argument("--replace", action="store_true")
         sc.add_argument("--drop"); sc.add_argument("--why"); sc.add_argument("--ref", action="append")
-        sc.add_argument("--adds", action="store_true"); sc.add_argument("--contradicts")
         sc.add_argument("--task"); sc.set_defaults(fn=cmd_context_scope)
+        c = inner.add_parser("condition", add_help=False)
+        c.add_argument("kind", nargs="?"); c.add_argument("text", nargs="?"); c.add_argument("--none")
+        c.add_argument("--ref", action="append"); c.add_argument("--why")
+        c.add_argument("--task"); c.set_defaults(fn=cmd_condition)
+        rq = inner.add_parser("requirement", add_help=False)
+        rq.add_argument("text", nargs="?"); rq.add_argument("--state"); rq.add_argument("--ref", action="append")
+        rq.add_argument("--why"); rq.add_argument("--task"); rq.set_defaults(fn=cmd_requirement)
+        b = inner.add_parser("beyond", add_help=False)
+        b.add_argument("text", nargs="?"); b.add_argument("--candidate", action="store_true")
+        b.add_argument("--why"); b.add_argument("--ref", action="append")
+        b.add_argument("--task"); b.set_defaults(fn=cmd_beyond)
+        rk = inner.add_parser("risk", add_help=False)
+        rk.add_argument("text", nargs="?"); rk.add_argument("--chance"); rk.add_argument("--cost")
+        rk.add_argument("--then"); rk.add_argument("--why"); rk.add_argument("--ref", action="append")
+        rk.add_argument("--task"); rk.set_defaults(fn=cmd_risk)
+        # the ideal: three kinds of PROMISE (each needs --how) and the paragraph itself
+        su = inner.add_parser("success", add_help=False)
+        su.add_argument("text", nargs="?"); su.add_argument("--observable"); su.add_argument("--how")
+        su.add_argument("--why"); su.add_argument("--ref", action="append")
+        su.add_argument("--task"); su.set_defaults(fn=cmd_success)
+        me = inner.add_parser("metric", add_help=False)
+        me.add_argument("text", nargs="?"); me.add_argument("--threshold", type=float)
+        me.add_argument("--unit"); me.add_argument("--direction"); me.add_argument("--how")
+        me.add_argument("--baseline", type=float)
+        me.add_argument("--why"); me.add_argument("--ref", action="append")
+        me.add_argument("--task"); me.set_defaults(fn=cmd_metric)
+        ck = inner.add_parser("check", add_help=False)
+        ck.add_argument("text", nargs="?"); ck.add_argument("--how")
+        ck.add_argument("--why"); ck.add_argument("--ref", action="append")
+        ck.add_argument("--task"); ck.set_defaults(fn=cmd_check)
+        ifr = inner.add_parser("ifr", add_help=False)
+        ifr.add_argument("text", nargs="?"); ifr.add_argument("--why"); ifr.add_argument("--ref", action="append")
+        ifr.add_argument("--task"); ifr.set_defaults(fn=cmd_ifr)
+        pt = inner.add_parser("part", add_help=False)
+        pt.add_argument("text", nargs="?"); pt.add_argument("--covers")
+        pt.add_argument("--why"); pt.add_argument("--ref", action="append")
+        pt.add_argument("--task"); pt.set_defaults(fn=cmd_part)
+        # the two fold-ups
+        for _k in ("clarified", "summary"):
+            w = inner.add_parser(_k, add_help=False)
+            w.add_argument("text", nargs="?", default="")
+            w.add_argument("--task"); w.add_argument("--why"); w.add_argument("--ref", action="append")
+            w.set_defaults(fn=cmd_context_step, step_key=_k)
         r = inner.add_parser("areas", add_help=False)
         r.add_argument("--task"); r.set_defaults(fn=cmd_areas)
     p = sub.add_parser("blueprint", add_help=False); p.add_argument("part", nargs="?"); p.add_argument("--mode"); p.set_defaults(fn=cmd_blueprint)
@@ -618,45 +603,49 @@ def _dispatch(argv):
     t = sub.add_parser("think", add_help=False)
     t.add_argument("--task"); t.set_defaults(fn=cmd_forks)
     ti = t.add_subparsers(dest="think_cmd")
+    def _common(x):
+        x.add_argument("--tool"); x.add_argument("--from", dest="from_")
+        x.add_argument("--why"); x.add_argument("--ref", action="append"); x.add_argument("--task")
     f = ti.add_parser("fork", add_help=False)
     f.add_argument("id", nargs="?"); f.add_argument("text", nargs="?")
     f.add_argument("--who"); f.add_argument("--option", action="append")
-    f.add_argument("--cost", action="append")
-    f.add_argument("--recommend", action="store_true"); f.add_argument("--task")
-    # the dossier: what this option IS, what would kill it; the preview to touch; the agent's
-    # recommendation; what exactly the owner must decide at this gate.
-    # append + a refusal in cmd_fork: repeated --option in ONE call used to collapse
-    # silently into the last one (feedback pool, 2026-08-22) — one option per call.
-    f.add_argument("--model", action="append"); f.add_argument("--falsifier", action="append")
-    f.add_argument("--preview")
-    f.add_argument("--recommendation"); f.add_argument("--decide")
-    f.set_defaults(fn=cmd_fork)
+    f.add_argument("--recommend"); f.add_argument("--why-yours", dest="why_yours")
+    f.add_argument("--decide"); f.add_argument("--preview")
+    _common(f); f.set_defaults(fn=cmd_fork)
     d = ti.add_parser("decide", add_help=False)
     d.add_argument("id", nargs="?"); d.add_argument("choice", nargs="?")
-    d.add_argument("--words"); d.add_argument("--why"); d.add_argument("--narrow")
-    d.add_argument("--fixed"); d.add_argument("--fidelity")
-    d.add_argument("--assumed"); d.add_argument("--undo")
-    d.add_argument("--task"); d.set_defaults(fn=cmd_decide)
+    d.add_argument("--words"); d.add_argument("--why"); d.add_argument("--fixed"); d.add_argument("--fidelity")
+    d.add_argument("--assumed"); d.add_argument("--undo"); d.add_argument("--task")
+    d.set_defaults(fn=cmd_decide)
     fl = ti.add_parser("forks", add_help=False)
     fl.add_argument("--task"); fl.set_defaults(fn=cmd_forks)
     tt = ti.add_parser("tools", add_help=False)
-    tt.add_argument("text", nargs="?"); tt.add_argument("--task")
-    tt.set_defaults(fn=cmd_think_tools)
+    tt.add_argument("text", nargs="?"); _common(tt); tt.set_defaults(fn=cmd_think_tools)
     ts = ti.add_parser("skip", add_help=False)
     ts.add_argument("step", nargs="?"); ts.add_argument("--why"); ts.add_argument("--task")
     ts.set_defaults(fn=cmd_think_skip)
-    # The free-text steps of the think ladder, each under its own name (like context's).
-    # `undo` is the step key; `reversibility` is what a person would type — both work.
-    for _k, _names in (("mirror", ("mirror",)), ("form", ("form",)), ("core", ("core",)),
-                       ("ideals", ("ideals",)), ("research", ("research",)),
-                       ("baseline", ("baseline",)), ("shoals", ("shoals",)),
-                       ("undo", ("reversibility", "undo")), ("crystal", ("crystal",)),
-                       ("refute", ("refute",)), ("order", ("order",))):
+    rk = ti.add_parser("risk", add_help=False)
+    rk.add_argument("text", nargs="?"); rk.add_argument("--chance"); rk.add_argument("--cost"); rk.add_argument("--then")
+    _common(rk); rk.set_defaults(fn=cmd_risk)
+    # THE RUNGS — one record each; `--tool` names the instrument it came from
+    for _k, _names, _extra in (
+            ("mirror", ("mirror",), ("--does", "--affected")),
+            ("form", ("form",), ()),
+            ("core", ("core",), ("--rank",)),
+            ("promises", ("promise", "promises"), ("--how", "--breaks-if")),
+            ("reversibility", ("irreversible", "reversibility", "undo"), ("--guard",)),
+            ("options", ("option", "options", "path"), ("--text:body", "--score+", "--pros", "--cons", "--parent")),
+            ("stress", ("stress",), ("--path", "--promise", "--held", "--why-held")),
+            ("crystal", ("crystal",), ("--path", "--decided")),
+            ("route", ("route", "order"), ("--after",))):
         tsx = ti.add_parser(_names[0], add_help=False, aliases=list(_names[1:]))
-        tsx.add_argument("text", nargs="?"); tsx.add_argument("--ref", action="append")
-        tsx.add_argument("--why"); tsx.add_argument("--replace", action="store_true")
-        tsx.add_argument("--adds", action="store_true"); tsx.add_argument("--contradicts")
-        tsx.add_argument("--task")
+        tsx.add_argument("text", nargs="?")
+        for _e in _extra:
+            if _e.endswith("+"): tsx.add_argument(_e[:-1], action="append")
+            elif ":" in _e:
+                _flag, _dest = _e.split(":"); tsx.add_argument(_flag, dest=_dest)
+            else: tsx.add_argument(_e)
+        _common(tsx)
         tsx.set_defaults(fn=cmd_think_step, step_key=_k, step_name=_names[0])
 
     pl = sub.add_parser("plan", add_help=False)
@@ -668,6 +657,8 @@ def _dispatch(argv):
     pl.add_argument("--owe", type=int)             # el plan block — держит долг владельца #n
     pl.add_argument("--file")                      # el plan set <узел> --file <контракт.md> | -
     pl.add_argument("--after")                     # el plan unfold — после чего раскроется
+    pl.add_argument("--how")                       # el plan promise <узел> "<…>" --how "<чем проверим>"
+    pl.add_argument("--before")                    # el plan new s4 "…" --after s1 --before s2 — вставить между
     pl.set_defaults(fn=cmd_plan)
 
     sy = sub.add_parser("sync", add_help=False)
@@ -742,8 +733,8 @@ def _dispatch(argv):
         topic = " ".join(a for a in argv if not a.startswith("-"))
         return cmd_help(argparse.Namespace(topic=topic))
     # `context big-parts` — the file is big-parts.md, the section key is `parts`; both work
-    if len(argv) >= 2 and argv[0] in ("context", "ctx") and argv[1] == "big-parts":
-        argv = [argv[0], "parts"] + argv[2:]
+    if len(argv) >= 2 and argv[0] in ("context", "ctx") and argv[1] in ("big-parts", "parts"):
+        argv = [argv[0], "part"] + argv[2:]
 
     args = ap.parse_args(_hoist_options(ap, argv))
     # A LITERAL "\n" typed inside a shell string — the common case when an agent writes a

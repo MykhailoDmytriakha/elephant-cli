@@ -22,11 +22,14 @@ from .amend import word_given_on
 # Text always comes from the plan, so a criterion cannot quietly drift into something easier to
 # pass; only the verdict and its proof are added here.
 
-VALIDATION_FILE = "validation.md"
 
 
 def criteria_of(node):
-    """The `check` field of a node, split into separate criteria."""
+    """The node's criteria — its PROMISES from the registry (2026-08-27), in the order they
+    were born; a node written before that still reads its `check` field."""
+    proms = node.get("_promises") or []
+    if proms:
+        return [f"{p['id']} · {p.get('text') or p.get('name') or ''}" for p in proms]
     raw = (node.get("_fields", {}) or {}).get("check") or ""
     out, cur = [], ""
     for line in raw.splitlines():
@@ -42,28 +45,27 @@ def criteria_of(node):
     return out
 
 
-def checklist_node(tdir):
-    """The ACCEPTANCE CHECKLIST of the ideal result, as one pseudo-node of the ledger.
+def _rt(tdir):
+    tdir = os.path.abspath(tdir.rstrip("/"))
+    return os.path.dirname(tdir), os.path.basename(tdir)
 
-    The owner's question (2026-08-21): «мы будем копировать validation checklist и по нему
-    проходить?» — yes, but not copy: READ, the way node criteria are read from the plan. Every
-    bullet of context/acceptance-checklist.md (amendments included) becomes a criterion under
-    the id IFR, so `el validate ifr 3 --met "его слова"` marks it, the gate counts it, and a
-    checklist changed by an amendment is re-read on the next `el validate` — the text always
-    comes from the source, only verdicts live here."""
-    path = os.path.join(tdir, CONTEXT_FILES["checklist"])
-    if not os.path.exists(path):
-        return []
-    items = []
-    for line in open(path, encoding="utf-8"):
-        s = line.strip()
-        m = re.match(r"^(?:[-*•]|\d+[.)])\s+(.+)$", s)
-        if m and not s.startswith("- основание:"):
-            items.append(m.group(1).strip())
-    if not items:
-        return []
-    return [{"id": "IFR", "name": "чек-лист приёмки (из ИФР)",
-             "_fields": {"check": "\n".join("- " + x for x in items)}}]
+
+def checklist_node(tdir):
+    """The promises hung on the ROOT, as two pseudo-nodes of the ledger (2026-08-27):
+    IFR — the acceptance checklist, what he checks by hand; TASK — the rest of the root's
+    promises (success criteria · metrics · engineering promises from думание). They carry
+    `_promises` like every node, so verdicts land on promise ids."""
+    from . import store
+    root_, task_ = _rt(tdir)
+    at_root = [p for p in store.promises(root_, task_) if p.get("at", store.ROOT) == store.ROOT]
+    out = []
+    ifr = [p for p in at_root if p.get("kind") == "checklist"]
+    rest = [p for p in at_root if p.get("kind") != "checklist"]
+    if rest:
+        out.append({"id": "TASK", "name": "обещания задачи — критерии · метрики · инженерные", "_fields": {}, "_promises": rest})
+    if ifr:
+        out.append({"id": "IFR", "name": "чек-лист приёмки (из ИФР)", "_fields": {}, "_promises": ifr})
+    return out
 
 
 def baseline_line(tdir):
@@ -78,32 +80,47 @@ def baseline_line(tdir):
     return ""
 
 
+# The ledger's words and the registry's words — one map, both ways.
+_TO_LEDGER = {"passed": "met", "failed": "failed", "waived": "declined", "unverified": "unverified",
+              "covered": "covered", "not_validated": "open"}
+_TO_REGISTRY = {v: k for k, v in _TO_LEDGER.items()}
+
+
+def _ledger_nodes(tdir):
+    return [n for n in nodes_all(tdir) if criteria_of(n)] + checklist_node(tdir)
+
+
 def validation_parse(tdir):
-    """Verdicts already recorded, keyed by (node id, criterion number)."""
-    path = os.path.join(tdir, VALIDATION_FILE)
-    if not os.path.exists(path):
-        return {}
-    out, node = {}, None
-    last = None
-    for line in open(path, encoding="utf-8"):
-        # `#{2,}`: since 2026-08-23 the heading depth follows the node's depth (## S1 ·
-        # ### S1.WP1 · #### S1.WP1.T1), so the ledger reads as a tree in a plain editor.
-        # The key is still the id, so flat files written before that parse unchanged.
-        head = re.match(r"^#{2,}\s+([A-Za-z0-9.]+)\s", line)
-        if head:
-            node = head.group(1).upper()
+    """Verdicts already recorded, keyed by (node id, criterion number) — folded out of the
+    verdict events in checks.jsonl (2026-08-27); the ledger file is gone."""
+    from . import store
+    root_, task_ = _rt(tdir)
+    out = {}
+    for n in _ledger_nodes(tdir):
+        for i, p in enumerate(n.get("_promises") or [], 1):
+            st, proof, why = store.verdict_of(root_, task_, p["id"])
+            if st == store.NOT_VALIDATED:
+                continue
+            out[(n["id"], i)] = (_TO_LEDGER.get(st, "open"), proof if st != "waived" else (proof or why))
+    return out
+
+
+def validation_render(tdir, nodes, verdicts):
+    """Write what CHANGED as verdict events — the registry is append-only, the ledger is
+    its fold. Called with the full picture the way the file writer was."""
+    from . import store
+    root_, task_ = _rt(tdir)
+    have = validation_parse(tdir)
+    by_id = {n["id"]: n for n in _ledger_nodes(tdir)}
+    for (nid, i), (st, proof) in verdicts.items():
+        if have.get((nid, i)) == (st, proof):
             continue
-        item = re.match(r"^- \[([ xX!\-?>])\]\s+(\d+)\.", line)
-        if item and node:
-            status = {"x": "met", "X": "met", "!": "failed", "-": "declined",
-                      "?": "unverified", ">": "covered"}.get(item.group(1), "open")
-            last = (node, int(item.group(2)))
-            out[last] = [status, ""]
+        n = by_id.get(nid)
+        proms = (n or {}).get("_promises") or []
+        if not n or i > len(proms):
             continue
-        proof = re.match(r"^\s+→\s*(.+)$", line.rstrip())
-        if proof and last:
-            out[last][1] = proof.group(1).strip()
-    return {k: tuple(v) for k, v in out.items()}
+        store.verdict(root_, task_, proms[i - 1]["id"], _TO_REGISTRY.get(st, "not_validated"), proof, by="agent")
+    touch_ = None
 
 
 # ── Покрыт другим узлом — вердикт-указатель ───────────────────────────────────
@@ -193,41 +210,10 @@ def covered_pending(nodes, raw):
     return sorted(out)
 
 
-def validation_render(tdir, nodes, verdicts):
-    """Rewrite the ledger from the plan plus the verdicts. Criteria text is never edited here."""
-    base = baseline_line(tdir)
-    lines = ["# Проверка: критерии плана и чек-лист приёмки", "",
-             "_Критерии узлов взяты из полей `check` плана, пункты IFR — из "
-             "context/acceptance-checklist.md; правьте их там, не здесь._",
-             "_Отметки ставит `el validate <узел|ifr> <номер> --met \"чем доказано\"`._", ""]
-    if base:
-        lines += [f"**Мерка «до»:** {base}", ""]
-    # Tree order — parent first, its children right under it (S1 · S1.WP1 · S1.WP1.T1),
-    # IFR last: the file reads as the matryoshka, not by accident of filename sorting.
-    nodes = (sorted((n for n in nodes if n["id"] != "IFR"),
-                    key=lambda n: tuple(n["id"].split("."))) +
-             [n for n in nodes if n["id"] == "IFR"])
-    for n in nodes:
-        crits = criteria_of(n)
-        if not crits:
-            continue
-        # Heading depth = node depth: the file itself is the matryoshka, not a flat list.
-        lines.append(f"{'#' * (2 + n['id'].count('.'))} {n['id']} · {n.get('name', '')}")
-        for i, c in enumerate(crits, 1):
-            status, proof = verdicts.get((n["id"], i), ("open", ""))
-            box = {"met": "x", "failed": "!", "declined": "-",
-                   "unverified": "?", "covered": ">"}.get(status, " ")
-            lines.append(f"- [{box}] {i}. {c}")
-            if proof:
-                lines.append(f"      → {proof}")
-        lines.append("")
-    write(os.path.join(tdir, VALIDATION_FILE), "\n".join(lines).rstrip() + "\n")
-
-
 def validation_state(tdir):
     """(nodes, verdicts, open, failed, declined, unverified) — the whole picture."""
     # Nodes first — «работает ли» — then the checklist — «то ли это, чего он ждал».
-    nodes = [n for n in nodes_all(tdir) if criteria_of(n)] + checklist_node(tdir)
+    nodes = _ledger_nodes(tdir)
     # Pointers followed: a covered criterion reads as what it points at, and a pending one
     # counts as the debt it is. Only the ledger WRITER wants the raw file (validation_parse).
     verdicts, _cycles = resolve_verdicts(nodes, validation_parse(tdir))
@@ -625,7 +611,7 @@ def cmd_validate(args):
     # The ledger cannot close the node (closing is a decision with a result), but it must
     # say so out loud instead of printing «complete» over an open graph.
     for n in nodes:
-        if n["id"] == "IFR":
+        if n["id"] in ("IFR", "TASK"):
             continue
         crits = criteria_of(n)
         allv = all(verdicts.get((n["id"], i), ("open", ""))[0] != "open"
@@ -633,6 +619,6 @@ def cmd_validate(args):
         if crits and allv and node_open(n):
             print(f"⚠ узел    {n['id']}: критерии закрыты, а узел ещё {STATUS_RU.get(node_status(n), '?')} — "
                   f'закрой: el plan done {n["id"].lower()} "<результат>"')
-    print(f"файл      {os.path.join(tdir, VALIDATION_FILE)}")
+    print(f"реестр    {os.path.join(tdir, 'checks.jsonl')} — вердикты событиями")
     print('отметить  el validate <узел> <номер> --met "<чем доказано>"')
     return 0

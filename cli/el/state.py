@@ -137,8 +137,11 @@ def journal(root, task, event, text, extra=None):
 def find_root(start=None):
     d = os.path.abspath(start or os.getcwd())
     env = os.environ.get("ELEPHANT_DIR")
-    if env and os.path.isfile(os.path.join(env, MARKER)):
-        return os.path.abspath(env)
+    if env:
+        # ELEPHANT_DIR is an ORDER, not a hint: set and empty, it means «here and nowhere
+        # else» — falling back to the walk-up put three probe tasks into the live storage
+        # of the project the shell happened to stand in (2026-08-27).
+        return os.path.abspath(env) if os.path.isfile(os.path.join(env, MARKER)) else None
     while True:
         try:
             subs = [os.path.join(d, n) for n in os.listdir(d)]
@@ -461,8 +464,7 @@ def task_state(tdir):
         return "summary", "context folded into one read"
     if has("task.clarified.md"):
         return "clarified", "questions answered"
-    if (os.path.exists(os.path.join(tdir, "init", "request.md"))
-            or has("task.draft.md") or has("task.md")):
+    if request_records(tdir) or has("task.draft.md") or has("task.md"):
         return "draft", "as it arrived, not clarified yet"
     return "none", "nothing written down yet"
 
@@ -484,10 +486,45 @@ def phase_state(tdir, phase, mode=None):
     mode = mode or task_mode(tdir)
     spec = PHASE_MAP.get(phase, {})
     have, missing = [], []
+    if phase == "context":
+        # Since 2026-08-26 context is a STREAM (context.jsonl): a beat is done when its
+        # records are there, judged by the ladder's own rule — not by a file existing.
+        from .context import step_done
+        from .protocol import CONTEXT_STEPS, CONTEXT_MIN
+        for key, rel, title, *_r in CONTEXT_STEPS:
+            ok = step_done(tdir, key, mode)
+            (have if ok else missing).append((rel, title, required_in(CONTEXT_MIN.get(key, "soft"), mode)))
+        return have, missing
+    if phase == "plan":
+        from .plan import plan_step_done
+        from .protocol import PHASE_BEATS
+        keys = ["stages", "promises", "sync", "coverage", "network", "approval"]
+        for (title, who, trace, minmode, *_r), key in zip(PHASE_BEATS["plan"], keys):
+            ok = plan_step_done(tdir, key, mode)
+            (have if ok else missing).append((trace, title, required_in(minmode, mode)))
+        return have, missing
+    if phase == "think":
+        from .think import step_done as think_done
+        from .protocol import THINK_STEPS, THINK_MIN
+        for key, rel, title, *_r in THINK_STEPS:
+            ok = think_done(tdir, key, mode)
+            (have if ok else missing).append((rel, title, required_in(THINK_MIN.get(key, "soft"), mode)))
+        return have, missing
     for rel, what, minmode in spec.get("artifacts", []):
         path = os.path.join(tdir, rel)
-        ok = (os.path.isdir(path) and os.listdir(path)) if rel.endswith("/") \
-            else os.path.exists(path)
+        if rel == "checks.jsonl@verdicts":
+            # the ledger is the registry's verdict events (2026-08-27)
+            from . import store
+            r_, t_ = os.path.dirname(os.path.abspath(tdir)), os.path.basename(os.path.abspath(tdir))
+            ok = any(r.get("type") == "verdict" for r in store.read(r_, t_, "checks"))
+        elif rel == "records.jsonl#word:final":
+            from .amend import word_given_on
+            r_, t_ = os.path.dirname(os.path.abspath(tdir)), os.path.basename(os.path.abspath(tdir))
+            ok = word_given_on(r_, t_, "validate")
+        elif rel.endswith("/"):
+            ok = os.path.isdir(path) and os.listdir(path)
+        else:
+            ok = os.path.exists(path)
         (have if ok else missing).append((rel, what, required_in(minmode, mode)))
     return have, missing
 
@@ -546,16 +583,26 @@ def git_dirty(path, exclude=None):
 
 
 def lessons_path(root):
-    return os.path.join(root, "lessons.md")
+    return os.path.join(root, "lessons.jsonl")     # STORAGE level: a lesson outlives its task
 
 
 def lessons_read(root):
-    """The bullet lines of lessons.md, for onboarding."""
+    """The lessons as lines, for onboarding — one JSON record per lesson (2026-08-27)."""
+    out = []
     try:
-        return [l.strip() for l in open(lessons_path(root), encoding="utf-8")
-                if l.strip().startswith("- ")]
+        for l in open(lessons_path(root), encoding="utf-8"):
+            if l.strip():
+                r = json.loads(l)
+                out.append(f"- {r.get('ts', '')[:10]} · {r.get('task') or '—'}: {r.get('text', '')}")
     except OSError:
-        return []
+        pass
+    return out
+
+
+def lesson_write(root, task, text):
+    os.makedirs(root, exist_ok=True)
+    with open(lessons_path(root), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"ts": now_iso(), "task": task, "text": text}, ensure_ascii=False) + "\n")
 
 
 # ── the tool's own inbox: feedback/ in the SKILL, never in a storage ──────────
@@ -606,42 +653,29 @@ def feedback_looks_like_id(text):
 # checked) or by hand (the limit is reported).
 
 def todo_items(tdir):
-    """The parked items of open-questions.md, as `el todo --done N` counts them: N runs over
-    the OPEN items in FILE order, closed ones carry no number. One parser for the list, the
-    navigator and the closer — an agent closed the wrong item twice in one session because
-    --list printed the raw file without numbers and the number had to be computed in the
-    head (feedback, 2026-08-24)."""
-    path = os.path.join(tdir, "open-questions.md")
-    items = []
-    try:
-        lines = open(path, encoding="utf-8").read().splitlines()
-    except OSError:
-        return items
-    n = 0
-    for line in lines:
-        s = line.strip()
-        if s.startswith("- [ ]") or s.startswith("- [x]"):
-            is_open = s.startswith("- [ ]")
-            body = s[5:].strip()
-            m = re.match(r"\*\*([^*]+)\*\*\s*·\s*(.*)$", body)
-            phase, text = (m.group(1).strip(), m.group(2)) if m else ("", body)
-            # A REMINDER (2026-08-25): «**execute ⟳ каждый день** · обновлять Jira» — a standing
-            # duty, not a step: it never counts as an unfinished promise at `el done`.
-            every = ""
-            if " ⟳ " in phase:
-                phase, every = (x.strip() for x in phase.split(" ⟳ ", 1))
-            closed = ""
-            if not is_open and "  ← " in text:
-                text, closed = text.split("  ← ", 1)
-            if is_open:
-                n += 1
-            items.append({"n": n if is_open else None, "open": is_open, "phase": phase,
-                          "every": every, "text": text.strip(), "closed": closed.strip(),
-                          "why": ""})
-        elif s.startswith("зачем:") and items:
-            items[-1]["why"] = s[6:].strip()
+    """The parked items («на потом»), as `el todo --done N` counts them: N runs over the OPEN
+    items in the order written, closed ones carry no number. Since 2026-08-27 a `todo` record
+    in records.jsonl plus `todo_done` events over it — folded here, nothing rewritten."""
+    from . import store
+    tdir = os.path.abspath(tdir.rstrip("/"))
+    root_, task_ = os.path.dirname(tdir), os.path.basename(tdir)
+    recs = store.read(root_, task_, "records")
+    gone = store.retracted(recs)
+    closed = {}
+    for r in recs:
+        if r.get("type") == "todo_done":
+            closed[r.get("of")] = (r.get("ts", "")[:16].replace("T", " ") + (f": {r['note']}" if r.get("note") else ""))
+    items, n = [], 0
+    for r in recs:
+        if r.get("type") != "todo" or r.get("id") in gone:
+            continue
+        is_open = r["id"] not in closed
+        if is_open:
+            n += 1
+        items.append({"id": r["id"], "n": n if is_open else None, "open": is_open,
+                      "phase": r.get("when") or "", "text": r.get("text", ""), "every": r.get("every", ""),
+                      "why": r.get("why", ""), "closed": closed.get(r["id"], "")})
     return items
-
 
 def todo_line(it, width=90):
     """«3. [ ] [validate] проверить на телефоне» — the number is what --done takes."""
@@ -701,26 +735,36 @@ def path_marks(tdir, text):
     return out
 
 
+def _task_records(tdir):
+    from . import store
+    tdir = os.path.abspath(tdir.rstrip("/"))
+    return store.read(os.path.dirname(tdir), os.path.basename(tdir), "records")
+
+
 def brief_path(tdir):
-    return os.path.join(tdir, "brief.md")
+    return os.path.join(tdir, "records.jsonl#brief")     # the sheet is a record now (2026-08-27)
+
+
+def brief_records(tdir):
+    return [r for r in _task_records(tdir) if r.get("type") == "brief"]
 
 
 def brief_read(tdir):
-    try:
-        return open(brief_path(tdir), encoding="utf-8").read().rstrip("\n")
-    except OSError:
-        return ""
+    """The sheet in the hand — the LATEST `brief` record; rewritten whole = a new record."""
+    b = brief_records(tdir)
+    return (b[-1].get("text") or "").rstrip("\n") if b else ""
 
 
 def brief_when(tdir):
-    """When the sheet was last rewritten, in human words — its «as-of» (feedback 2026-08-26:
-    a one-line brief carried an old baseline and nothing said how old)."""
+    """When the sheet was last rewritten, in human words — its «as-of»."""
     from .term import human_when
-    try:
-        ts = datetime.fromtimestamp(os.path.getmtime(brief_path(tdir))).astimezone()
-        return human_when(ts.isoformat(timespec="minutes"))
-    except OSError:
-        return "?"
+    b = brief_records(tdir)
+    return human_when(b[-1].get("ts", "")[:16]) if b else "?"
+
+
+def brief_ts(tdir):
+    b = brief_records(tdir)
+    return b[-1].get("ts", "") if b else ""
 
 
 # ── the raw request, one line — and «is this the same task again?» ──────────────
@@ -735,18 +779,28 @@ STOPWORDS = {"и", "в", "во", "на", "не", "что", "это", "для", "
              "задача", "задачу", "проект", "сделать", "нужно", "надо", "хочу", "давай"}
 
 
-def request_line(tdir, width=110):
-    """The first content line of init/request.md — the request in his words, one line."""
-    try:
-        for l in open(os.path.join(tdir, "init", "request.md"), encoding="utf-8"):
-            t = l.strip()
-            if not t or t.startswith("#") or t.startswith("_записано") or t.startswith("_"):
-                continue
-            return t[:width] + ("…" if len(t) > width else "")
-    except OSError:
-        pass
-    return ""
+def request_records(tdir):
+    """The owner's request in his words — `request` records: the first, the repeats, and
+    facts from a named source typed apart (2026-08-27: a record, not init/request.md)."""
+    return [r for r in _task_records(tdir) if r.get("type") == "request"]
 
+
+def request_text(tdir):
+    out = []
+    for r in request_records(tdir):
+        head = {"repeat": "Повтор запроса", "source": f"Из источника · {r.get('source', '')} (не его слова — записал агент)"}.get(r.get("kind"))
+        out.append((f"## {head} · {r.get('ts', '')[:16].replace('T', ' ')}\n\n" if head else "") + (r.get("text") or ""))
+    return "\n\n".join(out)
+
+
+def request_line(tdir, width=110):
+    """The first content line of the request — in his words, one line."""
+    for r in request_records(tdir):
+        for l in (r.get("text") or "").splitlines():
+            t = l.strip()
+            if t:
+                return t[:width] + ("…" if len(t) > width else "")
+    return ""
 
 def stems(text):
     """Crude stems for «the same words?»: lowercase words of four letters or more, cut to

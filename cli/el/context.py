@@ -1,83 +1,78 @@
 """Phase 1 — CONTEXT, as behaviour: the ladder's recording commands and readers.
 
-The boundary asked dimension by dimension (5W+1H), the Q/A pairs with their area tags,
-the coverage map, the free-text steps of the frame (requirements … unknown), research
-sources with anchors. The STEPS themselves — what each beat is and who it comes from —
-are declared in protocol.CONTEXT_STEPS; this module only reads and writes their files.
+Since 2026-08-26 the phase writes RECORDS, not prose: every beat appends a line to
+context.jsonl (research to research.jsonl; the checkable parts of the ideal — promises —
+to checks.jsonl), and every reader here folds those lines back into a picture. The STEPS
+themselves — what each beat is and who it comes from — are declared in
+protocol.CONTEXT_STEPS; this module only reads and writes their records through store.py.
+
+Nothing is edited in place. A line that stopped being true is retracted by an `amend`
+record that names it and says why; the boundary's «зачёркнуто, не стёрто» costs no parser
+any more. Past context the same commands are AMENDMENTS (--why required) — and the owner's
+word carries the seq it was said over, so «картина правилась после его слова» is a number
+comparison, not a guess.
 """
-import os, re, sys
-from .protocol import (AREA_KEYS, CONTEXT_FILES, CONTEXT_MIN, CONTEXT_STEPS, QA_AREAS,
+import os, sys
+from .protocol import (AREA_KEYS, CONTEXT_FLOWS, CONTEXT_MIN, CONTEXT_STEPS, QA_AREAS,
                        SCOPE_DIMS, SCOPE_KEYS, required_in)
-from . import autonomy
-from .state import (pick_task, current_task, journal, norm_id, now_iso, require_root, resolve_task,
-                    task_meta, task_mode, touch, write)
+from . import autonomy, store
+from .state import (pick_task, journal, now_iso, require_root, task_meta, task_mode, touch)
 from .term import wrap
-from .amend import MARK, amend_doc, is_amendment, parse_notes
+from .amend import is_amendment
+
+
+# ── reading the stream back ─────────────────────────────────────────────────────────────
+
+def _rt(tdir):
+    """(root, task) out of a task folder — the readers are called with the folder, the store
+    speaks in root and task; this is the one seam."""
+    tdir = os.path.abspath(tdir.rstrip("/"))
+    return os.path.dirname(tdir), os.path.basename(tdir)
+
+
+def records(tdir, stream="records"):
+    return store.read(*_rt(tdir), stream)
+
+
+def live(tdir, step=None, rtype=None, stream="records"):
+    return store.live(records(tdir, stream), step=step, rtype=rtype)
+
+
+def amendments(tdir):
+    """The п-notes: every amend record, numbered in the order written."""
+    out = []
+    for r in records(tdir):
+        if r.get("type") == "amend":
+            out.append({"n": len(out) + 1, "id": r["id"], "ts": r.get("ts", "")[:16].replace("T", " "),
+                        "phase": r.get("phase", "context"), "why": r.get("why", ""),
+                        "refs": " · ".join(r.get("refs") or []) or "—",
+                        "retracts": r.get("retracts")})
+    return out
 
 
 def scope_read(tdir):
-    """Parse context/5w-h.md back into {dim: {"in": [...], "out": [...], "blur": [...]}}.
-
-    Reading back what we wrote — rather than keeping a second copy in some index — is the same
-    rule the rest of the tool follows: the text file IS the state, and a parallel copy is the
-    thing that silently drifts."""
-    path = os.path.join(tdir, CONTEXT_FILES["scope"])
+    """{dim: {"in": [...], "out": [...], "blur": [...], "struck": [...]}} — the boundary as it
+    stands, plus what was struck by an amendment (kept: history, not truth)."""
     out = {k: {"in": [], "out": [], "blur": [], "struck": []} for k in SCOPE_KEYS}
-    if not os.path.exists(path):
-        return out
-    cur = None
-    for line in open(path, encoding="utf-8"):
-        line = line.rstrip("\n")
-        if line.startswith("## "):
-            head = line[3:].split("—")[0].strip()
-            cur = head if head in out else None
-        elif cur and line.startswith("~~"):
-            # A retracted line — struck through by an amendment, never deleted (history).
-            out[cur]["struck"].append(line)
-        elif cur and line.startswith("+ "):
-            out[cur]["in"].append(line[2:].strip())
-        elif cur and line.startswith("- "):
-            out[cur]["out"].append(line[2:].strip())
-        elif cur and line.startswith("? "):
-            out[cur]["blur"].append(line[2:].strip())
+    recs = records(tdir)
+    gone = store.retracted(recs)
+    mark = {a["retracts"]: f"[п{a['n']}]" for a in amendments(tdir) if a.get("retracts")}
+    for r in recs:
+        if r.get("type") != "dim" or r.get("dim") not in out:
+            continue
+        side = r.get("side", "blur")
+        if r["id"] in gone:
+            sign = {"in": "+", "out": "-", "blur": "?"}.get(side, "?")
+            out[r["dim"]]["struck"].append(f"~~{sign} {r.get('text', '')}~~ {mark.get(r['id'], '')}".strip())
+        elif side in ("in", "out", "blur"):
+            out[r["dim"]][side].append(r.get("text", ""))
     return out
 
 
 def scope_notes(tdir):
-    """The п-notes of the boundary's amendments (the closing «## Поправки» section)."""
-    path = os.path.join(tdir, CONTEXT_FILES["scope"])
-    if not os.path.exists(path):
-        return []
-    tail = open(path, encoding="utf-8").read().split("\n## Поправки", 1)
-    return parse_notes(tail[1].splitlines()) if len(tail) == 2 else []
-
-
-def scope_write(tdir, state, notes=()):
-    body = ["# Границы задачи — шесть измерений (5W+H)", "",
-            "_Граница собирается ОТВЕТАМИ на вопросы, а не прозой агента._",
-            "_`+` входит · `-` не входит · `?` линия ещё размыта · `[пN]` — поправка N, "
-            "см. внизу; зачёркнутое — снято поправкой, не стёрто_", ""]
-    for k, q in SCOPE_DIMS:
-        body.append(f"## {k} — {q}")
-        d = state[k]
-        if not (d["in"] or d["out"] or d["blur"] or d.get("struck")):
-            body.append("_пусто — вопрос ещё не задан_")
-        for x in d["in"]:
-            body.append(f"+ {x}")
-        for x in d["out"]:
-            body.append(f"- {x}")
-        for x in d["blur"]:
-            body.append(f"? {x}")
-        for x in d.get("struck", []):
-            body.append(x)
-        body.append("")
-    if notes:
-        body.append("## Поправки")
-        for n in notes:
-            body.append(f"- п{n['n']} · {n['ts']} · {n['phase']} · почему: {n['why']} · "
-                        f"основание: {n['refs']}")
-        body.append("")
-    write(os.path.join(tdir, CONTEXT_FILES["scope"]), "\n".join(body).rstrip() + "\n")
+    """The amendments that touched the boundary — what the page lists under it."""
+    dims = {r["id"] for r in records(tdir) if r.get("type") == "dim"}
+    return [a for a in amendments(tdir) if a.get("retracts") in dims or a.get("step") == "scope"]
 
 
 def scope_done(tdir):
@@ -88,223 +83,256 @@ def scope_done(tdir):
 
 
 def area_coverage(tdir):
-    """Which areas are covered — BY EITHER SOURCE, and that is the whole point.
-
-    The first version counted only question-and-answer pairs, and an area marked `agent`
-    could therefore never turn green: `how` and `where` are fetched with an instrument, never
-    asked. The map then demanded the one thing the routing forbids — asking the owner about
-    something measurable. Caught on the first live run (2026-08-19), fixed on the spot.
-
-    Read from the files: `Q [area]:` in questions.md for what he answered, `[область: area]`
-    in any source file for what the agent went and got."""
-    # `el context add` writes its findings to research/<src>.md, not context/ — so the map
-    # must read BOTH folders, or an agent-fetched `where`/`how` stays "blank" forever
-    # (caught live 2026-08-22: three `--area where/how` findings recorded, map showed 0).
+    """Which areas are covered — by a pair he answered OR a finding the agent fetched. Six
+    of the keys are literally the 5W+H, so an answered dimension covers its area too."""
     hit = {a: 0 for a in AREA_KEYS}
-    for sub in ("context", "research"):
-        cdir = os.path.join(tdir, sub)
-        if not os.path.isdir(cdir):
-            continue
-        for fn in os.listdir(cdir):
-            if not fn.endswith(".md"):
-                continue
-            for line in open(os.path.join(cdir, fn), encoding="utf-8", errors="replace"):
-                for m in re.finditer(r"(?:Q\s*\[([a-z]+)\]:|\[область:\s*([a-z]+)\])", line):
-                    key = m.group(1) or m.group(2)
-                    if key in hit:
-                        hit[key] += 1
-    # An answered scope dimension IS a covered area — six of the ten keys are literally the
-    # 5W+H. Without this the two commands contradicted each other on the same folder: `el
-    # context scope` said `when` was answered while `el context areas` called it blank, and
-    # `saturate` refused on the strength of the second. Two answers to one question is the
-    # defect class the mode calls "broken", not "inconvenient". (Caught live 2026-08-20.)
+    for r in live(tdir, rtype="qa"):
+        if r.get("area") in hit:
+            hit[r["area"]] += 1
+    for r in live(tdir, step="research"):
+        if r.get("area") in hit:
+            hit[r["area"]] += 1
     for dim in scope_done(tdir):
         if dim in hit and not hit[dim]:
             hit[dim] += 1
     return hit
 
 
-def context_step(tdir, mode=None):
-    """The first step that is not DONE — the whole state machine, derived from disk.
+def questions_stat(tdir):
+    """(asked, answered) — a pair is written only after the answer, so the two are equal;
+    None when nothing was asked yet."""
+    n = len(live(tdir, rtype="qa"))
+    return (n, n) if n else None
 
-    "Done" is normally "the file exists". Scope is the exception and has to be: its file is
-    born with the first of six dimensions answered, so existence would move the pointer off a
-    boundary that is still two sides open. A step not required under the task's MODE is
-    skipped while its file is absent — written, it counts like any other."""
+
+def qa_read(tdir):
+    """The Q/A rounds for the human page — the owner wants to SEE them (2026-08-21)."""
+    rounds = {}
+    for r in live(tdir, rtype="qa"):
+        rnd = rounds.setdefault(r.get("round", 1), {"round": r.get("round", 1),
+                                                    "ts": r.get("ts", "")[:16], "pairs": []})
+        pair = {"id": r["id"], "area": r.get("area", ""), "q": r.get("q", ""), "a": r.get("a", "")}
+        if r.get("options"):
+            pair["options"] = r["options"]
+        if r.get("assumed"):
+            pair["assumed"] = r["assumed"]
+        rnd["pairs"].append(pair)
+    return [rounds[k] for k in sorted(rounds)]
+
+
+def research_files(tdir):
+    """The research grouped by SOURCE — what the folder view used to list, from one stream."""
+    by = {}
+    for r in live(tdir, step="research"):
+        src = r.get("source", "?")
+        d = by.setdefault(src, {"name": src, "rel": "records.jsonl#research", "findings": 0,
+                                "lines": [], "chars": 0})
+        d["findings"] += 1
+        d["lines"].append(r.get("finding", ""))
+        d["chars"] += len(r.get("finding", ""))
+    return [by[k] for k in sorted(by)]
+
+
+def research_lines(tdir):
+    files = research_files(tdir)
+    if not files:
+        return ['  — ещё ничего: el research <источник> "<находка>" --ref <якорь>']
+    out = [f"  поток: {os.path.join(tdir, 'records.jsonl')}"]
+    for r in files:
+        out.append(f"  {r['name']} · находок {r['findings']}")
+        for line in r["lines"][:3]:
+            out.append(f"      · {line[:110]}")
+        if r["findings"] > 3:
+            out.append(f"      · … и ещё {r['findings'] - 3} — целиком: el ctx --section {r['name']}")
+    out.append('  добавить: el research <источник> "<находка>" --ref <якорь>')
+    return out
+
+
+def promises_at_root(tdir, kind=None):
+    root, task = _rt(tdir)
+    return [p for p in store.promises(root, task, kind=kind) if p.get("at", store.ROOT) == store.ROOT]
+
+
+def last_seq(tdir):
+    return store.next_seq(records(tdir)) - 1
+
+
+def word_over(tdir, scope="context"):
+    """His latest word over `scope`, and whether the picture moved after it."""
+    words = [r for r in live(tdir, rtype="word") if r.get("scope") == scope]
+    if not words:
+        return None, False
+    w = words[-1]
+    # Stale when anything but another word landed AFTER it — the word's own seq is the
+    # line; what it was said over is what stood before that line.
+    # Only records born on the SAME phase count: думание writing after his word over the
+    # context does not re-open the context (caught on the page, 2026-08-27).
+    # …and only STRUCTURE counts: a node's status moving (started · waiting · done) is the
+    # work happening under the map, not the map changing (caught on the probe, 2026-08-27).
+    def _structural(r):
+        if r.get("type") == "word":
+            return False
+        if r.get("type") == "set":
+            f = r.get("field", "")
+            return f.startswith("fields.") or f in ("name", "level", "parent", "deps", "unfold")
+        return True
+    stale = any(r.get("seq", 0) > w.get("seq", 0) and _structural(r)
+                and r.get("phase", "context") == w.get("phase", "context")
+                for r in live(tdir))
+    return w, stale
+
+
+def step_done(tdir, key, mode=None):
+    """Has the beat left its trace? Most beats: at least one live record. The exceptions
+    are the ones whose trace is a SHAPE, not a line: scope — all six dimensions; ideal — the
+    paragraph AND at least one promise (strict: one of each kind); approval — a word that
+    is still fresh."""
+    mode = mode or task_mode(tdir)
+    if key == "research":
+        return bool(live(tdir, step="research"))
+    if key == "scope":
+        return len(scope_done(tdir)) == len(SCOPE_KEYS)
+    if key == "ideal":
+        have = bool(live(tdir, rtype="ifr")) and bool(promises_at_root(tdir, "checklist"))
+        if mode == "strict":
+            have = have and bool(promises_at_root(tdir, "metric")) and bool(promises_at_root(tdir, "success"))
+        return have
+    if key == "approval":
+        w, stale = word_over(tdir, "context")
+        return bool(w) and not stale
+    if key == "conditions":
+        return bool(live(tdir, step="conditions"))
+    return bool(live(tdir, step=key))
+
+
+def context_step(tdir, mode=None):
+    """The first beat that is not DONE — the whole state machine, derived from the stream.
+    A beat not required under the task's MODE is skipped while empty; written, it counts."""
     mode = mode or task_mode(tdir)
     for key, rel, title, src, do, cmd in CONTEXT_STEPS:
-        exists = os.path.exists(os.path.join(tdir, rel))
-        if not required_in(CONTEXT_MIN.get(key, "soft"), mode) and not exists:
-            continue    # not required in this mode: a task without it skips silently
-        if key == "scope" and exists and len(scope_done(tdir)) < len(SCOPE_KEYS):
-            return key, rel, title, src, do, cmd
-        if not exists:
+        done = step_done(tdir, key, mode)
+        if not required_in(CONTEXT_MIN.get(key, "soft"), mode) and not done:
+            continue
+        if not done:
             return key, rel, title, src, do, cmd
     return None
 
 
-def questions_stat(tdir):
-    """Clarifying questions ARE the context work, and they only count when written down.
-    Asked-and-not-recorded dies with the session, and the next run asks the same again
-    (elephant-v1: ContextAnswers is a separate output of the phase)."""
-    path = os.path.join(tdir, "context", "questions.md")
-    if not os.path.exists(path):
-        return None
-    asked = answered = 0
-    for line in open(path, encoding="utf-8"):
-        s = line.strip()
-        low = s.lower()
-        # `Q [area]:` — the area tag became mandatory and the old prefix list stopped matching,
-        # so the gate reported "no questions in it" over a file holding eighteen pairs. Caught
-        # by the gate refusing a move that should have passed (2026-08-19).
-        if re.match(r"q\s*\[[a-z]+\]\s*:", low):
-            asked += 1
-            continue
-        for mark in ("q:", "**q:", "- q:", "вопрос:"):
-            if low.startswith(mark):
-                asked += 1
-                break
-        else:
-            for mark in ("a:", "**a:", "- a:", "ответ:"):
-                if low.startswith(mark):
-                    # An EMPTY answer line is not an answer. The whole point of the file is
-                    # that what was asked and actually answered survives the session.
-                    if s[len(mark):].strip(" *"):
-                        answered += 1
-                    break
-    return asked, answered
+# ── writing: one door, and the amendment rule at it ─────────────────────────────────────
 
-
-def qa_read(tdir):
-    """The Q/A rounds, parsed back for the human page: the owner wants to SEE the questions
-    and answers on overview.html, not hunt them in a file (2026-08-21)."""
-    rounds = []
-    try:
-        fh = open(os.path.join(tdir, "context", "questions.md"), encoding="utf-8")
-    except OSError:
-        return rounds
-    cur = None
-    for line in fh:
-        s = line.strip()
-        m = re.match(r"##\s*round\s*(\d+)\s*[—-]\s*(.*)$", s, re.I)
-        if m:
-            cur = {"round": int(m.group(1)), "ts": m.group(2).strip(), "pairs": []}
-            rounds.append(cur)
-            continue
-        m = re.match(r"Q\s*(?:\[([a-z]+)\])?\s*:\s*(.+)$", s, re.I)
-        if m:
-            if cur is None:
-                cur = {"round": len(rounds) + 1, "ts": "", "pairs": []}
-                rounds.append(cur)
-            cur["pairs"].append({"area": m.group(1) or "", "q": m.group(2).strip(), "a": ""})
-            continue
-        m = re.match(r"A\s*:\s*(.+)$", s, re.I)
-        if m and cur and cur["pairs"]:
-            cur["pairs"][-1]["a"] = m.group(1).strip()
-            continue
-        # A BORROWED answer (autonomy): the marker line under A: — the page shows it, because
-        # these are the first thing the returning owner reviews.
-        m = re.match(r"_предположено агентом[^—]*—\s*почему:\s*(.*?)_?$", s)
-        if m and cur and cur["pairs"]:
-            cur["pairs"][-1]["assumed"] = m.group(1).strip()
-    return rounds
-
-
-def _ctx_write(root, task, key, heading, text, extra_lines=()):
-    """Write one step's trace. Shared by the small recording commands below."""
-    rel = CONTEXT_FILES[key]
-    path = os.path.join(root, task, rel)
-    body = f"# {heading}\n\n{text.strip()}\n"
-    for line in extra_lines:
-        body += line + "\n"
-    write(path, body)
-    touch(root, task)
-    return rel
-
-
-# The playbooks/ folder and its readers (playbook, beats_of, beats_done) were removed
-# 2026-08-21 (owner: "она не нужна, избыточна — всё внутри Elephant CLI"): the beats of
-# every phase live in this file — CONTEXT_STEPS, THINK_STEPS, PHASE_MAP — and the yaml
-# copy had quietly become dead code with no callers.
-def cmd_qa(args):
-    """Record a question AND its answer — together, never separately.
-
-    The order is: ask the owner in the conversation → hear the answer → write the pair
-    down. A file pre-filled with questions and empty answers is a questionnaire, not
-    context gathering: the NEXT block of questions is derived from the PREVIOUS answers,
-    so it cannot be generated in advance. (Owner, 2026-08-18.)"""
+def _open(args):
     root = require_root()
     if not root:
-        return 1
-    task = pick_task(root, args.task)
+        return None, None, None
+    task = pick_task(root, getattr(args, "task", None))
     if not task:
+        return None, None, None
+    return root, task, os.path.join(root, task)
+
+
+def _amend_fields(root, task, args, what):
+    """Past context a write is an AMENDMENT: it must say why and on what grounds. Returns
+    the extra fields to stamp on the record, or None (refused, reason printed)."""
+    if not is_amendment(root, task, "context/"):
+        return {}
+    why = (getattr(args, "why", None) or "").strip()
+    if not why:
+        print(f"после выхода из контекста {what} правится ПОПРАВКОЙ: скажи --why и дай "
+              "--ref <основание> (развилка · research · evidence · его слова)", file=sys.stderr)
+        return None
+    phase = task_meta(root, task).get("phase", "context")
+    return {"amends": True, "why": why, "refs": list(getattr(args, "ref", None) or []),
+            "phase": phase}
+
+
+FLOW_STEPS = {"questions", "research", "unknown", "definitions", "risks"}
+
+
+def _put(root, task, args, rec, what, event=None, text=None):
+    """Append one context record with the amendment stamp when due; journal it; say so.
+    A FLOW record (a question, a finding, a risk…) is never an amendment — flows run through
+    every phase by design (2026-08-27)."""
+    extra = {} if rec.get("step") in FLOW_STEPS else _amend_fields(root, task, args, what)
+    if extra is None:
+        return None
+    rec = dict(rec, **extra)
+    out = store.append(root, task, "context", rec)
+    journal(root, task, event or rec.get("type", "context"), (text or "")[:120],
+            {"id": out["id"], "step": rec.get("step"), **({"amend": True} if extra else {})})
+    if extra:
+        print(f"поправка  {out['id']} · {what} · {extra['phase']} · его слово над картиной "
+              "устарело — предъяви и запиши ответ: el accept \"<его слова>\"")
+    return out
+
+
+def _fresh_word_hint(tdir):
+    w, stale = word_over(tdir, "context")
+    if w and stale:
+        print("слово     картина изменилась после его «да» — на выходе из фазы понадобится "
+              "свежее: el accept \"<его слова>\"")
+
+
+# ── the flows ───────────────────────────────────────────────────────────────────────────
+
+def cmd_qa(args):
+    """Record a question AND its answer — together, never separately (owner, 2026-08-18):
+    the next block of questions is derived from the previous answers, so a pre-filled
+    questionnaire cannot exist."""
+    root, task, tdir = _open(args)
+    if not root:
         return 1
-    path0 = os.path.join(root, task, "context", "questions.md")
     if getattr(args, "list", False):
-        if not os.path.exists(path0):
+        rounds = qa_read(tdir)
+        if not rounds:
             print("no questions recorded yet.")
             print('hint     ask the owner, hear the answer, then: el context qa "<q>" "<a>"')
             return 0
-        print(open(path0, encoding="utf-8").read().rstrip())
+        for rnd in rounds:
+            print(f"## round {rnd['round']} — {rnd['ts']}")
+            for p in rnd["pairs"]:
+                print(f"  {p['id']:<4} [{p['area']}] {p['q']}")
+                print(f"       → {p['a']}")
+                if p.get("assumed"):
+                    print(f"       (предположено агентом в его место: {p['assumed']})")
         return 0
-    if not args.question or not args.answer:
-        print("both a question and an answer are required.", file=sys.stderr)
-        print('hint     el context qa "<question>" "<answer>"  ·  list them: el context qa --list',
+    if not args.question or not (args.answer or "").strip():
+        print("both a question and an answer are required — a question without one is not "
+              "context yet. ask the owner FIRST, hear the answer, then record the pair.",
               file=sys.stderr)
+        print('hint     el context qa "<question>" "<answer>" --area <область>', file=sys.stderr)
         return 1
-    if not args.answer.strip():
-        print("an answer is required — a question without one is not context yet.",
-              file=sys.stderr)
-        print("hint     ask the owner FIRST, hear the answer, then record the pair.",
-              file=sys.stderr)
-        print("         the next block of questions is derived from these answers,",
-              file=sys.stderr)
-        print("         so it cannot be written in advance. el help — the mechanics.",
-              file=sys.stderr)
-        return 1
-    # An area tag is REQUIRED. Counting pairs measured nothing — ten questions about one
-    # corner printed the same "10 asked / 10 answered" as ten that covered the task. The tag
-    # turns the count into COVERAGE, and coverage is what shows the agent where it never went.
     area = (getattr(args, "area", None) or "").strip().lower()
     if area not in AREA_KEYS:
         print(f"--area is required, one of: {', '.join(AREA_KEYS)}", file=sys.stderr)
         for k, d, src in QA_AREAS:
             print(f"  {k:<8} {src:<6} {d}", file=sys.stderr)
         return 1
-    path = os.path.join(root, task, "context", "questions.md")
-    if not os.path.exists(path):
-        write(path, "# Уточняющие вопросы и ответы\n\n"
-                    "_Пара пишется ПОСЛЕ ответа. Следующий раунд строится из этих ответов._\n")
-    rounds = sum(1 for l in open(path, encoding="utf-8") if l.startswith("## round "))
-    rnd = args.round or (rounds if rounds and not args.new_round else rounds + 1)
-    body = open(path, encoding="utf-8").read()
-    if f"## round {rnd}" not in body:
-        body += f"\n## round {rnd} — {now_iso()[:16]}\n"
-    # A BORROWED ANSWER (autonomy, owner 2026-08-22): nobody to ask — the agent writes the
-    # question it would have asked and the answer it assumes, marked; the pair counts for
-    # coverage like any other, and the assumption is a debt his word over the picture pays.
+    have = live(tdir, rtype="qa")
+    cur = max([r.get("round", 1) for r in have] or [0])
+    rnd = args.round or (cur + 1 if (args.new_round or not cur) else cur)
     assumed = (getattr(args, "assumed", None) or "").strip()
     if assumed and not autonomy.guard(root, task, "ответ в его место"):
         return 1
-    body += f"\nQ [{area}]: {args.question.strip()}\nA: {args.answer.strip()}\n"
+    rec = {"step": "questions", "type": "qa", "by": "agent" if assumed else "owner",
+           "round": rnd, "area": area, "q": args.question.strip(), "a": args.answer.strip()}
+    opts = (getattr(args, "options", None) or "").strip()
+    if opts:
+        rec["options"] = [o.strip() for o in opts.split("·") if o.strip()]
     if assumed:
-        body += f"  _предположено агентом в его место (под грантом) — почему: {assumed}_\n"
-    write(path, body)
-    journal(root, task, "qa", args.question.strip()[:80], {"round": rnd, "area": area,
-                                                         **({"assumed": True} if assumed else {})})
+        rec["assumed"] = assumed
+    out = _put(root, task, args, rec, "вопросы", "qa", args.question)
+    if not out:
+        return 1
     if assumed:
         journal(root, task, "assume", f"{args.question.strip()} → {args.answer.strip()}",
                 {"phase": "context", "for": f"qa:{area}", "why": assumed})
-    touch(root, task)
-    tdir = os.path.join(root, task)
-    qs = questions_stat(tdir)
     cov = area_coverage(tdir)
     blank = [a for a in AREA_KEYS if not cov[a]]
-    print(f"recorded in round {rnd} · {qs[1]} pair(s) · area {area}"
+    print(f"recorded  {out['id']} · round {rnd} · {len(have) + 1} pair(s) · area {area}"
           + (" · РЕШЕНИЕ АГЕНТА в его место — он прочтёт, вернувшись (el review)" if assumed else ""))
     if blank:
-        owner_side = [a for a in blank
-                      if dict((k, v) for k, _d, v in QA_AREAS)[a] == "owner"]
+        src = dict((k, v) for k, _d, v in QA_AREAS)
+        owner_side = [a for a in blank if src[a] == "owner"]
         print(f"blank     {', '.join(blank)}")
         if owner_side:
             print(f"ask him   {', '.join(owner_side)} — эти живут только у него в голове")
@@ -313,26 +341,147 @@ def cmd_qa(args):
             print(f"возьми сам  {', '.join(rest)} — добывается прибором, спрашивать = красть его время")
     else:
         print("blank     — все области покрыты")
+    _fresh_word_hint(tdir)
     print("next      el context areas — карта покрытия · el next — шаг лестницы")
     return 0
 
 
-def cmd_context_scope(args):
-    """Ask the boundary dimension by dimension, and record what is in, out and still blurred.
-
-    Called bare it PRINTS THE QUESTIONS — that is the whole point. The step used to name a
-    required file with no command behind it, so the agent wrote a paragraph of its own prose
-    and the six dimensions were never actually asked about."""
-    root = require_root()
+def cmd_ctx_add(args):
+    """A RESEARCH finding: what was looked at, what it showed, where to re-check."""
+    root, task, tdir = _open(args)
     if not root:
         return 1
-    task = pick_task(root, getattr(args, "task", None))
-    if not task:
+    if not args.source and not args.finding:
+        print(f"ИССЛЕДОВАНИЯ  {task} · records.jsonl#research")
+        for l in research_lines(tdir):
+            print(l)
+        return 0
+    if not args.source or not args.finding:
+        print("a source and a finding are required.", file=sys.stderr)
+        print('hint     el research code "current copy sends name + lyric only" '
+              '--ref path/to/File.kt:318', file=sys.stderr)
         return 1
-    tdir = os.path.join(root, task)
+    area = (getattr(args, "area", None) or "").strip().lower()
+    if area and area not in AREA_KEYS:
+        print(f"unknown --area '{area}'. one of: {', '.join(AREA_KEYS)}", file=sys.stderr)
+        return 1
+    rec = {"step": "research", "type": "finding", "by": "agent", "source": args.source.strip(),
+           "finding": args.finding.strip(), "refs": list(args.ref or [])}
+    if area:
+        rec["area"] = area
+    out = store.append(root, task, "records", rec)
+    journal(root, task, "source", f"{args.source.strip()}: {args.finding.strip()[:70]}",
+            {"id": out["id"], "refs": args.ref or [], "area": area or None})
+    print(f"recorded  {out['id']} · research · {args.source.strip()}"
+          + ("" if args.ref else " · без якоря — где это перепроверить? --ref <путь:строка>"))
+    print("next      el context — the big picture · el next — what still blocks the gate")
+    return 0
+
+
+def cmd_unknown(args):
+    """Condition 2 of the gate: «what do I NOT know that I should know?» — written, not
+    thought, and written WHEN it surfaced."""
+    root, task, tdir = _open(args)
+    if not root:
+        return 1
+    if not getattr(args, "text", None):
+        rows = live(tdir, step="unknown")
+        if not rows:
+            print('el context unknown "<чего не знаю, что должен бы знать>" [--how "<как закрываем>"]',
+                  file=sys.stderr)
+            return 1
+        for r in rows:
+            print(f"  {r['id']:<4} {r['text']}" + (f" · как: {r['how']}" if r.get("how") else "")
+                  + (" · ДЕРЖИТ ГЕЙТ" if r.get("blocking") else ""))
+        return 0
+    rec = {"step": "unknown", "type": "unknown", "by": "agent", "text": args.text.strip()}
+    how = (getattr(args, "how", None) or getattr(args, "risk", None) or "").strip()
+    if how:
+        rec["how"] = how
+    if getattr(args, "blocking", False):
+        rec["blocking"] = True
+    out = _put(root, task, args, rec, "неизвестное", "unknown", args.text)
+    if not out:
+        return 1
+    print(f"recorded  {out['id']} · unknown" + (" · держит гейт" if rec.get("blocking") else ""))
+    return 0
+
+
+def cmd_define(args):
+    """A term heard in his speech, with what it means IN THIS project — the moment it
+    sounded. His image is kept beside the plain phrase (heard_from), never instead of it."""
+    root, task, tdir = _open(args)
+    if not root:
+        return 1
+    if not args.term:
+        rows = live(tdir, step="definitions")
+        for r in rows:
+            print(f"  {r['id']:<4} {r['term']} — {r['means']}"
+                  + (f" (его слова: «{r['heard_from']}»)" if r.get("heard_from") else ""))
+        if not rows:
+            print('el context define "<термин>" "<что значит здесь>" [--heard "<его слова>"]',
+                  file=sys.stderr)
+            return 1
+        return 0
+    if not args.means:
+        print("a term AND what it means here — both.", file=sys.stderr)
+        return 1
+    rec = {"step": "definitions", "type": "definition", "by": "both", "term": args.term.strip(),
+           "means": args.means.strip()}
+    heard = (getattr(args, "heard", None) or "").strip()
+    if heard:
+        rec["heard_from"] = heard
+    out = _put(root, task, args, rec, "определения", "definition", args.term)
+    if not out:
+        return 1
+    print(f"recorded  {out['id']} · {args.term.strip()}")
+    return 0
+
+
+# ── the rungs ───────────────────────────────────────────────────────────────────────────
+
+def cmd_now(args):
+    """How it happens TODAY — the baseline (owner, 2026-08-26: «как это сейчас всё
+    происходит, или что у нас есть, в каком оно состоянии»). Three layers, each a kind."""
+    root, task, tdir = _open(args)
+    if not root:
+        return 1
+    kinds = ("flow", "state", "number")
+    if not args.text:
+        rows = live(tdir, step="now")
+        for r in rows:
+            print(f"  {r['id']:<4} {r.get('kind', ''):<7} {r['text']}"
+                  + (f" · {r['ref']}" if r.get("ref") else ""))
+        if not rows:
+            print('el context now "<как сейчас>" --kind flow|state|number [--ref <якорь>]\n'
+                  "  flow — что человек делает руками сегодня, шаг за шагом · state — что уже "
+                  "построено и в каком виде · number — сколько сейчас (шагов, минут, ошибок)",
+                  file=sys.stderr)
+            return 1
+        return 0
+    kind = (getattr(args, "kind", None) or "").strip().lower()
+    if kind not in kinds:
+        print(f"--kind — one of: {', '.join(kinds)}", file=sys.stderr)
+        return 1
+    rec = {"step": "now", "type": "now", "by": "both", "kind": kind, "text": args.text.strip()}
+    if getattr(args, "ref", None):
+        rec["ref"] = " · ".join(args.ref)
+    out = _put(root, task, args, rec, "точка отсчёта", "now", args.text)
+    if not out:
+        return 1
+    print(f"recorded  {out['id']} · now · {kind}")
+    return 0
+
+
+def cmd_context_scope(args):
+    """The boundary, dimension by dimension. Bare it PRINTS THE QUESTIONS — that is the
+    point: the step used to name a file with no command behind it, and the six dimensions
+    were never actually asked about. One line — one record; --drop retracts one."""
+    root, task, tdir = _open(args)
+    if not root:
+        return 1
     state = scope_read(tdir)
     dim = (getattr(args, "dim", None) or "").strip().lower()
-
     if not dim:
         print("ГРАНИЦЫ — шесть измерений, каждое отвечается вопросом\n")
         for k, q in SCOPE_DIMS:
@@ -345,15 +494,14 @@ def cmd_context_scope(args):
                 print(f"    НЕ входит  {wrap(x, indent='               ')}")
             for x in d["blur"]:
                 print(f"    размыто    {wrap(x, indent='               ')}")
-            for x in d.get("struck", []):
+            for x in d["struck"]:
                 print(f"    снято      {wrap(x, indent='               ')}")
         done = scope_done(tdir)
         left = [k for k in SCOPE_KEYS if k not in done]
         print(f"\nзакрыто  {len(done)}/6" + (f" · пусто: {', '.join(left)}" if left else ""))
         print('запись   el context scope <измерение> --in "<что входит>" '
-              '--out "<что НЕ входит>" --blur "<где линия размыта>"')
+              '--out "<что НЕ входит>" --blur "<где линия размыта>" · --drop "<строка>" снимает')
         return 0
-
     if dim not in state:
         print(f"измерение одно из: {', '.join(SCOPE_KEYS)}", file=sys.stderr)
         return 1
@@ -361,195 +509,330 @@ def cmd_context_scope(args):
     if not (args.inside or args.out or args.blur or drop):
         print("нечего записывать: дай --in, --out, --blur или --drop", file=sys.stderr)
         return 1
-    # PAST CONTEXT the boundary is AMENDED, not redrawn: the line moves with a [пN] mark, a
-    # retracted line is struck through, and the note says why and on what grounds. The
-    # owner's word over the picture is re-opened (see amend.py).
-    amend = is_amendment(root, task, CONTEXT_FILES["scope"])
-    notes = scope_notes(tdir)
-    mark = ""
-    if amend:
-        why = (getattr(args, "why", None) or "").strip()
-        if getattr(args, "replace", False):
-            print("поправка не перетирает: после выхода из контекста --replace запрещён — "
-                  "вычеркни --drop и допиши --in/--out", file=sys.stderr)
-            return 1
-        if not why:
-            print("после выхода из контекста граница правится ПОПРАВКОЙ: скажи --why и дай "
-                  "--ref <основание> (развилка · research/… · evidence/… · его слова); "
-                  '--drop "<строка>" вычёркивает старое', file=sys.stderr)
-            return 1
-        n = len(notes) + 1
-        mark = f" [п{n}]"
-    elif getattr(args, "replace", False):
-        state[dim] = {"in": [], "out": [], "blur": [], "struck": []}
+    if getattr(args, "replace", False):
+        print("--replace нет: картина не перетирается — сними строку --drop и допиши новую",
+              file=sys.stderr)
+        return 1
     if drop:
-        hit = None
-        for key, sign in (("in", "+"), ("out", "-"), ("blur", "?")):
-            for x in state[dim][key]:
-                if MARK.sub("", x).strip() == drop:
-                    hit = (key, sign, x)
-                    break
-            if hit:
-                break
+        hit = [r for r in live(tdir, rtype="dim") if r.get("dim") == dim and r.get("text") == drop]
         if not hit:
             print(f"нет такой строки в {dim}: «{drop}» — el context scope покажет, что есть",
                   file=sys.stderr)
             return 1
-        key, sign, x = hit
-        state[dim][key].remove(x)
-        if amend:
-            state[dim]["struck"].append(f"~~{sign} {x}~~{mark}")
-    for flag, key in (("inside", "in"), ("out", "out"), ("blur", "blur")):
+        why = (getattr(args, "why", None) or "").strip() or "снято на сборе контекста"
+        am = {"step": "scope", "type": "amend", "by": "both", "retracts": hit[-1]["id"], "why": why,
+              "refs": list(getattr(args, "ref", None) or []),
+              "phase": task_meta(root, task).get("phase", "context")}
+        if is_amendment(root, task, "context/") and not (getattr(args, "why", None) or "").strip():
+            print("после выхода из контекста строка снимается ПОПРАВКОЙ: --why и --ref", file=sys.stderr)
+            return 1
+        out = store.append(root, task, "context", am)
+        n_am = len(amendments(tdir))
+        journal(root, task, "amend", f"scope п{n_am} {dim}: снято «{drop}»",
+                {"id": out["id"], "part": "scope", "n": n_am, "dim": dim, "why": why,
+                 "refs": am["refs"], "phase": am["phase"]})
+        print(f"снято     {hit[-1]['id']} · {dim} · «{drop}» — поправка {out['id']}")
+    ids = []
+    for flag, side in (("inside", "in"), ("out", "out"), ("blur", "blur")):
         val = getattr(args, flag, None)
         if val:
-            state[dim][key].append(val.strip() + mark)
-    phase = task_meta(root, task).get("phase", "context")
-    if amend:
-        refs = list(getattr(args, "ref", None) or [])
-        notes = notes + [{"n": n, "ts": now_iso()[:16].replace("T", " "), "phase": phase,
-                          "why": why, "refs": " · ".join(refs) or "—"}]
-    scope_write(tdir, state, notes)
-    touch(root, task)
-    said = (args.inside or args.out or args.blur or f"вычеркнуто: {drop}")[:80]
-    if amend:
-        journal(root, task, "amend", f"scope п{n} {dim}: {said}",
-                {"part": "scope", "n": n, "dim": dim, "why": why, "refs": refs, "phase": phase})
-    else:
-        journal(root, task, "scope", f"{dim}: {said}", {"dim": dim})
+            rec = {"step": "scope", "type": "dim", "by": "both", "dim": dim, "side": side,
+                   "text": val.strip()}
+            out = _put(root, task, args, rec, "граница", "scope", f"{dim} {side}: {val}")
+            if not out:
+                return 1
+            ids.append(out["id"])
     done = scope_done(tdir)
     left = [k for k in SCOPE_KEYS if k not in done]
-    if amend:
-        print(f"поправка  п{n} · {CONTEXT_FILES['scope']} · {dim} · {phase}")
-        print('слово     картина правилась после его слова — предъяви и запиши ответ: '
-              'el accept "<его слова>"')
-        return 0
-    print(f"recorded  {CONTEXT_FILES['scope']} · {dim} · закрыто {len(done)}/6")
+    if ids:
+        print(f"recorded  {', '.join(ids)} · {dim} · закрыто {len(done)}/6")
     if left:
         print(f"пусто     {', '.join(left)} — покажи вопросы: el context scope")
     else:
         print("граница   все шесть измерений отвечены — дальше el next")
+    _fresh_word_hint(tdir)
     return 0
 
 
-def cmd_context_step(args):
-    """Write one free-text step of the ladder — requirements · ifr · clarified · summary.
-
-    These four were required traces with no command behind them, so the only way to fill them
-    was to write the file by hand — the very thing the tool exists to stop (§0.5: two paths for
-    one operation). Named after the step itself, because the command a person can GUESS is the
-    one they will use: standing on "требования и ресурсы" you type `el context requirements`.
-    (Found the same way as the scope gap, on live work 2026-08-20.)"""
-    root = require_root()
+def cmd_condition(args):
+    """Under what conditions we work — one rung, five kinds. «Условий нет» is recorded."""
+    root, task, tdir = _open(args)
     if not root:
         return 1
-    task = pick_task(root, getattr(args, "task", None))
-    if not task:
-        return 1
-    key = args.step_key
-    title = dict((k, t) for k, _r, t, *_x in CONTEXT_STEPS)[key]
-    path = os.path.join(root, task, CONTEXT_FILES[key])
-    if not args.text:
-        if os.path.exists(path):
-            print(open(path, encoding="utf-8").read().rstrip())
-            return 0
-        print(f'нечего показывать — напиши: el context {key} "<текст>"', file=sys.stderr)
-        return 1
-    if is_amendment(root, task, CONTEXT_FILES[key]):
-        return 0 if amend_doc(root, task, CONTEXT_FILES[key], title, args) else 1
-    if os.path.exists(path) and not getattr(args, "replace", False):
-        body = open(path, encoding="utf-8").read().rstrip()
-        body += "\n\n" + args.text.strip() + "\n"
-        write(path, body)
-        note = "дописано"
+    kinds = ("forbidden", "limit", "resource", "money", "tool")
+    none = getattr(args, "none", None)
+    if not args.kind and not none:
+        rows = live(tdir, step="conditions")
+        for r in rows:
+            print(f"  {r['id']:<4} {r.get('kind', 'none'):<9} {r.get('text', '')}"
+                  + (f" · {r['ref']}" if r.get("ref") else ""))
+        if not rows:
+            print('el context condition <forbidden|limit|resource|money|tool> "<что>" [--ref] · '
+                  '--none "<почему условий нет>"', file=sys.stderr)
+            return 1
+        return 0
+    if none:
+        rec = {"step": "conditions", "type": "condition", "by": "owner", "none": True,
+               "text": none.strip()}
     else:
-        _ctx_write(root, task, key, title, args.text)
-        note = "записано"
-    touch(root, task)
-    journal(root, task, key, args.text.strip()[:80])
-    print(f"{note}  {CONTEXT_FILES[key]}")
-    print("next      el next — следующий шаг лестницы")
+        kind = args.kind.strip().lower()
+        if kind not in kinds or not args.text:
+            print(f"kind — one of {', '.join(kinds)}, and the text.", file=sys.stderr)
+            return 1
+        rec = {"step": "conditions", "type": "condition", "by": "both", "kind": kind,
+               "text": args.text.strip()}
+        if getattr(args, "ref", None):
+            rec["ref"] = " · ".join(args.ref)
+    out = _put(root, task, args, rec, "условия", "condition", rec["text"])
+    if not out:
+        return 1
+    print(f"recorded  {out['id']} · condition · {rec.get('kind', 'none')}")
     return 0
 
 
-# cmd_saturate is gone (owner, 2026-08-21): the end of questioning is the HUMAN's word,
-# recorded as the last Q/A pair — a separate file about the agent's own feelings duplicated
-# it and went stale the moment the human spoke again. Its one load-bearing check — an
-# owner-only area never asked about — moved into the context exit gate in cmd_forward.
-
-
-def cmd_unknown(args):
-    """Condition 2 of the gate: "what do I NOT know that I should know?"
-
-    The spec calls it the most frequently ignored condition (§4). It has to be written, not
-    thought: a silent "we will figure it out as we go" is exactly what it forbids."""
-    root = require_root()
+def cmd_requirement(args):
+    root, task, tdir = _open(args)
     if not root:
         return 1
-    task = pick_task(root, getattr(args, "task", None))
-    if not task:
+    states = ("have", "missing", "unknown")
+    if not args.text:
+        rows = live(tdir, step="requirements")
+        for r in rows:
+            print(f"  {r['id']:<4} {r.get('state', ''):<8} {r['text']}"
+                  + (f" · {r['ref']}" if r.get("ref") else ""))
+        if not rows:
+            print('el context requirement "<что>" --state have|missing|unknown [--ref <якорь>]',
+                  file=sys.stderr)
+            return 1
+        return 0
+    st = (getattr(args, "state", None) or "").strip().lower()
+    if st not in states:
+        print(f"--state — one of: {', '.join(states)} (уже есть · нет · неизвестно)", file=sys.stderr)
         return 1
-    rel = CONTEXT_FILES["unknown"]
-    path = os.path.join(root, task, rel)
-    if getattr(args, "text", None) is None:
-        print('el context unknown "<чего не знаю, что должен бы знать>"', file=sys.stderr)
+    rec = {"step": "requirements", "type": "req", "by": "both", "state": st, "text": args.text.strip()}
+    if getattr(args, "ref", None):
+        rec["ref"] = " · ".join(args.ref)
+    out = _put(root, task, args, rec, "требования", "requirement", args.text)
+    if not out:
         return 1
-    body = open(path, encoding="utf-8").read() if os.path.exists(path) else \
-        "# Чего я не знаю, что должен бы знать\n\n_Явный вопрос перед спуском. " \
-        "Молчаливое «разберёмся по ходу» не считается._\n"
-    body += f"\n- {args.text.strip()}"
-    if getattr(args, "risk", None):
-        body += f"\n  - как закрываем: {args.risk.strip()}"
-    body += "\n"
-    write(path, body)
-    journal(root, task, "unknown", args.text.strip()[:120])
-    touch(root, task)
-    print(f"recorded  {rel}")
+    print(f"recorded  {out['id']} · requirement · {st}")
     return 0
 
 
 def cmd_beyond(args):
-    """What sits RIGHT NEXT to the boundary and is deliberately NOT done — the frame's
-    closing part (owner, 2026-08-21: "есть то, что внутри квадратика, и то, что снаружи —
-    beyond описывает снаружи, и он входит в сам scope").
-
-    The unstated "не делаем" surfaces mid-execution as "а я думал, это тоже входит".
-    And the honest counterpart: something close by may be WORTH pulling inside — that is
-    the human's call, made BEFORE the work: a lean-to is cheap while the house is being
-    built and expensive once it stands."""
-    root = require_root()
+    """What sits RIGHT NEXT to the boundary and is deliberately NOT done — and the honest
+    counterpart: a candidate worth pulling in, his call BEFORE the work."""
+    root, task, tdir = _open(args)
     if not root:
         return 1
-    task = pick_task(root, getattr(args, "task", None))
-    if not task:
+    if not args.text:
+        rows = live(tdir, step="beyond")
+        for r in rows:
+            print(f"  {r['id']:<4} {'КАНДИДАТ' if r.get('verdict') == 'candidate' else 'не делаем':<9} {r['text']}"
+                  + (f" · {r['why']}" if r.get("why") else ""))
+        if not rows:
+            print('el context beyond "<рядом лежит X — не делаем>" [--candidate --why "<стоит втянуть?>"]',
+                  file=sys.stderr)
+            return 1
+        return 0
+    rec = {"step": "beyond", "type": "beyond", "by": "both", "text": args.text.strip(),
+           "verdict": "candidate" if getattr(args, "candidate", False) else "out"}
+    # --why here is the candidate's argument; past context it doubles as the amendment's why
+    why = (getattr(args, "why", None) or "").strip()
+    if why and rec["verdict"] == "candidate":
+        rec["why"] = why
+    out = _put(root, task, args, rec, "за рамкой", "beyond-scope", args.text)
+    if not out:
+        return 1
+    print(f"recorded  {out['id']} · beyond · {rec['verdict']}")
+    if rec["verdict"] == "candidate":
+        print("next      кандидата на втягивание в рамку — предъяви владельцу ДО начала работ")
+    return 0
+
+
+def cmd_risk(args):
+    root, task, tdir = _open(args)
+    if not root:
+        return 1
+    chances = ("low", "mid", "high")
+    if not args.text:
+        rows = live(tdir, step="risks")
+        for r in rows:
+            print(f"  {r['id']:<4} {r.get('chance', ''):<5} {r['text']} · цена: {r.get('cost', '—')}"
+                  + (f" · если случилось: {r['then']}" if r.get("then") else ""))
+        if not rows:
+            print('el context risk "<что может случиться>" --chance low|mid|high --cost "<чем '
+                  'обойдётся>" --then "<что делаем>"', file=sys.stderr)
+            return 1
+        return 0
+    ch = (getattr(args, "chance", None) or "").strip().lower()
+    cost = (getattr(args, "cost", None) or "").strip()
+    if ch not in chances or not cost:
+        print(f"--chance one of {', '.join(chances)} and --cost «чем обойдётся» — a risk without a "
+              "price is a worry", file=sys.stderr)
+        return 1
+    rec = {"step": "risks", "type": "risk", "by": "both", "text": args.text.strip(), "chance": ch,
+           "cost": cost}
+    then = (getattr(args, "then", None) or "").strip()
+    if then:
+        rec["then"] = then
+    out = _put(root, task, args, rec, "риски", "risk", args.text)
+    if not out:
+        return 1
+    print(f"recorded  {out['id']} · risk · {ch}")
+    return 0
+
+
+def _promise(args, kind, rec, what):
+    """A promise born in context hangs on the root. Refused without `how`."""
+    root, task, tdir = _open(args)
+    if not root:
+        return 1
+    extra = _amend_fields(root, task, args, what)
+    if extra is None:
+        return 1
+    rec = dict(rec, kind=kind, born="context", by=rec.get("by", "owner"), **extra)
+    out, reason = store.promise(root, task, rec)
+    if reason:
+        print(f"обещание не записано: {reason}", file=sys.stderr)
+        return 1
+    journal(root, task, "promise", (rec.get("text") or rec.get("name") or "")[:120],
+            {"id": out["id"], "kind": kind, "at": store.ROOT})
+    print(f"recorded  {out['id']} · {kind} · на корне · not_validated · чем проверим: {rec['how'][:60]}")
+    if extra:
+        print("поправка  обещание добавлено после его слова — понадобится свежее: el accept")
+    _fresh_word_hint(tdir)
+    return 0
+
+
+def cmd_success(args):
+    if not args.text:
+        return _show_promises(args, "success")
+    return _promise(args, "success", {"text": args.text.strip(), "how": getattr(args, "how", None),
+                                      "observable": (getattr(args, "observable", None) or "").strip()},
+                    "критерии успеха")
+
+
+def cmd_metric(args):
+    if not args.text:
+        return _show_promises(args, "metric")
+    rec = {"name": args.text.strip(), "how": getattr(args, "how", None),
+           "unit": (getattr(args, "unit", None) or "").strip(),
+           "direction": (getattr(args, "direction", None) or "").strip().lower()}
+    if rec["direction"] not in ("up", "down", "equal"):
+        print("--direction up|down|equal — куда должно сдвинуться", file=sys.stderr)
+        return 1
+    if getattr(args, "threshold", None) is None:
+        print("--threshold N — порог, названный ДО правки", file=sys.stderr)
+        return 1
+    _num = lambda v: int(v) if float(v).is_integer() else v
+    rec["threshold"] = _num(args.threshold)
+    if getattr(args, "baseline", None) is not None:
+        rec["baseline"] = _num(args.baseline)
+    return _promise(args, "metric", rec, "метрики")
+
+
+def cmd_check(args):
+    if not args.text:
+        return _show_promises(args, "checklist")
+    return _promise(args, "checklist", {"text": args.text.strip(), "how": getattr(args, "how", None)},
+                    "чек-лист приёмки")
+
+
+def _show_promises(args, kind):
+    root, task, tdir = _open(args)
+    if not root:
+        return 1
+    rows = promises_at_root(tdir, kind)
+    for p in rows:
+        head = p.get("text") or p.get("name")
+        extra = ""
+        if kind == "metric":
+            extra = f" · порог {p.get('threshold')} {p.get('unit', '')} {p.get('direction', '')}" \
+                    + (f" · baseline {p['baseline']}" if p.get("baseline") is not None else "")
+        print(f"  {p['id']:<4} {p['status']:<14} {head}{extra} · чем: {p.get('how', '')}")
+    if not rows:
+        print(f"нет обещаний вида {kind}: el help context — команды ступени ideal", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_ifr(args):
+    root, task, tdir = _open(args)
+    if not root:
         return 1
     if not args.text:
-        print("name what lies NEXT TO the boundary and is not done.", file=sys.stderr)
-        print('hint     el context beyond "рядом лежит X и Y — сознательно НЕ делаем"',
-              file=sys.stderr)
-        print('         el context beyond "Z вплотную к границе — может, стоит втянуть: '
-              'решает владелец"', file=sys.stderr)
+        rows = live(tdir, rtype="ifr")
+        if not rows:
+            print('el context ifr "<идеал одним абзацем, глазами пользователя>"', file=sys.stderr)
+            return 1
+        print(rows[-1]["text"])
+        return 0
+    rec = {"step": "ideal", "type": "ifr", "by": "owner", "text": args.text.strip()}
+    out = _put(root, task, args, rec, "идеал", "ifr", args.text)
+    if not out:
         return 1
-    if is_amendment(root, task, CONTEXT_FILES["beyond"]):
-        return 0 if amend_doc(root, task, CONTEXT_FILES["beyond"],
-                              "За рамкой — близко, но не делаем", args) else 1
-    _ctx_write(root, task, "beyond", "За рамкой — близко, но не делаем", args.text)
-    journal(root, task, "beyond-scope", args.text.strip()[:120])
-    print(f"recorded  {CONTEXT_FILES['beyond']}")
-    print("next      кандидата на втягивание в рамку — предъяви владельцу ДО начала работ")
+    print(f"recorded  {out['id']} · ifr")
+    return 0
+
+
+def cmd_part(args):
+    root, task, tdir = _open(args)
+    if not root:
+        return 1
+    if not args.text:
+        rows = live(tdir, step="parts")
+        for i, r in enumerate(rows, 1):
+            print(f"  {i}. {r['id']:<4} {r['text']}" + (f" · раскрывает {', '.join(r['covers'])}" if r.get("covers") else ""))
+        if not rows:
+            print('el context part "<крупный кусок>" [--covers k1,s2] · по одной, в порядке пути',
+                  file=sys.stderr)
+            return 1
+        return 0
+    rec = {"step": "parts", "type": "part", "by": "owner", "text": args.text.strip(),
+           "n": len(live(tdir, step="parts")) + 1}
+    covers = (getattr(args, "covers", None) or "").strip()
+    if covers:
+        rec["covers"] = [c.strip() for c in covers.split(",") if c.strip()]
+    out = _put(root, task, args, rec, "крупные части", "parts", args.text)
+    if not out:
+        return 1
+    print(f"recorded  {out['id']} · part {rec['n']}")
+    return 0
+
+
+def cmd_context_step(args):
+    """The two fold-ups — clarified · summary. Each remembers the seq it was folded over."""
+    root, task, tdir = _open(args)
+    if not root:
+        return 1
+    key = args.step_key
+    if not args.text:
+        rows = live(tdir, step=key)
+        if not rows:
+            print(f'нечего показывать — напиши: el context {key} "<текст>"', file=sys.stderr)
+            return 1
+        r = rows[-1]
+        print(r["text"])
+        if last_seq(tdir) > r.get("over_seq", 0):
+            print(f"\n(собрано над картиной #{r.get('over_seq')}; с тех пор она изменилась)")
+        return 0
+    rec = {"step": key, "type": key, "by": "agent", "text": args.text.strip(), "over_seq": last_seq(tdir)}
+    out = _put(root, task, args, rec, key, key, args.text)
+    if not out:
+        return 1
+    print(f"записано  {out['id']} · {key} · над картиной #{rec['over_seq']}")
+    print("next      el next — следующий шаг лестницы")
     return 0
 
 
 def cmd_areas(args):
-    """The coverage map: which areas have been touched, who each one comes from, what is blank."""
-    root = require_root()
+    """The coverage map: which areas have been touched, who each one comes from."""
+    root, task, tdir = _open(args)
     if not root:
         return 1
-    task = pick_task(root, getattr(args, "task", None))
-    if not task:
-        return 1
-    tdir = os.path.join(root, task)
     cov = area_coverage(tdir)
-    print("покрытие сбора — область · откуда берётся · сколько пар")
+    print("покрытие сбора — область · откуда берётся · сколько записей")
     for key, desc, src in QA_AREAS:
         n = cov[key]
         mark = "✓" if n else "✗"
@@ -561,111 +844,122 @@ def cmd_areas(args):
         print(f"\nпусто    {', '.join(blank)}")
         print('запись   el context qa "<вопрос>" "<ответ>" --area <область>')
     else:
-        print("\nвсе области покрыты хотя бы одной парой")
+        print("\nвсе области покрыты хотя бы одной записью")
     return 0
 
 
-def research_files(tdir):
-    """Every source file in research/, with what a reader needs to choose: name · findings
-    (bullet lines) · size. Any name is legal — sources are named by what was looked at
-    (cluster, jira, dns …), not from a fixed list."""
-    rdir = os.path.join(tdir, "research")
-    out = []
-    for f in sorted(os.listdir(rdir) if os.path.isdir(rdir) else []):
-        if not f.endswith(".md") or f.startswith("."):
-            continue
-        p = os.path.join(rdir, f)
-        try:
-            text = open(p, encoding="utf-8").read()
-        except OSError:
-            continue
-        # a finding written by `el research` is a dated «## » section whose first text line
-        # is the finding itself (the anchor sits under it as «- якорь:»); a hand-written file
-        # lists findings as top-level bullets — read whichever the file uses
-        lines_ = text.splitlines()
-        finds, cur = [], None
-        if any(l.startswith("## ") for l in lines_):
-            for l in lines_:
-                if l.startswith("## "):
-                    cur = "wait"
-                elif cur == "wait" and l.strip() and not l.lstrip().startswith("- якорь"):
-                    finds.append(l.strip().lstrip("- ").strip())
-                    cur = None
+def record_word(root, task, words, scope, assumed=None):
+    """His word over the picture, with the seq it was said over — called by `el accept` on
+    context. Returns the record."""
+    tdir = os.path.join(root, task)
+    rec = {"step": "approval", "type": "word", "by": "agent" if assumed else "owner",
+           "scope": scope, "words": words.strip(), "over_seq": last_seq(tdir)}
+    if assumed:
+        rec["assumed"] = assumed
+    return store.append(root, task, "context", rec)
+
+
+# ── the picture, printed — «предъяви содержимым, а не ссылками» ─────────────────────────
+
+def section_lines(tdir, key):
+    """One beat of the ladder as lines for the eye — what `el context` prints instead of
+    a file. Empty list when the beat has left no trace. Records are folded into the shape
+    each beat has: pairs by round, the boundary by dimension, promises with their status."""
+    L = []
+    if key == "questions":
+        for rnd in qa_read(tdir):
+            L.append(f"раунд {rnd['round']} · {rnd['ts']}")
+            for p in rnd["pairs"]:
+                L.append(f"  {p['id']:<4} [{p['area']}] {p['q']}")
+                if p.get("options"):
+                    L.append(f"       варианты: {' · '.join(p['options'])}")
+                L.append(f"       → {p['a']}")
+                if p.get("assumed"):
+                    L.append(f"       (в его место, под грантом: {p['assumed']})")
+        return L
+    if key == "research":
+        for r in live(tdir, step="research"):
+            L.append(f"  {r['id']:<4} [{r.get('source', '')}] {r.get('finding', '')}")
+            for ref in r.get("refs") or []:
+                L.append(f"       якорь: {ref}")
+        return L
+    if key == "scope":
+        st = scope_read(tdir)
+        if not any(st[k]["in"] or st[k]["out"] or st[k]["blur"] or st[k]["struck"] for k in st):
+            return L
+        for k, q in SCOPE_DIMS:
+            d = st[k]
+            L.append(f"  {k} — {q}")
+            for x in d["in"]:
+                L.append(f"    + {x}")
+            for x in d["out"]:
+                L.append(f"    - {x}")
+            for x in d["blur"]:
+                L.append(f"    ? {x}")
+            for x in d["struck"]:
+                L.append(f"    {x}")
+            if not (d["in"] or d["out"] or d["blur"] or d["struck"]):
+                L.append("    _пусто_")
+        return L
+    if key == "ideal":
+        for kind, title in (("success", "критерии успеха"), ("metric", "метрики"), ("checklist", "чек-лист приёмки")):
+            rows = promises_at_root(tdir, kind)
+            if not rows:
+                continue
+            L.append(f"  {title}:")
+            for p in rows:
+                head = p.get("text") or p.get("name")
+                tail = ""
+                if kind == "metric":
+                    tail = f" · порог {p.get('threshold')} {p.get('unit', '')} {p.get('direction', '')}" \
+                           + (f" · сейчас {p['baseline']}" if p.get("baseline") is not None else "")
+                if kind == "success" and p.get("observable"):
+                    tail = f" · видно: {p['observable']}"
+                L.append(f"    {p['id']:<4} [{p['status']}] {head}{tail}")
+                L.append(f"         чем проверим: {p.get('how', '')}")
+        ifr = live(tdir, rtype="ifr")
+        if ifr:
+            L.append("  идеал:")
+            L += ["    " + x for x in ifr[-1]["text"].splitlines()]
+        return L
+    if key == "approval":
+        for w in live(tdir, rtype="word"):
+            tag = " · В ЕГО МЕСТО, под грантом" if w.get("assumed") else ""
+            L.append(f"  {w['id']:<4} над {w.get('scope')} · картина #{w.get('over_seq')}{tag}")
+            L.append(f"       «{w.get('words', '')}»")
+        w, stale = word_over(tdir, "context")
+        if w and stale:
+            L.append("  ⚠ картина изменилась после этого слова — нужно свежее")
+        return L
+    rows = live(tdir, step=key)
+    for r in rows:
+        if key == "now":
+            L.append(f"  {r['id']:<4} {r.get('kind', ''):<7} {r['text']}" + (f" · {r['ref']}" if r.get("ref") else ""))
+        elif key == "conditions":
+            L.append(f"  {r['id']:<4} {'нет условий' if r.get('none') else r.get('kind', ''):<11} {r.get('text', '')}"
+                     + (f" · {r['ref']}" if r.get("ref") else ""))
+        elif key == "requirements":
+            L.append(f"  {r['id']:<4} {r.get('state', ''):<8} {r['text']}" + (f" · {r['ref']}" if r.get("ref") else ""))
+        elif key == "beyond":
+            L.append(f"  {r['id']:<4} {'КАНДИДАТ' if r.get('verdict') == 'candidate' else 'не делаем':<9} {r['text']}"
+                     + (f" · {r['why']}" if r.get("why") else ""))
+        elif key == "risks":
+            L.append(f"  {r['id']:<4} {r.get('chance', ''):<5} {r['text']} · цена: {r.get('cost', '—')}"
+                     + (f" · если случилось: {r['then']}" if r.get("then") else ""))
+        elif key == "parts":
+            L.append(f"  {r.get('n', '?')}. {r['text']}" + (f" · раскрывает {', '.join(r['covers'])}" if r.get("covers") else ""))
+        elif key == "definitions":
+            L.append(f"  {r['id']:<4} {r['term']} — {r['means']}" + (f" (его слова: «{r['heard_from']}»)" if r.get("heard_from") else ""))
+        elif key == "unknown":
+            L.append(f"  {r['id']:<4} {r['text']}" + (f" · как закрываем: {r['how']}" if r.get("how") else "")
+                     + (" · ДЕРЖИТ ГЕЙТ" if r.get("blocking") else ""))
+        elif key in ("clarified", "summary"):
+            L += ["  " + x for x in r["text"].splitlines()]
+            if last_seq(tdir) > r.get("over_seq", 0):
+                L.append(f"  (над картиной #{r.get('over_seq')}; с тех пор она изменилась)")
         else:
-            finds = [l[2:].strip() for l in lines_ if l.startswith("- ")]
-        out.append({"name": f[:-3], "rel": f"research/{f}", "findings": len(finds),
-                    "lines": finds, "chars": len(text)})
-    return out
-
-
-def research_lines(tdir):
-    """The research folder as `el context` and bare `el research` show it — one line per
-    source, and the command that opens it whole. Contents are NOT inlined here: nine sources
-    can be 50K characters, past what one tool call carries (owner's question 2026-08-24:
-    «не получится так, что файлы там есть, а он их прочитать не может?» — it could, until
-    now: research/ was named, never readable through el)."""
-    files = research_files(tdir)
-    if not files:
-        return ['  — ещё ничего: el research <источник> "<находка>" --ref <якорь>']
-    # NAME · THE RESULTS, SHORT · THE PATH (owner, 2026-08-24: «название ресерча, результат
-    # ресерча, и путь — чтобы агент мог ориентироваться, а прочитать — открыть файл»).
-    out = [f"  папка: {os.path.join(tdir, 'research')}"]
-    for r in files:
-        out.append(f"  {r['name']} · {r['rel']} · находок {r['findings']}")
-        for line in r["lines"][:3]:
-            out.append(f"      · {line[:110]}")
-        if r["findings"] > 3:
-            out.append(f"      · … и ещё {r['findings'] - 3} — целиком: el ctx --section {r['name']}")
-    out.append('  добавить: el research <источник> "<находка>" --ref <якорь> · '
-               "один целиком: el ctx --section <источник>")
-    return out
-
-
-def cmd_ctx_add(args):
-    """Record a RESEARCH source: what was looked at, what it showed, where to re-check.
-
-    Research lives in its own folder at the project level (owner, 2026-08-21): research/,
-    one file per SOURCE — code, a document, a device, a data store, the web, a book. Inside:
-    the findings, each with a reference — the path, the link, the page — so any finding can
-    be found AGAIN and verified. Findings append: one look at the code is rarely the last."""
-    root = require_root()
-    if not root:
-        return 1
-    task = pick_task(root, args.task)
-    if not task:
-        return 1
-    if not args.source and not args.finding:
-        # bare `el research` — the folder, readable: what was looked at, how much, how to open
-        print(f"ИССЛЕДОВАНИЯ  {task} · research/")
-        for l in research_lines(os.path.join(root, task)):
-            print(l)
-        return 0
-    if not args.source or not args.finding:
-        print("a source and a finding are required.", file=sys.stderr)
-        print('hint     el research code "current copy sends name + lyric only" '
-              '--ref path/to/File.kt:318', file=sys.stderr)
-        print("         source is what you looked AT: code · db · logs · devices · ui · "
-              "docs · web · book · data", file=sys.stderr)
-        return 1
-    name = norm_id(args.source)
-    path = os.path.join(root, task, "research", f"{name}.md")
-    if not os.path.exists(path):
-        write(path, f"# Источник: {args.source.strip()}\n\n"
-                    "_Что смотрели, что нашли и где это проверить снова. Каждая находка "
-                    "с якорем — путём, ссылкой, страницей._\n")
-    area = (getattr(args, "area", None) or "").strip().lower()
-    if area and area not in AREA_KEYS:
-        print(f"unknown --area '{area}'. one of: {', '.join(AREA_KEYS)}", file=sys.stderr)
-        return 1
-    body = open(path, encoding="utf-8").read()
-    tag = f"  [область: {area}]" if area else ""
-    body += f"\n## {now_iso()[:16]}{tag}\n\n{args.finding.strip()}\n"
-    for ref in (args.ref or []):
-        body += f"- якорь: `{ref}`\n"
-    write(path, body)
-    journal(root, task, "source", f"{args.source.strip()}: {args.finding.strip()[:70]}",
-            {"refs": args.ref or [], "area": area or None})
-    touch(root, task)
-    print(f"recorded  research/{name}.md")
-    print("next      el context — the big picture · el next — what still blocks the gate")
-    return 0
+            L.append(f"  {r.get('id', ''):<4} {r.get('text', '')}")
+        if r.get("amends"):
+            L.append(f"       поправка ({r.get('phase', '')}): {r.get('why', '')}"
+                     + (f" · основание: {' · '.join(r['refs'])}" if r.get("refs") else ""))
+    return L

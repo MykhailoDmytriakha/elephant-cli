@@ -39,6 +39,16 @@ def goal_items(tdir, kind):
     Same principle as the ledger's checklist node: the text lives in context/, only the
     links live in the plan. Amended checklist ⇒ integrity is recomputed against the fresh
     text on the next call, with no migration of anything."""
+    # Since 2026-08-26 both live in streams: the checklist as promises on the root
+    # (checks.jsonl), the owner's big pieces as `part` records (context.jsonl).
+    from . import store
+    from .context import live as ctx_live
+    root_, task_ = os.path.dirname(os.path.abspath(tdir)), os.path.basename(os.path.abspath(tdir))
+    if kind == "ifr":
+        return [p.get("text", "") for p in store.promises(root_, task_, kind="checklist")
+                if p.get("at", store.ROOT) == store.ROOT]
+    if kind == "part":
+        return [r.get("text", "") for r in ctx_live(tdir, step="parts")]
     rel = CONTEXT_FILES.get(GOAL_KINDS[kind][1])
     if not rel:
         return []

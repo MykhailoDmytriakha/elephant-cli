@@ -35,6 +35,11 @@ git clone https://github.com/MykhailoDmytriakha/elephant-cli
 ## Проверка
 
 ```sh
-python3 cli/tests/scenario.py run --bin cli/el.py --out /tmp/snap-new
-python3 cli/tests/scenario.py diff /tmp/snap-old /tmp/snap-new     # два прогона, байт в байт
+python3 cli/tests/flow.py                     # одна задача через все восемь фаз на записях — держит или нет
+python3 cli/tests/flow.py --upto plan --out /tmp/f --serve 8770   # остановиться после плана и посмотреть страницу
+python3 cli/tests/flow.py --from execute --out /tmp/f             # продолжить из того же хранилища
+python3 cli/tests/scenario.py run --bin cli/el.py --out /tmp/snap-new   # дифф-тест (ждёт переписи под записи)
 ```
+
+Хранение с 2026-08-27 — три файла на задачу: `records.jsonl` (все фазы и потоки), `checks.jsonl`
+(обещания и вердикты), `journal.jsonl` (события). Ни `plan.md`, ни `nodes/`, ни `validation.md`.

@@ -148,32 +148,6 @@ def lines(root, task, full=False):
     return out
 
 
-def _md(root, task):
-    """owed.md — the ledger for a person: a projection, rewritten whole every time."""
-    items = ledger(root, task)
-    body = ["# За владельцем — ответы, которых у него пока нет", "",
-            "_Проекция журнала (события owe · owe-holds · owe-paid · owe-drop); правится "
-            "командой `el owe`, не рукой._", ""]
-    for title, st in (("## Открыто", "open"), ("## Оплачено", "paid"), ("## Снято", "dropped")):
-        part = [it for it in items if it["status"] == st]
-        if not part:
-            continue
-        body.append(title)
-        for it in part:
-            body.append(f"- #{it['n']} [{it['kind']}] {it['q']}")
-            body.append(f"  - как: {it['how'] or '—'} · с {it['ts'][:16]}"
-                        + (f" · срок: {it['by']}" if it["by"] else "")
-                        + (f" · область: {it['area']}" if it["area"] else ""))
-            if it["holds"]:
-                body.append("  - держит: " + ", ".join(hold_label(h) for h in it["holds"]))
-            if st == "paid":
-                body.append(f"  - ответ ({it['paid_ts'][:16]}): {it['answer']}")
-            if st == "dropped":
-                body.append(f"  - снято ({it['paid_ts'][:16]}): {it['why']}")
-        body.append("")
-    write(os.path.join(root, task, "owed.md"), "\n".join(body).rstrip() + "\n")
-
-
 def _lift(root, task, it):
     """The answer came — what the debt held is let go. A node blocked by this debt goes
     back to open (the block was this debt and nothing else); a fork or a phase is simply
@@ -293,7 +267,6 @@ def _record(root, task, q, args):
     if holds:
         extra["holds"] = holds
     journal(root, task, "owe", q[:200], extra)
-    _md(root, task)
     touch(root, task)
     print(f"за владельцем  #{n} {kind} · {q}")
     print(f"           как: {how}" + (f" · срок: {extra['by']}" if extra.get("by") else ""))
@@ -329,7 +302,6 @@ def _answer(root, task, words):
         print(f"#{it['n']} уже закрыт ({it['status']})", file=sys.stderr)
         return 1
     journal(root, task, "owe-paid", ans[:300], {"n": it["n"]})
-    _md(root, task)
     touch(root, task)
     print(f"оплачено  #{it['n']} · {it['q'][:60]}")
     print(f"ответ     {ans}")
@@ -355,7 +327,6 @@ def _drop(root, task, words, why):
         print(f"#{it['n']} уже закрыт ({it['status']})", file=sys.stderr)
         return 1
     journal(root, task, "owe-drop", it["q"][:120], {"n": it["n"], "why": why})
-    _md(root, task)
     touch(root, task)
     print(f"снято     #{it['n']} · {it['q'][:60]} — {why}")
     _lift(root, task, it)
@@ -388,6 +359,5 @@ def _tie(root, task, n, holds):
         print(f"держит    #{n} → {hold_label(norm)}")
         if norm.startswith("node:"):
             print(f"          узел встанет, когда дойдём: el plan block {norm[5:].lower()} --owe {n}")
-    _md(root, task)
     touch(root, task)
     return 0

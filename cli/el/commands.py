@@ -30,7 +30,9 @@ from .views import skill_html
 
 
 def cmd_init(args):
-    root = os.path.abspath(args.dir) if args.dir else os.path.join(project_root(), STORAGE_DIR)
+    env_dir = os.environ.get("ELEPHANT_DIR")
+    root = os.path.abspath(args.dir) if args.dir else \
+        (os.path.abspath(env_dir) if env_dir else os.path.join(project_root(), STORAGE_DIR))
     if os.path.isfile(os.path.join(root, MARKER)):
         print(f"already set up: {root}")
         return 0
@@ -105,8 +107,8 @@ def cmd_new(args):
     # agent's reformulation — that can lose a detail; his own wording is the insurance.
     raw = (getattr(args, "raw", None) or "").strip()
     if raw:
-        write(os.path.join(tdir, "init", "request.md"),
-              f"# Запрос пользователя\n\n_записано {now_iso()[:16].replace('T', ' ')}_\n\n{raw}\n")
+        from . import store
+        store.append(root, tid, "records", {"step": "init", "type": "request", "by": "owner", "kind": "first", "text": raw})
     # NOT created any more (owner, 2026-08-20 — stage 0 creates only what the guide names):
     #   project.md          — the card is DERIVED from the journal (task_meta); a stored
     #                         card was a second written copy of what the events already say
@@ -123,7 +125,7 @@ def cmd_new(args):
         journal(root, tid, "hold", "взята в руку: рождение")
     if raw:
         journal(root, tid, "request", "запрос пользователя записан — его словами",
-                {"ref": "init/request.md"})
+                {"ref": "records.jsonl#request"})
     # The mode at birth — by the task's weight (light · soft · strict); default soft.
     mode0 = (getattr(args, "mode", None) or "").strip().lower()
     if mode0 and mode0 in MODES and mode0 != "soft":
@@ -152,35 +154,23 @@ def cmd_boot(args):
             # A late --raw completes stage 0 on an existing task: the request was not
             # recorded at birth, the human repeated it, it lands now — in his words.
             raw = (getattr(args, "raw", None) or "").strip()
-            req = os.path.join(root, existing, "init", "request.md")
-            if raw and not os.path.exists(req):
-                write(req, f"# Запрос пользователя\n\n_записано "
-                           f"{now_iso()[:16].replace('T', ' ')}_\n\n{raw}\n")
-                journal(root, existing, "request",
-                        "запрос пользователя дозаписан — его словами", {"ref": "init/request.md"})
+            from . import store
+            from .state import request_records
+            have_req = bool(request_records(os.path.join(root, existing)))
+            src = (getattr(args, "source", None) or "").strip()
+            if raw and not have_req:
+                store.append(root, existing, "records", {"step": "init", "type": "request", "by": "owner", "kind": "first", "text": raw})
+                journal(root, existing, "request", "запрос пользователя дозаписан — его словами", {"ref": "records.jsonl#request"})
                 made.append("request")
-            elif raw and (getattr(args, "source", None) or "").strip():
-                # AN EXTERNAL FACT IS NOT HIS WORD (feedback 2026-08-26: a Jira delta the
-                # agent composed landed under «Повтор запроса», and the next reader would
-                # take the URL and the new requirement for the owner's request). It goes
-                # in, under its source and date — the file keeps both, typed apart.
-                src = args.source.strip()
-                with open(req, "a", encoding="utf-8") as fh:
-                    fh.write(f"\n## Из источника · {src} · {now_iso()[:16].replace('T', ' ')} "
-                             f"(не его слова — записал агент)\n\n{raw}\n")
-                journal(root, existing, "request", f"уточнение из источника {src} — не его слова",
-                        {"ref": "init/request.md", "source": src})
+            elif raw and src:
+                # AN EXTERNAL FACT IS NOT HIS WORD (feedback 2026-08-26): typed apart, under its source
+                store.append(root, existing, "records", {"step": "init", "type": "request", "by": "external", "kind": "source", "source": src, "text": raw})
+                journal(root, existing, "request", f"уточнение из источника {src} — не его слова", {"ref": "records.jsonl#request", "source": src})
                 made.append(f"request-source:{src}")
             elif raw:
-                # THE REQUEST REPEATED (owner, 2026-08-22): the same task asked again, in
-                # other words, another day — appended under its date, in his words, never
-                # overwriting the first: how he put it each time is history worth keeping.
-                # HIS words only — a fact from Jira, a document, a colleague goes with
-                # --source <name>, or it reads as the owner's request next time.
-                with open(req, "a", encoding="utf-8") as fh:
-                    fh.write(f"\n## Повтор запроса · {now_iso()[:16].replace('T', ' ')}\n\n{raw}\n")
-                journal(root, existing, "request", "запрос повторён — дозаписан его словами",
-                        {"ref": "init/request.md", "repeat": True})
+                # THE REQUEST REPEATED (owner, 2026-08-22): appended under its date, in his words
+                store.append(root, existing, "records", {"step": "init", "type": "request", "by": "owner", "kind": "repeat", "text": raw})
+                journal(root, existing, "request", "запрос повторён — дозаписан его словами", {"ref": "records.jsonl#request", "repeat": True})
                 made.append("request-repeat")
                 print("запрос    дозаписан как ЕГО слова; факт из Jira/документа/от коллеги — не сюда: "
                       '--source <имя> кладёт его отдельной секцией')
@@ -427,10 +417,6 @@ def cmd_accept(args):
     # packages — recorded over the stage, and the packages start only after it.
     if scope.lower().startswith("stage:"):
         scope = "stage:" + path_to_id([scope.split(":", 1)[1]])
-    rel = CONTEXT_FILES["approval"] if phase == "context" else "acceptance.md"
-    path = os.path.join(tdir, rel)
-    body = open(path, encoding="utf-8").read() if os.path.exists(path) else \
-        "# Слово владельца\n\n_Дословно. Не пересказ._\n"
     # A DECISION IN HIS PLACE (owner, 2026-08-22 · 2026-08-26). The agent writes what it
     # takes for his word and why — marked in the file, an `assume` event in the journal under
     # the standing grant; the gates read the file as they always did, so the decision opens
@@ -445,9 +431,8 @@ def cmd_accept(args):
             return 1
         if not autonomy.guard(root, task):
             return 1
-        body += (f"\n## {now_iso()[:16]} · фаза {phase} · {scope} · РЕШЕНИЕ АГЕНТА (в его место, под грантом)\n\n"
-                 f"> {args.words.strip()}\n\nпочему так принял: {assumed}\n")
-        write(path, body)
+        from .context import record_word
+        record_word(root, task, args.words, scope, assumed=assumed)
         journal(root, task, "assume", args.words.strip(),
                 {"phase": phase, "for": scope, "why": assumed})
         touch(root, task)
@@ -481,13 +466,15 @@ def cmd_accept(args):
                   f"--for node:{nid_c.lower()}", file=sys.stderr)
             print(f"  или сначала ответь критериям, потом повтори с --close", file=sys.stderr)
             return 1
-    body += f"\n## {now_iso()[:16]} · фаза {phase} · {scope}\n\n> {args.words.strip()}\n"
-    if getattr(args, "on", None):
-        body += f"\nутверждено: {args.on.strip()}\n"
-    write(path, body)
-    journal(root, task, "accepted", args.words.strip(), {"phase": phase, "for": scope})
+    # His word — over the picture, the decision, the map, a stage, a node or the result — is
+    # a record in the stream, carrying the seq it was said over: anything written after it
+    # is visible as a number, not a guess (2026-08-26).
+    from .context import record_word
+    w = record_word(root, task, args.words, scope)
+    journal(root, task, "accepted", args.words.strip(), {"phase": phase, "for": scope,
+                                                         "id": w["id"], "over_seq": w["over_seq"]})
     touch(root, task)
-    print(f"recorded  {rel} · {scope}")
+    print(f"recorded  {w['id']} · слово над {scope} · картина #{w['over_seq']}")
     if scope.startswith("stage:"):
         sid = scope.split(":", 1)[1]
         kids_s = sorted((n for n in nodes_all(tdir) if n.get("parent") == sid and node_open(n)),
@@ -526,100 +513,67 @@ def cmd_accept(args):
 
 
 def cmd_todo(args):
-    """Park something that must NOT be lost, but does not belong to the phase we are on.
-
-    The folder had `open-questions.md` from day one and no command ever wrote to it, so the
-    only way to carry a "check this when we get to the phone" was to hold it in the agent's
-    head — and a session ends. Written down with the phase it belongs to; `el next` surfaces
-    the ones whose phase has arrived, which is the whole point: a note nobody is shown at the
-    right moment is the same as a forgotten one. (Owner, 2026-08-19: "запиши в task list".)"""
+    """Park something that must NOT be lost, but does not belong to the phase we are on —
+    a `todo` record with the phase it belongs to; `el next` surfaces the ones whose phase
+    has arrived. Closing is an event over the record (2026-08-27)."""
+    from . import store
     root = require_root()
     if not root:
         return 1
     task = pick_task(root, getattr(args, "task", None))
     if not task:
         return 1
-    path = os.path.join(root, task, "open-questions.md")
+    tdir = os.path.join(root, task)
     if getattr(args, "list", False) or (not args.text and not getattr(args, "done", None)):
-        # NUMBERED, the way --done counts (feedback 2026-08-24: the raw file had no numbers,
-        # the agent counted by eye and closed the wrong item — twice). Open items carry their
-        # number; closed ones are folded away unless --all.
-        items = todo_items(os.path.join(root, task))
-        open_items = [it for it in items if it["open"]]
-        closed_items = [it for it in items if not it["open"]]
-        if not items:
-            print("нет отложенного.")
-        else:
-            print(f"отложено  открыто {len(open_items)} · закрыто {len(closed_items)}"
-                  " — номер у пункта = N для --done")
-            for it in open_items:
-                print(f"  {todo_line(it)}")
-                if it["why"]:
-                    print(f"         зачем: {it['why'][:90]}")
-            if closed_items:
-                if getattr(args, "all", False):
-                    print(f"закрыто   {len(closed_items)}")
-                    for it in closed_items:
-                        print(f"  {todo_line(it)}")
-                else:
-                    print(f"закрыто   {len(closed_items)} — показать: el todo --all")
+        items = todo_items(tdir)
+        shown = [it for it in items if it["open"] or getattr(args, "all", False)]
+        if not shown:
+            print("отложенного нет." if not items else "открытого нет — всё отложенное сделано; --all покажет закрытое")
+        for it in shown:
+            print(f"  {todo_line(it)}")
         if not args.text:
             print('\nзапись   el todo "<что сделать>" --when <фаза> [--every "<как часто>" — напоминание ⟳] · '
                   'закрыть: el todo --done N "<чем доказано>"')
         return 0
-    # Closing a parked item was impossible until now: `el next` kept surfacing work already
-    # done, and a reminder that will not go away stops being read. Found on the first live use.
     if getattr(args, "done", None):
-        if not os.path.exists(path):
-            print("нет отложенного.", file=sys.stderr)
-            return 1
-        lines = open(path, encoding="utf-8").read().splitlines()
-        open_idx = [i for i, l in enumerate(lines) if l.strip().startswith("- [ ]")]
+        open_items = [it for it in todo_items(tdir) if it["open"]]
         n = args.done
-        if not (1 <= n <= len(open_idx)):
-            print(f"нет открытого пункта {n}; открыто: {len(open_idx)}", file=sys.stderr)
-            for it in todo_items(os.path.join(root, task)):
-                if it["open"]:
-                    print(f"  {todo_line(it)}", file=sys.stderr)
+        if not (1 <= n <= len(open_items)):
+            print(f"нет открытого пункта {n}; открыто: {len(open_items)}", file=sys.stderr)
+            for it in open_items:
+                print(f"  {todo_line(it)}", file=sys.stderr)
             return 1
-        i = open_idx[n - 1]
-        lines[i] = lines[i].replace("- [ ]", "- [x]", 1) + f"  ← закрыто {now_iso()[:16]}"
+        it = open_items[n - 1]
+        rec = {"step": "todos", "type": "todo_done", "of": it["id"], "by": "agent"}
         if args.text:
-            lines[i] += f": {args.text.strip()}"
-        write(path, "\n".join(lines) + "\n")
-        journal(root, task, "todo-done", lines[i][5:120])
+            rec["note"] = args.text.strip()
+        store.append(root, task, "records", rec)
+        journal(root, task, "todo-done", it["text"][:120])
         touch(root, task)
-        # the item just closed — by its POSITION among the checkbox lines, not «the last
-        # closed one» (which is whichever closed item sits lowest in the file)
-        k = sum(1 for l in lines[:i] if l.strip().startswith(("- [ ]", "- [x]")))
-        closed_it = todo_items(os.path.join(root, task))[k]
-        print(f"закрыто   {todo_line(closed_it)}")
-        left_n = len(open_idx) - 1
-        if left_n:
-            print(f"осталось  {left_n} — номера сдвинулись, перечитай: el todo")
+        print(f"закрыто   {todo_line(dict(it, open=False, closed=now_iso()[:16]))}")
+        left_n = len(open_items) - 1
+        print(f"открыто   {left_n}" if left_n else "открытого больше нет")
         return 0
     when = (getattr(args, "when", None) or "").strip().lower()
-    if when and when not in PHASES:
-        print(f"--when: одна из фаз {', '.join(PHASES)}", file=sys.stderr)
-        return 1
-    body = open(path, encoding="utf-8").read() if os.path.exists(path) else \
-        "# Открытые вопросы и отложенное\n\n"
     every = (getattr(args, "every", None) or "").strip()
-    body += f"\n- [ ] **{when or 'когда угодно'}{' ⟳ ' + every if every else ''}** · {args.text.strip()}"
-    if getattr(args, "why", None):
-        body += f"\n      зачем: {args.why.strip()}"
-    body += "\n"
-    write(path, body)
-    journal(root, task, "todo", args.text.strip()[:120], {"when": when or None})
-    touch(root, task)
+    if when and when not in PHASES:
+        print(f"--when — одна из фаз: {', '.join(PHASES)}", file=sys.stderr)
+        return 1
+    if not when and not every:
+        print('к какой фазе это относится? --when <фаза> · или напоминание: --every "<как часто>"', file=sys.stderr)
+        return 1
+    rec = {"step": "todos", "type": "todo", "by": "agent", "text": args.text.strip()}
+    if when:
+        rec["when"] = when
     if every:
-        print(f"напоминание  open-questions.md · ⟳ {every} · всплывает на фазе {when or 'любой'} "
-              "под ходом, не как ход; закрытию проекта не мешает")
-    else:
-        print(f"отложено  open-questions.md · всплывёт на фазе {when or 'любой'} — под ходом, "
-              "как обещание к фазе")
+        rec["every"] = every
+    if (getattr(args, "why", None) or "").strip():
+        rec["why"] = args.why.strip()
+    out = store.append(root, task, "records", rec)
+    journal(root, task, "todo", args.text.strip()[:120], {"id": out["id"], "when": when or None, "every": every or None})
+    touch(root, task)
+    print(f"отложено  {out['id']} · " + (f"к фазе {when}" if when else f"напоминание ⟳ {every}") + f" · {args.text.strip()[:80]}")
     return 0
-
 
 def cmd_spawn(args):
     """Split a NEW task off the flow without derailing the one in hand.
@@ -660,9 +614,8 @@ def cmd_spawn(args):
         journal(root, dep, "dependent", f"{tid} зависит от этой задачи")
     if src:
         origin = args.why or f"отделено от задачи {src}"
-        write(os.path.join(root, tid, "context", "origin.md"),
-              f"# Откуда взялась эта задача\n\n{origin}\n\n"
-              f"- родительская задача: `{src}`\n- отделено: {now_iso()[:16]}\n")
+        from . import store
+        store.append(root, tid, "records", {"step": "init", "type": "origin", "by": "agent", "text": origin, "parent_task": src})
         journal(root, src, "spawned", f"{tid}: {args.description[:90]}")
     # The task in hand stays in hand — structurally: the new one is born WITHOUT a hold
     # event (hand=False above), and nothing else moves the hand (state.current_task).
@@ -861,16 +814,11 @@ def cmd_lesson(args):
     if want and not task:
         print(f"no task {want}", file=sys.stderr)
         return 1
-    path = lessons_path(root)
-    if not os.path.exists(path):
-        write(path, "# Уроки этого хранилища\n\n"
-                    "_Что споткнуло и как обходить. Пишется на фазе уроков (`el lesson`), "
-                    "читается каждым агентом на входе — голый `el` печатает этот список._\n\n")
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write(f"- {now_iso()[:10]} · {task or '—'}: {text}\n")
+    from .state import lesson_write
+    lesson_write(root, task, text)
     if task:
-        journal(root, task, "lesson", text[:200], {"ref": "../lessons.md"})
-    print(f"урок записан → {path}")
+        journal(root, task, "lesson", text[:200], {"ref": "../lessons.jsonl"})
+    print(f"урок записан → {lessons_path(root)}")
     return 0
 
 
@@ -1303,8 +1251,9 @@ def cmd_brief(args):
         print(f"не влезает: {n_l} строк / {n_c} символов · лимит {BRIEF_LINES} / {BRIEF_CHARS} — "
               "убери менее важное: листок держит ориентиры, а не хронику", file=sys.stderr)
         return 1
-    write(brief_path(tdir), text + "\n")
-    journal(root, task, "brief", f"листок переписан: {n_l} строк", {"ref": "brief.md"})
+    from . import store
+    store.append(root, task, "records", {"step": "brief", "type": "brief", "by": "agent", "text": text})
+    journal(root, task, "brief", f"листок переписан: {n_l} строк", {"ref": "records.jsonl#brief"})
     touch(root, task)
     print(f"листок    переписан · {n_l}/{BRIEF_LINES} строк · {n_c}/{BRIEF_CHARS} символов · "
           "el и el status печатают его первым")

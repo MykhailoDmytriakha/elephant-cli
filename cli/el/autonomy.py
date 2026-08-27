@@ -156,13 +156,15 @@ def brief_stale(root, task):
     returning agent must not obey it (feedback 2025-08-25, Copilot: after `el grant` the
     onboarding still printed brief.md with the old owner-gated guidance). (grant_ts,
     brief_ts) when stale, else None."""
-    from .state import brief_path
+    from .state import brief_ts
     st = state(root, task)
     if not st or not st["active"]:
         return None
-    p = brief_path(os.path.join(root, task))
     try:
-        b_ts = os.path.getmtime(p)
+        b_iso = brief_ts(os.path.join(root, task))
+        if not b_iso:
+            return None
+        b_ts = datetime.fromisoformat(b_iso).timestamp()
         g_ts = datetime.fromisoformat(st["grant"].get("ts", "")).timestamp()
     except (OSError, ValueError):
         return None

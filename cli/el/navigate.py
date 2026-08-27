@@ -19,7 +19,8 @@ from .state import (CLI_ENTRY, SKILL_ROOT, brief_read, brief_when, current_task,
                     tasks_of)
 from .term import bar, emit, human_when, wrap
 from .blueprint import phase_brief
-from .context import area_coverage, context_step, questions_stat, scope_done
+from .context import area_coverage, context_step, questions_stat, scope_done, step_done, live as ctx_live
+from .plan import plan_step_done as step_done_plan
 from .think import forks_read, think_step
 from .plan import (STATUS_MARK, STATUS_RU, active_node, drift_lines, plan_drift, node_gaps, node_open, node_status,
                    node_sync, nodes_all, sync_mark, waiting_nodes)
@@ -140,7 +141,7 @@ def ctx_line(root, task=None):
     phase = meta.get("phase", "context")
     tdir = os.path.join(root, task)
     if phase == "context":
-        ok = os.path.exists(os.path.join(tdir, CONTEXT_FILES["approval"]))
+        ok = step_done(tdir, "approval")
         gate = "gate ОТКРЫТ владельцем" if ok else "gate HARD · нет слова владельца"
     else:
         gate = "gate soft"
@@ -214,7 +215,15 @@ def cmd_ctx(args):
 def ctx_index(tdir):
     """(key, rel, title, lines, first content line) for every section that exists on disk."""
     out = []
+    from .context import section_lines
+    ctx_keys = {k for k, *_x in CONTEXT_STEPS}
     for key, rel, title in ctx_sections(tdir):
+        if key in ctx_keys and rel.startswith("records.jsonl"):
+            body = section_lines(tdir, key)
+            if body:
+                first = body[0].strip()
+                out.append((key, rel, title, len(body), first[:90] + ("…" if len(first) > 90 else "")))
+            continue
         path = os.path.join(tdir, rel)
         if not os.path.exists(path):
             continue
@@ -232,20 +241,7 @@ def ctx_index(tdir):
 def ctx_sections(tdir):
     """The sections of the whole road, in the order they are read — the addresses of `el ctx`."""
     order = [(k, rel, title) for k, rel, title, *_x in CONTEXT_STEPS]
-    cdir = os.path.join(tdir, "context")
-    known = {rel.split("/")[-1] for _k, rel, _t in order}
-    sources = sorted(f for f in (os.listdir(cdir) if os.path.isdir(cdir) else [])
-                     if f.endswith(".md") and f not in known)
-    order += [(f[:-3], f"context/{f}", f"источник: {f[:-3]}") for f in sources]
-    # research/ is READABLE by section (2026-08-24): `el ctx --section cluster` prints the
-    # file; the full picture lists them (research_lines) instead of inlining — budget.
-    from .context import research_files
-    order += [(r["name"], r["rel"], f"исследование · {r['name']}") for r in research_files(tdir)]
     order += [(k, rel, f"думание · {title}") for k, rel, title, *_x in THINK_STEPS]
-    order += [("tools", "thinking/tools.md", "думание · приёмы, которые брал"),
-              ("plan", "plan.md", "план · сетевой план"),
-              ("validation", "validation.md", "проверка на живом"),
-              ("acceptance", "acceptance.md", "слово владельца на плане и приёмке")]
     return order
 
 
@@ -284,9 +280,21 @@ def print_context_full(root, task, tdir, want=None):
                   f"{str(last.get('ts', ''))[:16].replace('T', ' ')} ({last.get('phase', '?')}) — "
                   f"в файлах ниже, секции «Поправка»")
     shown = 0
+    from .context import section_lines
+    ctx_keys = {k for k, *_x in CONTEXT_STEPS}
     for key, rel, title in order:
         if not want and rel.startswith("research/"):
             continue                      # listed below, one line per source
+        if key in ctx_keys and rel.startswith("records.jsonl"):
+            body = section_lines(tdir, key)
+            if not body:
+                if not want:
+                    print(f"\n── {title.upper()}   ✗ ещё не собрано  →  {rel}")
+                continue
+            print(f"\n── {title.upper()}   ✓  {rel}")
+            print("\n".join(body))
+            shown += 1
+            continue
         path = os.path.join(tdir, rel)
         if not os.path.exists(path):
             if not want:
@@ -305,10 +313,6 @@ def print_context_full(root, task, tdir, want=None):
     if not want:
         # Research rides along: sources live in their own folder (owner, 2026-08-21) but
         # the gathering picture is not whole without naming what was actually looked at.
-        from .context import research_lines
-        print("\n── ИССЛЕДОВАНИЯ (research/)")
-        for l in research_lines(tdir):
-            print(l)
         cov = area_coverage(tdir)
         blank = [a for a in AREA_KEYS if not cov[a]]
         print("\n── ПОКРЫТИЕ СБОРА")
@@ -545,11 +549,10 @@ def passed_lines(root, task, tdir):
         out.append(f"{head}✓ {n['id']:<4} {(n.get('name','') or '')[:44]:<46}{note[:38]}")
     if stops:
         out.append(f"остановки пройдено {len(passed)} из {len(stops)}")
-    ap = os.path.join(tdir, "acceptance.md")
-    if os.path.exists(ap):
-        quotes = [l.strip()[2:].strip() for l in open(ap, encoding="utf-8") if l.startswith("> ")]
-        if quotes:
-            out.append(f"его слово «{quotes[-1][:70]}»")
+    from .context import word_over as _wo
+    _w, _stale = _wo(tdir, "plan")
+    if _w:
+        out.append(f"его слово «{(_w.get('words') or '')[:70]}»" + (" · картина менялась после" if _stale else ""))
     return out
 
 
@@ -710,19 +713,24 @@ def progress_lines(root, task, part=None):
     if want("init"):
         out += _file_block(tdir, "init/request.md", "0 · запрос пользователя", "init")
     if want("context"):
-        out += _file_block(tdir, CONTEXT_FILES["clarified"], "1 · задача после уточнений", "context")
-        out += _file_block(tdir, CONTEXT_FILES["summary"], "1 · свёртка контекста", "context")
-        if not os.path.exists(os.path.join(tdir, CONTEXT_FILES["clarified"])) \
-                and not os.path.exists(os.path.join(tdir, CONTEXT_FILES["summary"])):
+        for _k, _t in (("clarified", "1 · задача после уточнений"), ("summary", "1 · свёртка контекста")):
+            _rows = ctx_live(tdir, step=_k)
+            if _rows:
+                out += [f"── {_t} · records.jsonl#{_k}"] + _rows[-1]["text"].splitlines()[:PROGRESS_FILE_LINES] + [""]
+        if not ctx_live(tdir, step="clarified") and not ctx_live(tdir, step="summary"):
             qs = questions_stat(tdir)
             out.append("── 1 · контекст — ни clarified, ни свёртки ещё нет"
                        + (f" · вопросов {qs[1]}" if qs else "") + " · el context")
             out.append("")
     if want("think"):
-        out += _file_block(tdir, THINK_FILES["crystal"], "2 · кристалл — как вызревало решение", "think")
-        out += _file_block(tdir, THINK_FILES["decision"], "2 · развилки и решения", "think")
+        _cr = ctx_live(tdir, step="crystal")
+        if _cr:
+            out += ["── 2 · кристалл — как вызревало решение · records.jsonl#crystal"] + [x["text"] for x in _cr[-3:]] + [""]
+        _fk = forks_read(tdir)
+        if _fk:
+            out += ["── 2 · развилки и решения · records.jsonl#forks"] + \
+                   [f"  {'✓' if f['decision'] else '▶'} {f['id']} {f['q']}" + (f" → {f['decision']}" if f['decision'] else "") for f in _fk] + [""]
     if want("plan"):
-        out += _file_block(tdir, "plan.md", "3 · сетевой план", "plan")
         nodes = sorted(nodes_all(tdir), key=lambda x: x["id"])
         if nodes:
             out.append("── 3 · узлы плана с итогами · nodes/")
@@ -976,8 +984,9 @@ def cmd_next(args):
     # Stage 0 closes with the tree on disk AND the user's request recorded (owner, 2026-08-21):
     # by the time any phase is worked, init/request.md must already exist. Not a context
     # trace — a nag that stays until initialization is actually finished.
-    if not os.path.exists(os.path.join(tdir, "init", "request.md")):
-        print("init ✗   этап 0 не закрыт: init/request.md не записан — запрос пользователя его")
+    from .state import request_records
+    if not request_records(tdir):
+        print("init ✗   этап 0 не закрыт: запрос не записан — запрос пользователя его")
         print("         словами, только о задаче. Попроси повторить запрос и дозапиши:")
         print(f'         el boot "<задача>" --id {task} --raw "<его слова о задаче>"')
     if have:
@@ -1062,10 +1071,9 @@ def cmd_next(args):
         # step where the two can differ: the file appears with the first dimension answered
         # and would show ✓ over a boundary drawn on two sides out of six.
         def _tick(k, rel):
-            if k == "scope" and os.path.exists(os.path.join(tdir, rel)):
+            if k == "scope" and scope_done(tdir):
                 return "✓" if len(scope_done(tdir)) == len(SCOPE_KEYS) else "▶"
-            return "✓" if os.path.exists(os.path.join(tdir, rel)) else \
-                   ("▶" if step and step[0] == k else "·")
+            return "✓" if step_done(tdir, k) else ("▶" if step and step[0] == k else "·")
         ladder = " → ".join(_tick(k, rel) + title for k, rel, title, *_x in CONTEXT_STEPS)
         print(f"лестница {wrap(ladder, indent='         ')}")
         print(f"режим    {wrap(PHASE_MODE['context'], indent='         ')}")
@@ -1123,7 +1131,7 @@ def cmd_next(args):
             elif dr.get("missing") or dr.get("cycle"):
                 move = ("дерево само с собой не сходится (deps на несуществующий узел или цикл) "
                         "— поправь deps или заведи узлы: см. РАСХОЖДЕНИЕ выше")
-            elif not os.path.exists(os.path.join(tdir, "acceptance.md")):
+            elif not step_done_plan(tdir, "approval"):
                 move = 'покажи план владельцу (el plan) и запиши его «да»: el accept "<слова>"'
             else:
                 move = 'план принят; дальше: el forward --why "<что решено>"'
@@ -1208,8 +1216,8 @@ def cmd_next(args):
         forks = forks_read(tdir)
         # The step the navigator stands on is ▶ even when its file exists — the decision file
         # appears with the first fork and the step is done only when every fork is decided.
-        ladder = " → ".join(("▶" if step and step[0] == k else
-                             ("✓" if os.path.exists(os.path.join(tdir, rel)) else "·")) + title
+        from .think import step_done as _tdone
+        ladder = " → ".join(("▶" if step and step[0] == k else ("✓" if _tdone(tdir, k) else "·")) + title
                             for k, rel, title, *_x in THINK_STEPS)
         print(f"лестница {wrap(ladder, indent='         ')}")
         print(f"режим    {wrap(PHASE_MODE['think'], indent='         ')}")
@@ -1217,10 +1225,10 @@ def cmd_next(args):
         # and is not done — and whether anything is worth PULLING INSIDE; that decision is
         # taken here, with the human. An artifact nobody re-opens is an artifact nobody
         # reads, so it is carried forward.
-        bs = os.path.join(tdir, CONTEXT_FILES["beyond"])
-        if os.path.exists(bs):
-            head = [l.strip() for l in open(bs, encoding="utf-8")
-                    if l.strip() and not l.startswith("#")][:1]
+        beyond_recs = ctx_live(tdir, step="beyond")
+        if beyond_recs:
+            head = [r["text"] for r in beyond_recs if r.get("verdict") == "candidate"][:1] \
+                or [beyond_recs[0]["text"]]
             print("из контекста  за рамкой лежит близкое — втягивать ли, решается ЗДЕСЬ, с человеком:")
             print(f"         {wrap(head[0] if head else 'см. context/beyond-scope.md', indent='         ')}")
         if forks:
@@ -1270,7 +1278,7 @@ def cmd_next(args):
     # HARD on the owner's word, soft on everything else. --waive can excuse a trace the agent
     # judged unnecessary; it cannot excuse the human. Condition 3 of the gate exists precisely
     # because it is the one thing an agent must not be able to grant itself (§4).
-    if phase == "context" and not os.path.exists(os.path.join(tdir, CONTEXT_FILES["approval"])):
+    if phase == "context" and not step_done(tdir, "approval"):
         print("gate     ЗАКРЫТ НАГЛУХО — нет слова владельца. Предъяви ему собранное "
               "содержимым (el context), потом: el accept \"<его слова дословно>\"")
         if auto_on:
@@ -1474,7 +1482,7 @@ def gate_verdict(root, task, tdir, phase):
     differential test keeps them equal."""
     have, missing = phase_state(tdir, phase)
     req_missing = [r for r, _w, req in missing if req]
-    if phase == "context" and not os.path.exists(os.path.join(tdir, CONTEXT_FILES["approval"])):
+    if phase == "context" and not step_done(tdir, "approval"):
         return False, "нет слова владельца"
     pend = pending_word(root, task)
     if pend:
@@ -1631,8 +1639,8 @@ def cmd_forward(args):
                 for d in gate_doors(phase_f):
                     print(d, file=sys.stderr)
                 return 1
-        if not os.path.exists(os.path.join(tdir_f, "acceptance.md")):
-            print("НЕ ПУЩУ — выход из плана требует ЯВНОГО «да» владельца (§8.5).",
+        if not step_done_plan(tdir_f, "approval"):
+            print("НЕ ПУЩУ — выход из плана требует ЯВНОГО «да» владельца над КАРТОЙ, КАК ОНА СЕЙЧАС (§8.5).",
                   file=sys.stderr)
             print("  покажи ему план: el plan", file=sys.stderr)
             print('  запиши его слово: el accept "<что он сказал>"', file=sys.stderr)
@@ -1704,7 +1712,7 @@ def cmd_forward(args):
                   file=sys.stderr)
             return 1
         if decl_n:
-            print(f"снято вместе с работой: {decl_n} критериев — остаются видимыми в validation.md")
+            print(f"снято вместе с работой: {decl_n} критериев — остаются видимыми в реестре (el validate)")
             args.why = (args.why or "") + f" · снятых критериев: {decl_n}"
         if failed_n and not getattr(args, "waive", None):
             print(f"НЕ ПУЩУ — критериев НЕ сошлось: {failed_n}", file=sys.stderr)
@@ -1729,7 +1737,7 @@ def cmd_forward(args):
                 print(d, file=sys.stderr)
             return 1
     if phase_f == "context" and required_in(CONTEXT_MIN["scope"], mode_f) \
-            and os.path.exists(os.path.join(tdir_f, CONTEXT_FILES["scope"])) \
+            and scope_done(tdir_f) \
             and len(scope_done(tdir_f)) < len(SCOPE_KEYS) and not getattr(args, "waive", None):
         # A boundary drawn on four sides out of six is not a boundary — and the two nobody asked
         # about are exactly where "а я думал, это тоже входит" comes from later.
@@ -1754,7 +1762,7 @@ def cmd_forward(args):
             print("  это живёт только у него в голове — спроси, или осознанно:", file=sys.stderr)
             print('  el forward --waive "<почему выходим, не спросив>"', file=sys.stderr)
             return 1
-    if phase_f == "context" and not os.path.exists(os.path.join(tdir_f, CONTEXT_FILES["approval"])):
+    if phase_f == "context" and not step_done(tdir_f, "approval"):
         print("НЕ ПУЩУ — из контекста без слова владельца выхода нет.", file=sys.stderr)
         print("  1. предъяви ему собранное СОДЕРЖИМЫМ:  el context", file=sys.stderr)
         print("  2. услышь его ответ", file=sys.stderr)
@@ -1794,22 +1802,19 @@ def cmd_forward(args):
         missing = []
         qs = questions_stat(tdir)
         if qs is None:
-            missing.append("context/questions.md — clarifying questions were never recorded")
+            missing.append("records.jsonl#questions — clarifying questions were never recorded")
         elif qs[0] == 0:
-            missing.append("context/questions.md — no questions in it")
+            missing.append("records.jsonl#questions — no questions in it")
         elif qs[1] < qs[0]:
-            missing.append(f"context/questions.md — {qs[0]} asked, only {qs[1]} answered")
-        if not os.path.exists(os.path.join(cdir, "task.clarified.md")):
-            missing.append("context/task.clarified.md — the task is still the draft")
-        rdir = os.path.join(tdir, "research")
-        local = [f for f in (os.listdir(rdir) if os.path.isdir(rdir) else [])
-                 if f.endswith(".md")]
-        if not local and mode_f != "light":
+            missing.append(f"records.jsonl#questions — {qs[0]} asked, only {qs[1]} answered")
+        # the traces are records now (2026-08-27): the ladder's own rule says what is done
+        if not step_done(tdir, "clarified", mode_f):
+            missing.append("records.jsonl#clarified — the task is still the draft")
+        if not step_done(tdir, "research", mode_f) and mode_f != "light":
             missing.append("no research gathered — nothing from code, logs, docs, the web "
                            '(el research <источник> "<находка>" --ref <якорь>)')
-        if not os.path.exists(os.path.join(cdir, "summary.md")) \
-                and required_in(CONTEXT_MIN["summary"], mode_f):
-            missing.append("context/summary.md — gathered material is not folded into one read")
+        if not step_done(tdir, "summary", mode_f) and required_in(CONTEXT_MIN["summary"], mode_f):
+            missing.append("records.jsonl#summary — gathered material is not folded into one read")
         if missing:
             print(f"gate {cur} → {nxt}: CLOSED", file=sys.stderr)
             for m in missing:
@@ -1910,8 +1915,8 @@ def cmd_where(_args):
     print(f"phase     {phase_no(phase)}/8 {phase}")
     print(f"journal   {os.path.join(tdir, 'journal.jsonl')}   ← правда проекта: события, "
           f"переходы, исход; карточка выводится из него")
-    print(f"request   {os.path.join(tdir, 'init', 'request.md')}")
-    print(f"goal      {os.path.join(tdir, 'context', 'task.clarified.md')}   ← задача его словами "
+    print(f"request   {os.path.join(tdir, 'records.jsonl')}#request")
+    print(f"goal      {os.path.join(tdir, 'records.jsonl')}#clarified   ← задача его словами "
           f"(+ поправки) · инженерно: thinking/crystal.md")
     have, missing = phase_state(tdir, phase)
     print("traces    of this phase — write the missing ones at these paths")
