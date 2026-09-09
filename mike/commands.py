@@ -1670,13 +1670,24 @@ def mv(case: Path, old: str, new: str) -> Outcome:
         raise StoreError(f"{dst.relative_to(case)} already exists — mv never overwrites", 4)
     old_rel, new_rel = src.relative_to(case).as_posix(), dst.relative_to(case).as_posix()
     touched: List[str] = []
-    # 1. the moved file's own links follow it
-    body, n = _rewrite_links(src.read_text(encoding="utf-8"), src.parent, src, dst, new_base=dst.parent)
+    # 1. the moved file's own links follow it — when it is markdown; a pdf, an image, a script moves
+    #    as bytes, its body is never read (feedback 2026-09-09: `mv X.pdf outbox/` died decoding it,
+    #    nothing moved). Links TO it are rewritten like for any file (step 2).
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(body, encoding="utf-8")
-    src.unlink()
-    if n:
-        touched.append(f"{new_rel} ({n} of its own)")
+    body = None
+    if src.suffix.lower() == ".md":
+        try:
+            body = src.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            out.warn(f"{old_rel} is not UTF-8 text — moved as is, links inside it (if any) untouched")
+    if body is None:
+        src.replace(dst)
+    else:
+        body, n = _rewrite_links(body, src.parent, src, dst, new_base=dst.parent)
+        dst.write_text(body, encoding="utf-8")
+        src.unlink()
+        if n:
+            touched.append(f"{new_rel} ({n} of its own)")
     touched += _follow_links(case, src, dst, out, skip=dst)
     if "README.md" not in " ".join(touched):
         _refresh_readme(case, out)  # Links follow the files

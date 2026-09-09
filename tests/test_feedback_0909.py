@@ -215,3 +215,35 @@ class StaleLinksLine(Base):
         self.assertIn("[outside](../../NOTES.md)", r)
         code, out, err = run("check")
         self.assertEqual(code, 0, err + out)
+
+
+class MoveBinary(Base):
+    """Feedback 2026-09-09 13:24: `mike mv X.pdf outbox/X.pdf` died with UnicodeDecodeError reading
+    the pdf as UTF-8 to rewrite its own links; nothing moved, links elsewhere stayed dead."""
+
+    def test_a_pdf_moves_as_bytes_and_links_to_it_follow(self):
+        raw = b"%PDF-1.4\n\xc4\xe9\x00 binary body"
+        (self.case / "docs").mkdir()
+        (self.case / "docs" / "x.pdf").write_bytes(raw)
+        run("readme", "add", "links", "docs/ — документы")
+        run("todo", "add", "1", "sign it — [pdf](docs/x.pdf)")
+        pf = self.case / "phases" / "1-work.md"
+        pf.write_text(pf.read_text(encoding="utf-8") + "\nsee [the pdf](../docs/x.pdf)\n", encoding="utf-8")
+        code, out, err = run("mv", "docs/x.pdf", "outbox/x.pdf")
+        self.assertEqual(code, 0, err)
+        self.assertIn("moved: docs/x.pdf → outbox/x.pdf · links rewritten: TODO.md (1), phases/1-work.md (1)", out)
+        self.assertEqual((self.case / "outbox" / "x.pdf").read_bytes(), raw, "byte for byte")
+        self.assertFalse((self.case / "docs" / "x.pdf").exists())
+        self.assertIn("[pdf](outbox/x.pdf)", self.read("TODO.md"))
+        self.assertIn("[the pdf](../outbox/x.pdf)", pf.read_text(encoding="utf-8"))
+        self.assertNotIn("broken link", run()[1])
+        code, out, err = run("check")
+        self.assertEqual(code, 0, err + out)
+
+    def test_a_markdown_file_that_is_not_utf8_moves_with_a_warning(self):
+        (self.case / "docs").mkdir()
+        (self.case / "docs" / "old.md").write_bytes(b"# old\nsummary: \xc4 latin-1 body\n")
+        code, out, err = run("mv", "docs/old.md", "docs/archive/old.md")
+        self.assertEqual(code, 0, err)
+        self.assertIn("not UTF-8 text — moved as is", err)
+        self.assertTrue((self.case / "docs" / "archive" / "old.md").exists())
