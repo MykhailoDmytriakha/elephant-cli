@@ -15,7 +15,9 @@ from . import stamp as stamp_mod
 README_WARN_LINES, README_WARN_BYTES = 200, 8 * 1024
 README_MAX_LINES, README_MAX_BYTES = 300, 12 * 1024
 README_POINTER_CHARS = 150
-TODO_MAX_LINES = 100
+# 200 since 0.20 (feedback 2026-09-09): a rollout through five environments × 17 steps plus 26 phase
+# lines is 113 lines of structure, not water — at 100 the agent cancelled live phases to fit.
+TODO_MAX_LINES = 200
 TODO_ITEM_CHARS = 80
 EVENT_CHARS = 200
 EVENT_WARN_CHARS = 180

@@ -747,6 +747,27 @@ def todo_hold(case: Path, ref: str, reason: str) -> Outcome:
     return out
 
 
+def todo_reopen(case: Path, ref: str, why: str) -> Outcome:
+    """A tick taken back with a reason (feedback 2026-09-09: a database drift found at 22.2 sent
+    22.1–22.6 back to open; `resume` only lifts a hold, so the agent edited the file and met the
+    stamp). The RESULT logged at `done` stays — it is history — and a DECISION says it no longer
+    holds. The item is open again: the phase cannot close over it, its dependents are blocked again."""
+    out = Outcome()
+    why = " ".join(why.split())
+    if not why:
+        raise StoreError(f"reopen needs the reason: mike todo reopen {ref} \"why the result no longer holds\"", 2)
+    todo = _todo(case, out)
+    phase, item = _find_item(todo, ref)  # a closed phase refuses: its items live in the phase file
+    if not item.done:
+        out.say(f"item {ref} is open already — nothing changed" + (" (on hold: mike todo resume {ref})" if item.held else ""))
+        return out
+    item.done = False
+    out.absorb(_write_todo(case, todo))
+    out.lines += log(case, "DECISION", f"{ref} возвращён в работу — {why}", f"p{phase.n}").lines
+    out.say(f"reopened: {ref} {item.text} → TODO.md · DECISION in the journal (the RESULT stays as history)")
+    return out
+
+
 def todo_resume(case: Path, ref: str) -> Outcome:
     out = Outcome()
     todo = _todo(case, out)
@@ -820,6 +841,8 @@ def _phase_file(case: Path, n: int, name: str) -> Path:
 def _closing_checks(case: Path, prev: grammar.Phase, journal: grammar.Journal) -> List[str]:
     """What P8 demands from a phase before the next one may open."""
     missing = []
+    if (prev.summary or "").startswith("снято"):
+        return []  # cancelled (F20): the phase never ran — no RESULT, reflect or align to ask for (feedback 2026-09-09)
     pf0 = _phase_file(case, prev.n, prev.name)
     if pf0.exists():
         parsed0 = grammar.parse_phase_file(pf0.read_text(encoding="utf-8"))
@@ -910,9 +933,14 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     prev = max((p for p in todo.phases if p.n < n), key=lambda p: p.n, default=None)
     if prev is not None:
         journal = _journal(case, out)
-        missing = [] if prev.done else [f"phase {prev.n} {prev.name} is still open — close it first (P8)"]
         if prev.done:
             missing = _closing_checks(case, prev, journal)
+        elif _phase_file(case, prev.n, prev.name).exists():
+            missing = [f"phase {prev.n} {prev.name} is still open — close it first (P8): mike phase close {prev.n} \"…\" "
+                       f"· or cancel it: mike phase cancel {prev.n} \"why\""]
+        else:  # planned, never opened: phases run in order — the plan below has to open or go
+            missing = [f"phase {prev.n} {prev.name} is planned and not opened — phases run in order: "
+                       f"mike phase open {prev.n} · or, if it is not needed: mike phase cancel {prev.n} \"why\""]
         if missing:
             raise StoreError("cannot open phase %d:\n  " % n + "\n  ".join(missing), 4)
     renamed = None

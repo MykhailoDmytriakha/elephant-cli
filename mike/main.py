@@ -25,6 +25,7 @@ EXAMPLES = """examples
   mike relink docs/old.md docs/notes/new.md   the file already moved without mike: the links follow now (journal included)
   mike relink docs/old.md none            gone for good, or an example written as a link: the links become literal text
   mike todo hold 3.2 "ждём ответа заказчика" · mike todo resume 3.2
+  mike todo reopen 3.1 "the databases drifted — the result no longer holds"   a tick taken back: DECISION in the journal, the RESULT stays
   mike readme set next "call the customer" · mike readme set пауза "" (removes the line) · mike readme add links "docs/contacts.md — кто есть кто"
   mike phase open 3 "CLI core" --goal "single write door with tests"
   mike phase plan 4 "Rollout" --goal "first users on the new build"   name the NEXT phase now, park items under it (todo add 4), open it later
@@ -67,9 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--phase", help="p1, 1 or a unique phase name (default: the open phase); e.g. `mike log --phase p1 DECISION \"…\"`")
 
     s = sub.add_parser("todo", help="add · done · edit · move · drop · hold · resume items — N.M is an item's number for life: drop and move never renumber", allow_abbrev=False)
-    s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "cancel", "due", "after"])
+    s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after"])
     s.add_argument("ref", help="phase number for add (N), item for the rest (N.M)")
-    s.add_argument("text", nargs="?", default="", help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: what came out; for cancel: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
+    s.add_argument("text", nargs="?", default="", help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: what came out; for cancel/reopen: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
     s.add_argument("--before", help="add only: put the new item before N.K instead of at the end (numbers never change, positions do)")
 
     s = sub.add_parser("phase", help="plan · open · close a phase (plan = name the next one without opening it, repeat it to sharpen the goal; close needs RESULT, reflect:, align:)", allow_abbrev=False)
@@ -227,6 +228,8 @@ def run(argv=None) -> int:
                     out = commands.todo_hold(case, args.ref, args.text)
                 elif args.action == "resume":
                     out = commands.todo_resume(case, args.ref)
+                elif args.action == "reopen":
+                    out = commands.todo_reopen(case, args.ref, args.text)
                 elif args.action == "cancel":
                     out = commands.todo_cancel(case, args.ref, args.text)
                 elif args.action == "due":

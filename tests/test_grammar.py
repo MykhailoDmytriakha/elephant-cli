@@ -167,6 +167,8 @@ class TodoTests(unittest.TestCase):
 
     def test_too_many_lines(self):
         r = grammar.parse_todo(TODO_OK + "".join(f"  - [ ] 3.{i} item\n" for i in range(1, 100)))
+        self.assertTrue(r.ok, "110 lines fit since 0.20 (limit 200, feedback 2026-09-09)")
+        r = grammar.parse_todo(TODO_OK + "".join(f"  - [ ] 3.{i} item\n" for i in range(1, 200)))
         self.assertIn("F4", rules(r.errors))
 
 

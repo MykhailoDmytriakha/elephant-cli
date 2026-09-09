@@ -9,7 +9,7 @@
 ```sh
 git clone https://github.com/MykhailoDmytriakha/mike-cli.git ~/MyProjects/mike-cli   # клон может лежать где угодно
 ln -sf ~/MyProjects/mike-cli/bin/mike ~/.local/bin/mike
-mike --version        # → mike 0.19.1
+mike --version        # → mike 0.20.0
 ```
 
 Обновление на любой машине — `git pull` в клоне: команда, правила и тесты приезжают одним движением, symlink переустанавливать не нужно.
@@ -43,7 +43,7 @@ mike case new "название дела" --goal "цель одной строк
 - Пункт зависит от другого → `mike todo add N "текст — after: N.M"` или `mike todo after N.M "N.K, имя-дела"`: на входе `mike` скажет, что можно брать сейчас (`unblocked:`), а что заблокировано.
 - Видишь работу со сроком вне текущей фазы → `mike phase plan N "Name" --goal "…"` и `mike todo add N "…"`: фаза стоит в TODO заранее, откроется `mike phase open N`, когда текущая закрыта.
 - У куска работы есть дата → пиши её так, чтобы инструмент видел: `mike todo add N "текст — due: 2026-09-09"`; срок дела → `mike readme set due "2026-09-13 · что"`. На входе `mike` скажет, что сегодня, что просрочено и сколько дней до срока.
-- Пункт больше не нужен → `mike todo cancel N.M "почему"` (не `done`); пункт переехал в другую фазу → `mike todo move N.M K`; переносишь файл → `mike mv old new` — ссылки переписываются сами.
+- Пункт больше не нужен → `mike todo cancel N.M "почему"` (не `done`); результат отменился → `mike todo reopen N.M "почему"`; пункт переехал в другую фазу → `mike todo move N.M K`; переносишь файл → `mike mv old new` — ссылки переписываются сами.
 - Владелец читает только README и TODO → включи правило дела: `mike readme add context "rule: items link their material"`. С ним `todo add` напомнит про ссылку `[имя](docs/файл.md)` в тексте пункта, а `Order` назовёт пункты без неё.
 - Не знаешь причину, работа больше одной сессии или нужно решение владельца → `mike spawn "имя" --goal "…"`: вложенное дело той же формы; закрыл его → `mike done "итог"`, родитель получит строку сам.
 - Проверить всё: `mike check` (нарушения → выход 3); что видит mike отсюда: `mike doctor`; как всё устроено целиком: `mike help model`; mike ведёт себя не так → `mike feedback "заголовок" --actual "…" --expected "…"`.

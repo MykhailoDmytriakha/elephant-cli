@@ -142,6 +142,9 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   `mike todo due N.M YYYY-MM-DD` · `mike todo after N.M "N.K, case"` · `mike todo move N.M N.K|last|K`.
 - done needs what came out (F20): it lands in the journal as `RESULT · N.M: …` — a link to the
   artifact is the norm. Nothing came out? Then it was not done: `cancel N.M "why"`.
+- a tick taken back: `mike todo reopen N.M "why the result no longer holds"` — the item is open
+  again (the phase cannot close over it, its dependents are blocked again), the journal gets a
+  DECISION and the old RESULT stays as history. `resume` only lifts a hold.
 - numbers are for life: drop, hold and move never renumber; a new item takes the next free number
   above everything still referred to (an `after`, a journal line), gaps are normal. `move N.M N.K`
   puts the item before N.K, `move N.M last` — last; `move N.M K` (a bare phase number) sends it to
@@ -185,7 +188,9 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   re-based (`docs/x.md` → `../docs/x.md`, the same files as from TODO), updates State.
 - cancel: `mike phase cancel 2 "why"` — the branch is not needed: its items are cancelled with it,
   the file says `result: снято: …`, TODO keeps one line marked «снято», progress shows ✗.
-- the next phase will not open until the previous one passed all of the above.""",
+- the next phase will not open until the previous one passed all of the above — a cancelled phase
+  passes by itself (it never ran); a phase that is still open must close or be cancelled; a phase
+  planned below and never opened must open first or be cancelled: phases run in order.""",
 
     "cases": """cases — units of work longer than a session
 - `mike case new "name" --goal "…"` — new case folder .cases/YYYY-MM-DD-name/ with the three files.
@@ -239,7 +244,8 @@ printed. Title + --actual + --expected are required; nothing from your environme
 README: 200 lines / 8 KB of YOUR text → warning · 300 lines / 12 KB → refusal; pointer line ≤ 150 chars
   (warning). The nested Links lines mike renders from the files are reported, not counted — you
   cannot shorten them in README, and the file index must not squeeze out what the owner writes.
-TODO: ≤ 100 lines; item text ≤ 80 VISIBLE chars — markdown links [name](path) count as `name`
+TODO: ≤ 200 lines (100 before 0.20: a rollout through five environments × 17 steps is structure,
+  not water); item text ≤ 80 VISIBLE chars — markdown links [name](path) count as `name`
   (a refusal prints a ready trimmed suggestion);
   phase name — English, 1–3 words; no items deeper than N.M.
 JOURNAL: event headline ≤ 200 chars (soft 180); long text splits automatically into headline +
