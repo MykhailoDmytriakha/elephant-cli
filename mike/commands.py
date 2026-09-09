@@ -380,29 +380,36 @@ def todo_done(case: Path, ref: str, outcome: str = "") -> Outcome:
     """Done with evidence (F20): `mike todo done N.M "what came out"` — the outcome goes to the journal
     as `RESULT · N.M: …`. Nothing to say? Then it was not done: `mike todo cancel N.M "why"`."""
     out = Outcome()
-    m = re.fullmatch(r"(\d+)\.(\d+)", ref)
-    if not m:
-        raise StoreError("use `mike todo done N.M \"what came out\"` for an item or `mike phase close N` for a phase", 2)
+    if not re.fullmatch(r"[\d.,\s–-]+", ref) or "." not in ref:
+        raise StoreError("use `mike todo done N.M \"what came out\"` (or a range N.A-N.B, a list N.A, N.B) for items, "
+                         "`mike phase close N` for a phase", 2)
     outcome = " ".join(outcome.split())
     if not outcome:
         raise StoreError(f"done needs what came out (F20): mike todo done {ref} \"what came out\" — "
                          f"nothing came out? then it was not done: mike todo cancel {ref} \"why\"", 2)
-    n, k = int(m.group(1)), int(m.group(2))
     todo = _todo(case, out)
-    phase = todo.phase(n)
-    item = next((it for it in phase.items if it.m == k), None) if phase else None
-    if item is None:
-        raise StoreError(f"no item {ref} in TODO.md", 4)
-    if item.done:
-        out.say(f"item {ref} already done — nothing changed")
+    phase, items = _select_items(todo, ref)
+    already = [it for it in items if it.done]
+    items = [it for it in items if not it.done]
+    if already:
+        out.say(f"already done, nothing changed: {_refs(phase, already)}")
+    if not items:
         return out
-    blockers = _blocking(case, todo).get(ref, [])
-    item.done, item.held, item.hold_reason = True, False, ""
+    blocking = _blocking(case, todo)
+    done_now = {f"{phase.n}.{it.m}" for it in items}
+    for it in items:
+        it.done, it.held, it.hold_reason = True, False, ""
     out.absorb(_write_todo(case, todo))
-    out.lines += log(case, "RESULT", f"{ref}: {outcome}", f"p{n}").lines
-    if blockers:
-        out.warn(f"{ref} was after {', '.join(r for r, _ in blockers)}, still open — was the dependency wrong, or the order?")
-    out.say(f"done: {ref} {item.text} → TODO.md · RESULT in the journal")
+    refs = _refs(phase, items)
+    out.lines += log(case, "RESULT", f"{refs}: {outcome}", f"p{phase.n}").lines
+    for it in items:
+        left = [r for r, _ in blocking.get(f"{phase.n}.{it.m}", []) if r not in done_now]
+        if left:
+            out.warn(f"{phase.n}.{it.m} was after {', '.join(left)}, still open — was the dependency wrong, or the order?")
+    if len(items) == 1:
+        out.say(f"done: {refs} {items[0].text} → TODO.md · RESULT in the journal")
+    else:
+        out.say(f"done: {refs} ({len(items)} items) → TODO.md · one RESULT in the journal")
     return out
 
 
@@ -645,6 +652,43 @@ def _find_item(todo: grammar.Todo, ref: str):
     return phase, item
 
 
+def _select_items(todo: grammar.Todo, ref: str):
+    """`N.M` · a range `N.A-N.B` (or `N.A-B`) · a list `N.A, N.B, …` → (phase, items in list order),
+    one phase per call. A range takes the items that exist between A and B — numbers have gaps.
+    Feedback 2026-09-09: rolling back a Pre-flight block meant six identical shell calls."""
+    ref = ref.strip()
+    m = re.fullmatch(r"(\d+)\.(\d+)\s*[-–]\s*(?:(\d+)\.)?(\d+)", ref)
+    if m:
+        n, a, n2, b = int(m.group(1)), int(m.group(2)), m.group(3), int(m.group(4))
+        if n2 is not None and int(n2) != n:
+            raise StoreError(f"a range stays inside one phase: `{n}.{a}-{n}.{b}`, not `{ref}`", 2)
+        phase = todo.phase(n)
+        if phase is None:
+            raise StoreError(f"no phase {n} in TODO.md", 4)
+        if phase.done:
+            raise StoreError(f"phase {n} is closed — its items live in the phase file now", 4)
+        items = [it for it in phase.items if a <= it.m <= b]
+        if not items:
+            raise StoreError(f"no items {n}.{a}–{n}.{b} in phase {n} (items: {_number_ranges(phase)})", 4)
+        return phase, items
+    if "," in ref:
+        pairs = [_find_item(todo, r.strip()) for r in ref.split(",") if r.strip()]
+        if len({p.n for p, _ in pairs}) > 1:
+            raise StoreError("one phase per call: `mike todo done 3.1, 3.4, 3.5` — items of another phase go in a second call", 2)
+        seen, items = set(), []
+        for _, it in pairs:
+            if it.m not in seen:
+                seen.add(it.m)
+                items.append(it)
+        return pairs[0][0], items
+    phase, item = _find_item(todo, ref)
+    return phase, [item]
+
+
+def _refs(phase: grammar.Phase, items) -> str:
+    return ", ".join(f"{phase.n}.{it.m}" for it in items)
+
+
 def todo_edit(case: Path, ref: str, text: str) -> Outcome:
     out = Outcome()
     todo = _todo(case, out)
@@ -757,14 +801,22 @@ def todo_reopen(case: Path, ref: str, why: str) -> Outcome:
     if not why:
         raise StoreError(f"reopen needs the reason: mike todo reopen {ref} \"why the result no longer holds\"", 2)
     todo = _todo(case, out)
-    phase, item = _find_item(todo, ref)  # a closed phase refuses: its items live in the phase file
-    if not item.done:
-        out.say(f"item {ref} is open already — nothing changed" + (" (on hold: mike todo resume {ref})" if item.held else ""))
+    phase, items = _select_items(todo, ref)  # a closed phase refuses: its items live in the phase file
+    open_ = [it for it in items if not it.done]
+    items = [it for it in items if it.done]
+    if open_:
+        out.say(f"open already, nothing changed: {_refs(phase, open_)}"
+                + (" (on hold — mike todo resume)" if any(it.held for it in open_) else ""))
+    if not items:
         return out
-    item.done = False
+    for it in items:
+        it.done = False
     out.absorb(_write_todo(case, todo))
-    out.lines += log(case, "DECISION", f"{ref} возвращён в работу — {why}", f"p{phase.n}").lines
-    out.say(f"reopened: {ref} {item.text} → TODO.md · DECISION in the journal (the RESULT stays as history)")
+    refs = _refs(phase, items)
+    verb = "возвращён" if len(items) == 1 else "возвращены"
+    out.lines += log(case, "DECISION", f"{refs} {verb} в работу — {why}", f"p{phase.n}").lines
+    what = f"{items[0].text}" if len(items) == 1 else f"({len(items)} items)"
+    out.say(f"reopened: {refs} {what} → TODO.md · DECISION in the journal (the RESULTs stay as history)")
     return out
 
 
@@ -807,11 +859,13 @@ def todo_cancel(case: Path, ref: str, why: str) -> Outcome:
     if not why:
         raise StoreError("cancel needs a reason: `mike todo cancel N.M \"why it is no longer needed\"`", 2)
     todo = _todo(case, out)
-    phase, item = _find_item(todo, ref)
-    phase.items.remove(item)
+    phase, items = _select_items(todo, ref)
+    for it in items:
+        phase.items.remove(it)
     out.absorb(_write_todo(case, todo))
-    out.lines += log(case, "DECISION", f"снято {ref} «{item.text}» — {why}", f"p{phase.n}").lines
-    out.say(f"cancelled: {ref} «{item.text}» — out of TODO, the reason is in the journal; phase {phase.n} now reads {_number_ranges(phase)}")
+    named = ", ".join(f"{phase.n}.{it.m} «{it.text}»" for it in items)
+    out.lines += log(case, "DECISION", f"снято {named} — {why}", f"p{phase.n}").lines
+    out.say(f"cancelled: {named} — out of TODO, the reason is in the journal; phase {phase.n} now reads {_number_ranges(phase)}")
     return out
 
 
@@ -884,6 +938,8 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
                          f"  suggestion: \"{_trim_suggestion(intent, grammar.TODO_ITEM_CHARS)}\"", 3)
     if existing is not None:
         free = max(p.n for p in todo.phases) + 1
+        if existing.done and (existing.summary or "").startswith("снято"):
+            return _replan_cancelled(case, todo, existing, name, intent, free, out)
         if existing.done:
             raise StoreError(f"phase {n} {existing.name} is closed — pick the next number: mike phase plan {free} \"{name}\"", 4)
         pf = _phase_file(case, n, existing.name)
@@ -911,6 +967,53 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     _sync_progress(case, todo, out)
     out.say(f"planned: phase {n} {name} → TODO.md (no phase file until it opens) · items now: mike todo add {n} \"…\" · "
             f"open once the previous phase is closed: mike phase open {n}")
+    return out
+
+
+def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name: str, intent: Optional[str],
+                      free: int, out: Outcome) -> Outcome:
+    """A phase cancelled while still planned comes back as a plan (feedback 2026-09-09: phase 26 was
+    cancelled to fit the old 100-line TODO; with 200 the plan is wanted again). Its items return
+    from `## Items at cancel` under their old numbers; the born-closed file goes (it held nothing but
+    the header and that list). A phase that RAN before it was cancelled has a story in its file and
+    PHASE events in the journal — that is not a plan any more: it gets a new number."""
+    n = phase.n
+    journal = _journal(case, out)
+    if any(ev.type == "PHASE" and "открыта" in ev.text for ev in _events_for_phase(journal, f"p{n}")):
+        raise StoreError(f"phase {n} {phase.name} ran before it was cancelled — its file and journal hold its story; "
+                         f"plan the work again under the next number: mike phase plan {free} \"{name}\"", 4)
+    pf = _phase_file(case, n, phase.name)
+    old_goal, items, extra = "", [], []
+    if pf.exists():
+        lines = pf.read_text(encoding="utf-8").split("\n")
+        section = ""
+        for ln in lines[3:]:
+            if ln.startswith("## "):
+                section = ln[3:].strip()
+                continue
+            if not ln.strip():
+                continue
+            m = re.fullmatch(rf"- {n}\.(\d+) [✓✗] (.*)", ln)
+            if section == "Items at cancel" and m:
+                text, _ = _rewrite_links(m.group(2), pf.parent, new_base=case)  # links come back up to the case root
+                items.append(grammar.Item(n, int(m.group(1)), False, text, 0))
+            else:
+                extra.append(ln)
+        if extra:
+            raise StoreError(f"{pf.relative_to(case)} holds more than the header and the cancelled items — "
+                             f"not a born-closed file; plan the work under the next number: mike phase plan {free} \"{name}\"", 4)
+        parsed = grammar.parse_phase_file("\n".join(lines))
+        old_goal = "" if parsed.errors or parsed.goal == "—" else parsed.goal
+    was = phase.summary or ""
+    phase.done, phase.name, phase.items = False, name, items
+    phase.summary = intent if intent is not None else (old_goal or None)
+    if pf.exists():
+        pf.unlink()  # born closed at cancel, nothing of its own inside (checked above)
+    out.absorb(_write_todo(case, todo))
+    _sync_progress(case, todo, out)
+    out.lines = log(case, "DECISION", f"фаза {n} {name} возвращена в план ({was.split(' · ')[0]})", f"p{n}").lines + out.lines
+    out.say(f"re-planned: phase {n} {name} — {phase.summary or '(no goal)'} → TODO.md (was cancelled)"
+            + (f" · items back: {_refs(phase, items)}" if items else "") + f" · open it later: mike phase open {n}")
     return out
 
 
@@ -974,6 +1077,13 @@ def phase_close(case: Path, n: int, summary: str) -> Outcome:
     if phase.done:
         out.say(f"phase {n} {phase.name} is already closed — nothing changed")
         return out
+    if not _phase_file(case, n, phase.name).exists():
+        # planned, never opened, yet its items were worked in TODO (feedback 2026-09-09: `close` died with
+        # «phases/22-….md is missing (F12)» and the agent wrote the file by hand). Opening is the one
+        # place the gates on the previous phase run and the PHASE event is logged — so open it now.
+        raise StoreError(f"phase {n} {phase.name} was planned and never opened — nothing to close yet: "
+                         f"mike phase open {n} (creates phases/{_phase_file(case, n, phase.name).name} from the plan), "
+                         f"then mike phase close {n} \"…\"", 4)
     journal = _journal(case, out)
     missing = [m for m in _closing_checks(case, phase, journal) if "result:" not in m]
     open_items = [f"{it.n}.{it.m}" for it in phase.items if not it.done]

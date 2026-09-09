@@ -18,7 +18,10 @@ README_POINTER_CHARS = 150
 # 200 since 0.20 (feedback 2026-09-09): a rollout through five environments × 17 steps plus 26 phase
 # lines is 113 lines of structure, not water — at 100 the agent cancelled live phases to fit.
 TODO_MAX_LINES = 200
-TODO_ITEM_CHARS = 80
+# 100 since 0.21 (feedback 2026-09-09): a rollout step reads `<Env>: [<Block>] <Action> -> expect <Result>`
+# — the expected result IS the checkable outcome F13 asks for, and 80 squeezed it to `ENABLED=1`;
+# 100 plus the `  - [ ] NN.MM ` prefix still fits one terminal line of 120 columns.
+TODO_ITEM_CHARS = 100
 EVENT_CHARS = 200
 EVENT_WARN_CHARS = 180
 EVENT_BODY_LINES = 5

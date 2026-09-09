@@ -309,6 +309,12 @@ def render_links(case: Path, root_mode: bool, manual_lines: List[str]) -> Tuple[
         elif stripped.startswith("- other: "):
             continue  # rendered by us
         else:
+            if raw != stripped and stripped.startswith("- "):
+                t = (_pointer_target(stripped[2:]) or "").split("#")[0].rstrip("/")
+                if t and "/" in t and t.lower().endswith(".md") and not t.startswith("..") and not (case / t).exists():
+                    continue  # a nested line mike drew for a file that is gone (moved without mike, deleted, a phase
+                    #           file removed at re-plan): a dead pointer in the rendered index, not the agent's line —
+                    #           kept, it made README violate F16 with no command to drop it (2026-09-09)
             manual.append(raw)
     listed = {n.split("/")[0] for n in folder_desc} | {r.split("/")[0] for r in fallback}
     folders = content_folders(case, root_mode, listed)

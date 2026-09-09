@@ -145,6 +145,8 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
 - a tick taken back: `mike todo reopen N.M "why the result no longer holds"` — the item is open
   again (the phase cannot close over it, its dependents are blocked again), the journal gets a
   DECISION and the old RESULT stays as history. `resume` only lifts a hold.
+- a block at once: done, reopen and cancel take a range `3.1-3.5` or a list `3.1, 3.4` (one phase
+  per call) — one journal line names every number, so nothing is reused by mistake.
 - numbers are for life: drop, hold and move never renumber; a new item takes the next free number
   above everything still referred to (an `after`, a journal line), gaps are normal. `move N.M N.K`
   puts the item before N.K, `move N.M last` — last; `move N.M K` (a bare phase number) sends it to
@@ -188,6 +190,9 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   re-based (`docs/x.md` → `../docs/x.md`, the same files as from TODO), updates State.
 - cancel: `mike phase cancel 2 "why"` — the branch is not needed: its items are cancelled with it,
   the file says `result: снято: …`, TODO keeps one line marked «снято», progress shows ✗.
+- back from cancel: a phase cancelled while still PLANNED comes back with `mike phase plan 2 "Name"
+  [--goal …]` — its items return under their old numbers, a DECISION says so. A phase that ran
+  before it was cancelled keeps its story; plan the work again under the next number.
 - the next phase will not open until the previous one passed all of the above — a cancelled phase
   passes by itself (it never ran); a phase that is still open must close or be cancelled; a phase
   planned below and never opened must open first or be cancelled: phases run in order.""",
@@ -245,7 +250,8 @@ README: 200 lines / 8 KB of YOUR text → warning · 300 lines / 12 KB → refus
   (warning). The nested Links lines mike renders from the files are reported, not counted — you
   cannot shorten them in README, and the file index must not squeeze out what the owner writes.
 TODO: ≤ 200 lines (100 before 0.20: a rollout through five environments × 17 steps is structure,
-  not water); item text ≤ 80 VISIBLE chars — markdown links [name](path) count as `name`
+  not water); item text ≤ 100 VISIBLE chars (80 before 0.21: `<Env>: [<Block>] <Action> -> expect
+  <Result>` is one action with its checkable outcome) — markdown links [name](path) count as `name`
   (a refusal prints a ready trimmed suggestion);
   phase name — English, 1–3 words; no items deeper than N.M.
 JOURNAL: event headline ≤ 200 chars (soft 180); long text splits automatically into headline +

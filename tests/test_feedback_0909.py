@@ -90,3 +90,128 @@ class OpenAfterCancelled(Base):
         self.assertIn("phase 3 UAT is still open — close it first", err)
         self.assertIn('mike phase cancel 3 "why"', err)
         self.assertEqual(run("check")[0], 0)
+
+
+class ClosePlanned(Base):
+    """Second report of the same day: items of a planned phase were worked in TODO (the gate had
+    refused `open`), then `phase close` died with «file is missing (F12)» and the agent wrote the file
+    by hand. The refusal names the cause and the path: open first, then close."""
+
+    def test_a_never_opened_phase_says_open_first(self):
+        run("log", "RESULT", "r")
+        run("log", "DECISION", "reflect: x")
+        run("log", "DECISION", "align: y")
+        run("phase", "close", "1", "done")
+        run("phase", "plan", "2", "UAT", "--goal", "rollout")
+        run("todo", "add", "2", "UAT: [DB] migrate -> expect 12 tables")
+        run("todo", "done", "2.1", "12 tables")
+        code, out, err = run("phase", "close", "2", "rolled out")
+        self.assertEqual(code, 4)
+        self.assertIn("phase 2 UAT was planned and never opened", err)
+        self.assertIn("mike phase open 2", err)
+        self.assertNotIn("F12", err)
+        code, out, err = run("phase", "open", "2")
+        self.assertEqual(code, 0, err)
+        run("log", "RESULT", "rolled out")
+        run("log", "DECISION", "reflect: x")
+        run("log", "DECISION", "align: y")
+        code, out, err = run("phase", "close", "2", "rolled out")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(run("check")[0], 0)
+
+
+class ItemLength(Base):
+    def test_a_rollout_step_with_its_expected_result_fits(self):
+        step = "PROD-ONPREM: [Migration] run flyway migrate on prod-onprem-db -> expect 12 tables, 0 errors"
+        self.assertGreater(len(step), 80)
+        code, out, err = run("todo", "add", "1", step)
+        self.assertEqual(code, 0, err)
+        code, out, err = run("todo", "add", "1", step + " and then some more words that push it over")
+        self.assertEqual(code, 3)
+        self.assertIn("limit 100", err)
+
+
+class Ranges(Base):
+    """Third report of the day: a Pre-flight block rolled back item by item — six identical calls."""
+
+    def setUp(self):
+        super().setUp()
+        for k in range(1, 7):
+            run("todo", "add", "1", f"UAT: [Pre-flight] check {k}")
+
+    def test_done_reopen_cancel_take_a_range_or_a_list(self):
+        code, out, err = run("todo", "done", "1.1-1.5", "pre-flight verified")
+        self.assertEqual(code, 0, err)
+        self.assertIn("done: 1.1, 1.2, 1.3, 1.4, 1.5 (5 items)", out)
+        t = self.read("TODO.md")
+        self.assertEqual(t.count("- [x] 1."), 5)
+        self.assertIn("- [ ] 1.6", t)
+        self.assertEqual(self.read("JOURNAL.md").count("RESULT · 1.1, 1.2, 1.3, 1.4, 1.5: pre-flight verified"), 1)
+        code, out, err = run("todo", "reopen", "1.1-1.6", "database drift detected")
+        self.assertEqual(code, 0, err)
+        self.assertIn("open already, nothing changed: 1.6", out)
+        self.assertIn("reopened: 1.1, 1.2, 1.3, 1.4, 1.5 (5 items)", out)
+        self.assertEqual(self.read("TODO.md").count("- [x] 1."), 0)
+        self.assertIn("DECISION · 1.1, 1.2, 1.3, 1.4, 1.5 возвращены в работу — database drift detected", self.read("JOURNAL.md"))
+        code, out, err = run("todo", "cancel", "1.2, 1.4", "not on this env")
+        self.assertEqual(code, 0, err)
+        self.assertIn("phase 1 now reads", out)
+        self.assertNotIn("1.2 UAT", self.read("TODO.md"))
+        self.assertIn("DECISION · снято 1.2 «UAT: [Pre-flight] check 2», 1.4 «UAT: [Pre-flight] check 4» — not on this env", self.read("JOURNAL.md"))
+        code, out, err = run("todo", "add", "1", "another")
+        self.assertIn("added: 1.7", out, "cancelled numbers stay reserved by the journal line")
+        self.assertEqual(run("todo", "done", "1.1-2.3", "x")[0], 2, "a range stays in one phase")
+        self.assertEqual(run("todo", "done", "1.40-1.50", "x")[0], 4)
+        self.assertEqual(run("check")[0], 0)
+
+
+class ReplanAfterCancel(Base):
+    def test_a_phase_cancelled_while_planned_comes_back_with_its_items(self):
+        run("phase", "plan", "2", "Exhibition", "--goal", "seven days")
+        run("todo", "add", "2", "book the truck — [truck](docs/truck.md)")
+        run("todo", "add", "2", "print the leaflets")
+        (self.case / "docs").mkdir()
+        (self.case / "docs" / "truck.md").write_text("# T\nsummary: t\n", encoding="utf-8")
+        run("phase", "cancel", "2", "planned for after STG")
+        self.assertIn("- [x] 2 Exhibition — снято:", self.read("TODO.md"))
+        code, out, err = run("phase", "plan", "2", "Exhibition")
+        self.assertEqual(code, 0, err)
+        self.assertIn("re-planned: phase 2 Exhibition — seven days → TODO.md (was cancelled) · items back: 2.1, 2.2", out)
+        t = self.read("TODO.md")
+        self.assertIn("- [ ] 2 Exhibition — seven days\n", t)
+        self.assertIn("- [ ] 2.1 book the truck — [truck](docs/truck.md)", t, "links come back up to the case root")
+        self.assertIn("- [ ] 2.2 print the leaflets", t)
+        self.assertFalse((self.case / "phases" / "2-exhibition.md").exists(), "the born-closed file is gone")
+        self.assertIn("DECISION · фаза 2 Exhibition возвращена в план (снято: planned for after STG)", self.read("JOURNAL.md"))
+        self.assertIn("progress: 1 Work ▶ · 2 Exhibition", self.read("README.md"))
+        self.assertEqual(run("check")[0], 0)
+
+    def test_a_phase_that_ran_does_not_come_back(self):
+        run("todo", "add", "1", "a")
+        run("phase", "cancel", "1", "venue fell through")
+        code, out, err = run("phase", "plan", "1", "Work", "--goal", "again")
+        self.assertEqual(code, 4)
+        self.assertIn("ran before it was cancelled", err)
+        self.assertIn('mike phase plan 2 "Work"', err)
+        self.assertTrue((self.case / "phases" / "1-work.md").exists())
+
+
+class StaleLinksLine(Base):
+    """A nested Links line mike drew for a file that is gone is a dead pointer in the rendered index:
+    it made README violate F16 with nothing to drop it by (found twice on 2026-09-08/09)."""
+
+    def test_a_rendered_line_for_a_gone_file_disappears_on_the_next_render(self):
+        (self.case / "docs").mkdir()
+        (self.case / "docs" / "a.md").write_text("# A\nsummary: a\n", encoding="utf-8")
+        run("readme", "add", "links", "docs/ — документы")
+        (Path(self.tmp.name) / "NOTES.md").write_text("# notes\n", encoding="utf-8")
+        run("readme", "add", "links", "[outside](../../NOTES.md) — the agent's own line stays")
+        self.assertIn("[a.md](docs/a.md) — a", self.read("README.md"))
+        os.remove(self.case / "docs" / "a.md")
+        code, out, err = run()
+        self.assertEqual(code, 0, err)
+        r = self.read("README.md")
+        self.assertNotIn("docs/a.md", r)
+        self.assertIn("[outside](../../NOTES.md)", r)
+        code, out, err = run("check")
+        self.assertEqual(code, 0, err + out)

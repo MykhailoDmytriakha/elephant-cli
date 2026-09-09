@@ -150,7 +150,8 @@ class TodoTests(unittest.TestCase):
         self.assertIn("F13", rules(r.errors))
 
     def test_item_too_long(self):
-        r = grammar.parse_todo(TODO_OK.replace("write the grammar", "w" * 81))
+        self.assertTrue(grammar.parse_todo(TODO_OK.replace("write the grammar", "w" * 81)).ok, "81 fits since 0.21 (limit 100)")
+        r = grammar.parse_todo(TODO_OK.replace("write the grammar", "w" * 101))
         self.assertIn("F13", rules(r.errors))
 
     def test_third_level_rejected(self):

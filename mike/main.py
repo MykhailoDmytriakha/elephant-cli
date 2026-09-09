@@ -13,6 +13,7 @@ EXAMPLES = """examples
   mike log DECISION "chose X over Y because Z"
   mike log RESULT "p95 dropped 120 → 48 ms"
   mike todo add 3 "write the parser"      mike todo done 3.1 "parser passes 12 tests"   done = what came out (→ RESULT)
+  mike todo done 3.1-3.5 "pre-flight verified" · mike todo reopen 3.1-3.6 "drift" · mike todo cancel 3.2, 3.4 "why"   a range or list: one journal line
   mike todo edit 3.1 "new text" · mike todo move 3.7 3.2 (before 3.2; or `last`) · mike todo drop 3.4   numbers never change
   mike todo add 3 "send the material — due: 2026-09-09" · mike todo due 3.2 2026-09-12 · mike todo cancel 3.5 "no longer needed"
   mike todo add 3 "text" --before 3.4         in place instead of the end (the number is for life, the position is not)
@@ -69,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("todo", help="add · done · edit · move · drop · hold · resume items — N.M is an item's number for life: drop and move never renumber", allow_abbrev=False)
     s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after"])
-    s.add_argument("ref", help="phase number for add (N), item for the rest (N.M)")
+    s.add_argument("ref", help="phase number for add (N), item for the rest (N.M); done/reopen/cancel also take a range N.A-N.B or a list \"N.A, N.B\"")
     s.add_argument("text", nargs="?", default="", help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: what came out; for cancel/reopen: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
     s.add_argument("--before", help="add only: put the new item before N.K instead of at the end (numbers never change, positions do)")
 

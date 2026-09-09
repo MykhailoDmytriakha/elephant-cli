@@ -117,7 +117,7 @@ class LegacyCase(unittest.TestCase):
         self.assertIn("2 Completed obligations (closed)", out)
         self.assertIn("«Phase SIT NC» → «SIT NC»", out)
         self.assertIn("checkbox line(s) before any heading → phase 1 «Legacy»", out)
-        self.assertIn("trimmed to 80", out)
+        self.assertIn("trimmed to 100", out)
         self.assertIn("non-checkbox line(s)", out)
         self.assertIn("JOURNAL:", out)
         self.assertIn("not converted", out)
