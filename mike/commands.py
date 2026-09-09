@@ -8,7 +8,7 @@ import datetime as dt
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from . import grammar, migrate, order, stamp, store
 from .store import StoreError
