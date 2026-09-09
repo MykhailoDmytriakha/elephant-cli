@@ -1,7 +1,9 @@
 """Command line for `mike` (C1–C9): ten commands, text output, exit codes 0/1/2/3/4, no prompts."""
 import argparse
+import re
 import sys
 from pathlib import Path
+from typing import Optional
 
 from . import __version__, commands, knowledge, store
 from .store import StoreError
@@ -13,11 +15,15 @@ EXAMPLES = """examples
   mike todo add 3 "write the parser"      mike todo done 3.1 "parser passes 12 tests"   done = what came out (→ RESULT)
   mike todo edit 3.1 "new text" · mike todo move 3.7 3.2 (before 3.2; or `last`) · mike todo drop 3.4   numbers never change
   mike todo add 3 "send the material — due: 2026-09-09" · mike todo due 3.2 2026-09-12 · mike todo cancel 3.5 "no longer needed"
+  mike todo add 3 "text" --before 3.4         in place instead of the end (the number is for life, the position is not)
+  mike todo add 3 'pay $150 for the permit'   SINGLE quotes when the text has `$`: the shell eats $150 inside double quotes
   mike todo move 3.6 4                    to another phase (joins its end under the next free number)
   mike todo add 3 "ship it — after: 3.1, 3.2" · mike todo after 3.4 "3.1, 3.2" · mike todo after 3.4 none   dependencies (→ unblocked: on entry)
   mike phase cancel 4 "the venue fell through" · mike case cancel "merged into the other case"   the second honest end of a branch
   mike readme set due "2026-09-13 · decision meeting"   the case deadline — `mike` counts the days on entry
   mike mv docs/old.md docs/notes/new.md   move a file; every link to it is rewritten (README/TODO/JOURNAL and the documents)
+  mike relink docs/old.md docs/notes/new.md   the file already moved without mike: the links follow now (journal included)
+  mike relink docs/old.md none            gone for good, or an example written as a link: the links become literal text
   mike todo hold 3.2 "ждём ответа заказчика" · mike todo resume 3.2
   mike readme set next "call the customer" · mike readme set пауза "" (removes the line) · mike readme add links "docs/contacts.md — кто есть кто"
   mike phase open 3 "CLI core" --goal "single write door with tests"
@@ -25,6 +31,8 @@ EXAMPLES = """examples
   mike log DECISION "reflect: …"  ·  mike log DECISION "align: …"   (both before closing)
   mike phase close 3 "parsers, stamp and commands work, 55 tests"
   mike readme add decisions "2026-09-05 · X over Y — why" · mike readme drop decisions 2 · mike readme drop state пауза
+  mike readme edit decisions 3 "2026-09-05 · X over Y — why"   line 3 in place, order kept (context · decisions · problems · links)
+  mike readme touch                      State read and still true after new RESULTs: moves `as of` only (Order: State is behind)
   mike readme --file README.md           validate and write a README (progress line kept in sync)
   mike case new "connect database" --goal "app talks to the prod database"
   mike case new --root "my app" --goal "…"   root mode: the project folder itself is the top case
@@ -62,17 +70,19 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "cancel", "due", "after"])
     s.add_argument("ref", help="phase number for add (N), item for the rest (N.M)")
     s.add_argument("text", nargs="?", default="", help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: what came out; for cancel: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
+    s.add_argument("--before", help="add only: put the new item before N.K instead of at the end (numbers never change, positions do)")
 
-    s = sub.add_parser("phase", help="plan · open · close a phase (plan = name the next one without opening it; close needs RESULT, reflect:, align:)", allow_abbrev=False)
+    s = sub.add_parser("phase", help="plan · open · close a phase (plan = name the next one without opening it, repeat it to sharpen the goal; close needs RESULT, reflect:, align:)", allow_abbrev=False)
     s.add_argument("action", choices=["plan", "open", "close", "cancel"])
     s.add_argument("n", type=int)
     s.add_argument("text", nargs="?", default="", help="name for plan/open (open takes it from the plan when omitted), summary for close, why for cancel")
     s.add_argument("--goal", help="one line; required for a new phase unless it was planned with one")
 
-    s = sub.add_parser("readme", help="write from --file/stdin · set <prefix> \"…\" (\"\" removes) · add <section> \"…\" · drop <section> <k> | drop state <prefix>", allow_abbrev=False)
-    s.add_argument("action", nargs="?", choices=["set", "add", "drop"])
+    s = sub.add_parser("readme", help="write from --file/stdin · set <prefix> \"…\" (\"\" removes; State only) · add <section> \"…\" · edit <section> <k> \"…\" · drop <section> <k> | drop state <prefix> · touch (State read and still true: moves `as of`)", allow_abbrev=False)
+    s.add_argument("action", nargs="?", choices=["set", "add", "edit", "drop", "touch"])
     s.add_argument("a", nargs="?")
     s.add_argument("b", nargs="?")
+    s.add_argument("c", nargs="?")
     s.add_argument("--file", default="-")
 
     s = sub.add_parser("case", help="case new <name> --goal … · case list · case use <name> · case new --root", allow_abbrev=False)
@@ -84,6 +94,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("mv", help="move/rename a file inside the case; every link to it is rewritten", allow_abbrev=False)
     s.add_argument("old", help="current path, relative to the case (docs/x.md)")
     s.add_argument("new", help="new path or folder (docs/notes/ or docs/notes/y.md)")
+
+    s = sub.add_parser("relink", help="the file already moved without mike: rewrite every link from old to new (journal included), move nothing; new = none retires the links into literal text", allow_abbrev=False)
+    s.add_argument("old", help="the path the links still name (docs/x.md) — must not exist any more")
+    s.add_argument("new", help="where the file is now (docs/notes/x.md) — must exist; or `none` (gone for good / an example)")
 
     s = sub.add_parser("spawn", help="open a nested case inside the case in hand (P11)", allow_abbrev=False)
     s.add_argument("name")
@@ -112,10 +126,41 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+# A `$150` inside double quotes is eaten by the shell before mike sees the text (zsh: `$150` is
+# positional parameter 150, empty) — the record then carries a hole nobody typed, and a journal
+# line is not editable afterwards (feedback 2026-09-08: «заплатить $150 …» landed as «заплатить  …»).
+# What survives of the swallowed word is a trace; a text with a trace is refused, not recorded.
+SHELL_TRACES = (
+    (re.compile(r"\S  +\S"), "a double space"),
+    (re.compile(r"(?:^|\s)\.\d"), "an orphan decimal like `.72`"),
+    (re.compile(r"^\s"), "a leading space"),  # a trailing one is too often innocent (`"x " * n`) to refuse
+)
+TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro")
+
+
+def shell_trace(args) -> Optional[str]:
+    """The refusal text when a text argument carries a trace of a shell substitution, else None."""
+    for key in TEXT_ARGS:
+        val = getattr(args, key, None)
+        if not isinstance(val, str) or not val:
+            continue
+        for rx, what in SHELL_TRACES:
+            m = rx.search(val)
+            if m:
+                where = val[max(0, m.start() - 15):m.end() + 15].replace("\n", " ")
+                return (f"text not written: {what} at «…{where}…» — a `$…` swallowed by the shell? inside double quotes "
+                        f"`$150` is a variable and vanishes; write the text in SINGLE quotes: mike {args.cmd} … '…' "
+                        f"(a double space is never kept anyway — fix the text and repeat)")
+    return None
+
+
 def run(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        trace = shell_trace(args)
+        if trace:
+            raise StoreError(trace, 2)
         if args.cmd == "help":
             if args.topic:
                 dose = knowledge.TOPICS.get(args.topic.lower())
@@ -167,7 +212,7 @@ def run(argv=None) -> int:
                 out = commands.log(case, args.type, args.text, args.phase)
             elif args.cmd == "todo":
                 if args.action == "add":
-                    out = commands.todo_add(case, args.ref, args.text)
+                    out = commands.todo_add(case, args.ref, args.text, args.before)
                 elif args.action == "done":
                     out = commands.todo_done(case, args.ref, args.text)
                 elif args.action == "edit":
@@ -212,6 +257,12 @@ def run(argv=None) -> int:
                     if not args.a or not args.b:
                         raise StoreError("usage: mike readme add <section> \"line\"", 2)
                     out = commands.readme_add(case, args.a, args.b)
+                elif args.action == "edit":
+                    if not args.a or not args.b or args.c is None:
+                        raise StoreError("usage: mike readme edit <section> <k> \"new text\" · mike readme edit state <prefix> \"text\"", 2)
+                    out = commands.readme_edit(case, args.a, args.b, args.c)
+                elif args.action == "touch":
+                    out = commands.readme_touch(case)
                 elif args.action == "drop":
                     if not args.a or not args.b:
                         raise StoreError("usage: mike readme drop <section> <k> · mike readme drop state <prefix>", 2)
@@ -225,6 +276,8 @@ def run(argv=None) -> int:
                 out = commands.migrate_cmd(case, args.apply)
             elif args.cmd == "mv":
                 out = commands.mv(case, args.old, args.new)
+            elif args.cmd == "relink":
+                out = commands.relink(case, args.old, args.new)
             elif args.cmd == "spawn":
                 out = commands.spawn(root, case, args.name, args.goal)
             elif args.cmd == "done":

@@ -461,24 +461,35 @@ def newest_header(journal: grammar.Journal) -> Optional[str]:
 
 
 # ---- broken links: a link that points at nothing is a map that lies ---------------------------------
-def broken_links(case: Path, folders: List[Folder], readme_body: str, todo_body: str) -> List[Tuple[str, str]]:
+def broken_links(case: Path, folders: List[Folder], readme_body: str, todo_body: str,
+                 journal: Optional[grammar.Journal] = None) -> List[Tuple[str, str]]:
     """(file, target) for every relative markdown link whose target does not exist — in README and
-    TODO bodies, the phase files and the content folders. The journal is history and is not checked;
-    a moved file keeps its links alive through `mike mv` (feedback 2026-09-03)."""
+    TODO bodies, the journal, the phase files and the content folders. A moved file keeps its links
+    alive through `mike mv` (feedback 2026-09-03); moved without mike, `mike relink old new` mends
+    them — the journal included, which hands cannot touch (feedback 2026-09-08: 10 dead links there,
+    invisible). In the journal only targets that look like files count (`docs/x.md`, not `path`):
+    history may cite an example, and an example cannot be relinked."""
     out: List[Tuple[str, str]] = []
 
-    def scan(rel: str, text: str, base: Path):
+    def scan(rel: str, text: str, base: Path, files_only: bool = False):
         text = "".join(seg if not code else " " * len(seg) for seg, code in outside_code(text))
         for m in LINK_RE.finditer(text):
             target = m.group(2)
             if re.match(r"^[a-z][a-z0-9+.-]*:", target) or target.startswith("#"):
                 continue
             path = target.partition("#")[0]
+            if files_only and "/" not in path and not path.endswith(".md"):
+                continue
             if path and not (base / path).exists():
                 out.append((rel, path))
 
-    scan("README.md", readme_body, case)
+    # `- last:` is drawn from the newest RESULT: its links are the journal's and are checked there
+    # (a tool must not violate its own rule with its own output)
+    scan("README.md", re.sub(r"^- last: .*$", "", readme_body, flags=re.M), case)
     scan("TODO.md", todo_body, case)
+    if journal is not None:
+        scan("JOURNAL.md", "\n".join(ev.text + "\n" + "\n".join(ev.body) for e in journal.entries for ev in e.events),
+             case, files_only=True)
     ph = phases_folder(case)
     docs = [d for f in folders for d in f.all_docs()] + (ph.docs if ph else [])
     for d in docs:
@@ -593,7 +604,8 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
             n, r, p = stale(journal, key)
             if r or p:
                 out.append(f"State is behind: {n} journal entr{'y' if n == 1 else 'ies'} touched since as of {key[0]} {key[1]} "
-                           f"({r} RESULT, {p} PHASE) → mike readme set next \"…\" · or mike readme --file README.md")
+                           f"({r} RESULT, {p} PHASE) → mike readme set next \"…\" · still true as it stands: mike readme touch "
+                           f"· or mike readme --file README.md")
     missing = [d.rel for f in folders for d in f.all_docs() if not d.summary]
     if missing:
         shown = ", ".join(missing[:4]) + (f" … +{len(missing) - 4}" if len(missing) > 4 else "")
@@ -620,11 +632,13 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
         shown = ", ".join(dead[:4]) + (f" … +{len(dead) - 4}" if len(dead) > 4 else "")
         out.append(f"{len(dead)} file(s) nothing in the work points at — {shown} → link it from an item, a phase file or a "
                    f"decision · park it: mike mv <file> archive/ · or delete it (F21)")
-    broken = broken_links(case, folders, readme_body, todo_body)
+    broken = broken_links(case, folders, readme_body, todo_body, journal)
     if link_violations is not None:
-        link_violations.extend((f, t) for f, t in broken if f in ("README.md", "TODO.md"))
+        link_violations.extend(dict.fromkeys((f, t) for f, t in broken if f in ("README.md", "TODO.md")))
         broken = [(f, t) for f, t in broken if f not in ("README.md", "TODO.md")]
     if broken:
-        shown = ", ".join(f"{f} → {t}" for f, t in broken[:4]) + (f" … +{len(broken) - 4}" if len(broken) > 4 else "")
-        out.append(f"{len(broken)} broken link(s): {shown} → fix the link, or move files with `mike mv old new` (links follow)")
+        pairs = list(dict.fromkeys(broken))  # five journal links to one gone file are one thing to fix
+        shown = ", ".join(f"{f} → {t}" for f, t in pairs[:4]) + (f" … +{len(pairs) - 4}" if len(pairs) > 4 else "")
+        out.append(f"{len(broken)} broken link(s): {shown} → fix the link, or move files with `mike mv old new` (links follow); "
+                   f"already moved without mike: mike relink old new · gone for good or an example: mike relink old none")
     return out

@@ -44,8 +44,9 @@ TOPICS = {
    file into .howto/ (first line `when: <error words>`).
 5. Finished a piece → `mike todo done N.M "what came out"`; not needed after all → `mike todo cancel N.M "why"`;
    a phase → `mike help phases`; the case → `mike done "…"`.
-6. Before you stop: `mike` again — if Order says "State is behind", rewrite State
-   (`mike readme set next "…"` or `mike readme --file`). The next session starts from that line.
+6. Before you stop: `mike` again — if Order says "State is behind", read State: something changed →
+   `mike readme set next "…"`; still true as it stands → `mike readme touch`. The next session
+   starts from that line.
 7. Never edit README.md / TODO.md / JOURNAL.md by hand — mike is the only write door; hand edits
    are detected by the stamp and moved aside.""",
 
@@ -60,7 +61,13 @@ Every `mike` entry ends with `## Order`: each line = one thing out of place + th
   documents on one subject share the names and dates and stay two documents.
 - a file over 24 KB of markdown → split by summary or trim. There is no folder total: a byte
   count cannot tell deliverables from water.
-- State is behind → RESULT/PHASE events were logged after `as of` → rewrite State.
+- State is behind → RESULT/PHASE events were logged after `as of` → read State: `mike readme set
+  next "…"` when something changed, `mike readme touch` when it is still true (moves `as of` only).
+- broken link(s) → the target is gone from where the link says (README, TODO, journal, phase files,
+  documents) → moved with `mike mv` links follow by themselves; moved without mike → `mike relink
+  old new` rewrites every link, the journal included; gone for good, or an example written as a
+  link → `mike relink old none` turns those links into literal text (the words stay, the claim of
+  a file goes). In the journal only file-looking targets count (`docs/x.md`, not `path`).
 - a file nothing in the work points at (F21) → link it from an item, a phase file or a decision
   (RESULT/DECISION evidence counts, the rendered index and plain journal chatter do not), park it
   in archive/ (`mike mv`), or delete it. Shown, never deleted by mike.
@@ -91,10 +98,27 @@ happened. Now the lower layer is visible from the top, and the top is rendered f
   `as of:` (the journal entry State was last rewritten against, S5). Yours: next, ждёт, due …
   — `mike readme set <prefix> "…"` sets one, `mike readme set <prefix> ""` (or `mike readme drop state
   <prefix>`) removes it once it stops being true; a stale State line is a lie the owner reads.
-  Other sections: `mike readme add <section> "line"` · `mike readme drop <section> <k>` (k-th bullet) ·
-  `mike readme --file README.md` rewrites the whole file (rare; mike re-renders what it owns).
+  Other sections are ordered lists: `mike readme add <section> "line"` · `mike readme edit <section>
+  <k> "line"` · `mike readme drop <section> <k>` — the whole story: `mike help readme`.
 - Exactly five sections (F1): a topic of your project (a budget, a roster) is a State line
   (`- budget: …`), or a file with `summary:` — its line lands in Links by itself.""",
+
+    "readme": """readme — one line at a time; the whole file rarely
+- State lines go by prefix: `mike readme set next "…"` sets or creates `- next: …`; `set <prefix> ""`
+  (or `drop state <prefix>`) removes it. `progress:` / `last:` / `as of:` are mike's — derived on
+  every write, refused to set or drop.
+- the other sections are ordered lists addressed by position (1 = first bullet):
+  `mike readme add decisions "2026-09-05 · X over Y — why"` (to the end) ·
+  `mike readme edit decisions 3 "new text"` (in place, order kept) · `mike readme drop decisions 3`.
+  Sections: Context · State · Decisions · Problems · Links (your folder lines; file lines are rendered).
+- `set` writes State only: a prefix that names a line of another section is refused with the
+  edit command for that line — it never quietly opens a second line in State.
+- Order says «State is behind»: RESULT/PHASE events landed after `as of`. Read State: something
+  changed → `mike readme set next "…"`; still true as it stands → `mike readme touch` (moves the
+  anchor only). Both put `as of` on the newest journal entry; mike cannot tell truth, only freshness.
+- `mike readme --file README.md` rewrites the whole file — rare; mike re-renders what it owns.
+- text with `$` (sums): single quotes — inside double quotes the shell eats `$150` and mike refuses
+  the trace it leaves (a double space, an orphan `.72`) rather than record a hole.""",
 
     "journal": """journal events — `mike log <TYPE> "text"`
 Types: PHASE (phase opened/closed, with outcome) · DECISION (chose X over Y, why) ·
@@ -105,10 +129,15 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
 - Every phase needs at least one RESULT before it can close.
 - No open phase? The entry lands in p0 — the case-level lane (gathering info, talking it over).
 - `--phase p1`, `--phase 1` or a unique phase name select the phase explicitly.
-- Long text is split automatically into a headline + body lines; keep headlines meaningful.""",
+- Long text is split automatically into a headline + body lines; keep headlines meaningful.
+- An event is not editable afterwards — so a text with a trace of a shell substitution (`$150`
+  eaten inside double quotes leaves a double space) is refused: write sums in single quotes.
+- A link in an event points at a file; the file moved without `mike mv` → `mike relink old new`
+  rewrites the journal through the stamp door (Order names such links); gone for good, or the link
+  was an example → `mike relink old none` makes it literal text. Examples: write them in backticks.""",
 
     "todo": """todo items — `mike todo <action> N.M …`
-- `mike todo add N "text"` · `mike todo done N.M "what came out"` · `mike todo edit N.M "text"` ·
+- `mike todo add N "text"` (`--before N.K` puts it in place, not at the end) · `mike todo done N.M "what came out"` · `mike todo edit N.M "text"` ·
   `mike todo drop N.M` · `mike todo hold N.M "why"` / `mike todo resume N.M` · `mike todo cancel N.M "why"` ·
   `mike todo due N.M YYYY-MM-DD` · `mike todo after N.M "N.K, case"` · `mike todo move N.M N.K|last|K`.
 - done needs what came out (F20): it lands in the journal as `RESULT · N.M: …` — a link to the
@@ -140,7 +169,9 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
 - plan: `mike phase plan 3 "Rollout" --goal "one line"` — names the NEXT phase while the current one
   runs: a `- [ ] 3 Rollout — intent` line in TODO, no phase file, no journal event. Park its items
   there now (`mike todo add 3 "…"`); it opens later with `mike phase open 3` (name and goal come
-  from the plan). One phase in flight stays the rule: planned is not open.
+  from the plan). One phase in flight stays the rule: planned is not open. A plan is rough when
+  made: the same command on a planned phase re-plans it (new name and/or goal); once open, the
+  goal lives in the phase file (`goal:` line) and the TODO line follows it (F18).
 - open: `mike phase open 2 "Server database" --goal "one line"` — creates phases/2-server-database.md
   (goal:/result: header + free body for details, dead ends, drafts). Name: English, 1–3 words.
 - while it runs: items live in TODO (`mike todo add 2 "…"`, `mike todo done 2.1`), the story lives

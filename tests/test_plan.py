@@ -79,7 +79,7 @@ class PlannedPhase(unittest.TestCase):
     def test_plan_refuses_a_taken_number_a_bad_name_and_a_long_intent(self):
         code, out, err = run("phase", "plan", "1", "Again", "--goal", "x")
         self.assertEqual(code, 4)
-        self.assertIn("phase 1 Build exists (open)", err)
+        self.assertIn("phase 1 Build is open", err)
         self.assertIn('mike phase plan 2 "Again"', err)
         code, out, err = run("phase", "plan", "2", "Выкатка", "--goal", "x")
         self.assertEqual(code, 2)
@@ -89,8 +89,8 @@ class PlannedPhase(unittest.TestCase):
         self.assertIn("suggestion:", err)
         run("phase", "plan", "2", "Rollout")
         code, out, err = run("phase", "plan", "2", "Rollout")
-        self.assertEqual(code, 4)
-        self.assertIn("already planned", err)
+        self.assertEqual(code, 0, err)
+        self.assertIn("nothing changed", out)  # a planned phase is re-planned, never refused (feedback 2026-09-08)
 
     def test_open_without_a_name_and_nothing_planned_is_actionable(self):
         self.close_phase_1()

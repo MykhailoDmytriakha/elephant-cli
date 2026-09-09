@@ -581,9 +581,11 @@ def _valid_date(due: str) -> str:
     return due
 
 
-def todo_add(case: Path, ref: str, text: str) -> Outcome:
+def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None) -> Outcome:
     """Add item N.M (M = next free) to an open or planned phase N; `ref` is the phase number.
-    The text may end with `— due: YYYY-MM-DD`."""
+    The text may end with `— due: YYYY-MM-DD`. `before` = N.K puts it in place instead of at the
+    end (feedback 2026-09-08: an item refused for length and re-added later landed last, and a
+    batch of four cost four `move`s — the number is for life, the position is not)."""
     out = Outcome()
     if not ref.isdigit():
         raise StoreError("use `mike todo add N \"text\"` — N is the phase number", 2)
@@ -592,17 +594,28 @@ def todo_add(case: Path, ref: str, text: str) -> Outcome:
     if phase is None or phase.done:
         raise StoreError(f"phase {ref} is missing or closed", 4)
     text, due, after = _split_suffixes(text)
+    at = len(phase.items)
+    if before:
+        bm = re.fullmatch(r"(\d+)\.(\d+)", before.strip())
+        target = next((it for it in phase.items if it.m == int(bm.group(2))), None) if bm and int(bm.group(1)) == phase.n else None
+        if target is None:
+            raise StoreError(f"--before {before}: no such item in phase {phase.n} (items: {_number_ranges(phase)}) — "
+                             f"drop --before to add at the end", 4)
+        at = phase.items.index(target)
     if grammar.visible_len(text) > grammar.TODO_ITEM_CHARS:
         raise StoreError(f"item text is {grammar.visible_len(text)} visible chars, limit {grammar.TODO_ITEM_CHARS} (F13); "
                          f"markdown links count as their name\n"
-                         f"  suggestion: \"{_trim_suggestion(text, grammar.TODO_ITEM_CHARS)}\"", 3)
+                         f"  suggestion: \"{_trim_suggestion(text, grammar.TODO_ITEM_CHARS)}\"\n"
+                         f"  (a re-added item takes the next free number at the END of the list — "
+                         f"`mike todo add {ref} \"…\" --before {phase.n}.K` puts it in place)", 3)
     m = _next_number(case, todo, phase)
     item = grammar.Item(phase.n, m, False, text, 0, due=due)
-    phase.items.append(item)
+    phase.items.insert(at, item)
     if after:
         _set_after(case, todo, item, after)
     out.absorb(_write_todo(case, todo))
-    out.say(f"added: {phase.n}.{m} {text}{f' — after: {chr(44).join(item.after)}' if item.after else ''}{f' — due: {due}' if due else ''} → TODO.md")
+    out.say(f"added: {phase.n}.{m} {text}{f' — after: {chr(44).join(item.after)}' if item.after else ''}{f' — due: {due}' if due else ''}"
+            f"{f' (before {before})' if before else ''} → TODO.md")
     _remind_link(case, f"{phase.n}.{m}", text, out)
     return out
 
@@ -646,7 +659,7 @@ def todo_edit(case: Path, ref: str, text: str) -> Outcome:
     if due:
         item.due = due
     out.absorb(_write_todo(case, todo))
-    out.say(f"edited: {ref} → TODO.md (was: «{old_text}»)")
+    out.say(f"edited: {ref} → «{item.text}» (was: «{old_text}») → TODO.md")  # the new text is shown: an edit aimed at the wrong number is seen at once (feedback 2026-09-08)
     _remind_link(case, ref, text, out)
     return out
 
@@ -841,15 +854,35 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
         raise StoreError(f"phase name `{name}` must be English, 1–3 words (F13)", 2)
     todo = _todo(case, out)
     existing = todo.phase(n)
-    if existing is not None:
-        state = "closed" if existing.done else ("open" if _phase_file(case, n, existing.name).exists() else "already planned")
-        free = max(p.n for p in todo.phases) + 1
-        raise StoreError(f"phase {n} {existing.name} exists ({state}) — pick the next number: mike phase plan {free} \"{name}\"", 4)
     intent = " ".join(goal.split()) if goal else None
     if intent and grammar.visible_len(intent) > grammar.TODO_ITEM_CHARS:
         raise StoreError(f"intent is {grammar.visible_len(intent)} visible chars, limit {grammar.TODO_ITEM_CHARS} — one line in TODO (F13); "
                          f"the story goes into the phase file once it opens\n"
                          f"  suggestion: \"{_trim_suggestion(intent, grammar.TODO_ITEM_CHARS)}\"", 3)
+    if existing is not None:
+        free = max(p.n for p in todo.phases) + 1
+        if existing.done:
+            raise StoreError(f"phase {n} {existing.name} is closed — pick the next number: mike phase plan {free} \"{name}\"", 4)
+        pf = _phase_file(case, n, existing.name)
+        if pf.exists():
+            raise StoreError(f"phase {n} {existing.name} is open — its goal lives in {pf.relative_to(case)} (line `goal:`): "
+                             f"edit it there, the TODO line follows (F18); a new phase: mike phase plan {free} \"{name}\"", 4)
+        # planned, not open: a plan is rough when made and sharpens until it opens — the same command
+        # re-plans it (feedback 2026-09-08: a goal with a hole in it was frozen by «already planned»)
+        changes = []
+        if name != existing.name:
+            changes.append(f"name {existing.name} → {name}")
+            existing.name = name
+        if intent is not None and intent != existing.summary:
+            changes.append("goal")
+            existing.summary = intent
+        if not changes:
+            out.say(f"phase {n} {name} is already planned with this goal — nothing changed")
+            return out
+        out.absorb(_write_todo(case, todo))
+        _sync_progress(case, todo, out)
+        out.say(f"re-planned: phase {n} {name} — {existing.summary or '(no goal)'} ({', '.join(changes)}) → TODO.md")
+        return out
     todo.phases.append(grammar.Phase(n, name, False, 0, intent))
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
@@ -1027,14 +1060,38 @@ def _render_readme(parsed) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _line_elsewhere(parsed, prefix: str):
+    """(section, k, text) of the first bullet outside State that starts with `prefix` as a whole word."""
+    for name in grammar.README_SECTIONS:
+        if name == "State":
+            continue
+        bullets = [ln[2:] for ln in parsed.sections.get(name, []) if ln.startswith("- ")]
+        for k, body in enumerate(bullets, 1):
+            if body.startswith(prefix) and (len(body) == len(prefix) or not body[len(prefix)].isalnum()):
+                return name, k, body
+    return None
+
+
 def readme_set(case: Path, prefix: str, text: str) -> Outcome:
-    """Replace (or create) the `- <prefix>: …` line in State — one line instead of a full rewrite."""
+    """Replace (or create) the `- <prefix>: …` line in State — one line instead of a full rewrite.
+    State only: a prefix that names a line of another section is refused with that line's edit
+    command (feedback 2026-09-08: `set "1 Реклама" …` on a Decisions line quietly opened a second,
+    doubled line in State); mike's own lines are not set by hand (F3)."""
     out = Outcome()
-    _readme_sections(case, out)  # ensures the file parses before we touch it
+    parsed = _readme_sections(case, out)  # ensures the file parses before we touch it
     prefix = prefix.rstrip(":")
     text = " ".join(text.split())
+    if prefix.lower() in STATE_OWNED:
+        raise StoreError(f"`- {prefix}:` is held by mike (derived on every write) — it is not set by hand (F3); "
+                         f"State is still true and only its anchor is behind: mike readme touch", 2)
     if not text:  # an empty value removes the line — what the caller tries first (feedback 2026-09-03)
         return readme_drop(case, "state", prefix)
+    if not any(ln.startswith(f"- {prefix}:") for ln in parsed.sections.get("State", [])):
+        hit = _line_elsewhere(parsed, prefix)
+        if hit:
+            name, k, line = hit
+            raise StoreError(f"`{prefix}` is not a State line — it is {name} line {k}: «{order._short(line, 60)}»; "
+                             f"set writes State only → mike readme edit {name.lower()} {k} \"…\"", 4)
     body = _set_state_line(_readme_text(case, out), f"{prefix}: ", text)
     _write_readme(case, body, out, anchor=True)
     out.say(f"README State: `- {prefix}: …` set (as of the newest journal entry)")
@@ -1053,6 +1110,45 @@ def readme_add(case: Path, section: str, line: str) -> Outcome:
     parsed.sections.setdefault(name, []).append(f"- {' '.join(line.split())}")
     _write_readme(case, _render_readme(parsed), out, anchor=name == "State")
     out.say(f"README {name}: line added")
+    return out
+
+
+def readme_edit(case: Path, section: str, ref: str, text: str) -> Outcome:
+    """Replace line k of a section in place — the order is kept (feedback 2026-09-08: fixing two of
+    six Decisions lines meant dump README, patch it with python, `--file`). State goes by prefix (`set`)."""
+    out = Outcome()
+    name = SECTION_NAMES.get(section.lower())
+    if name is None:
+        raise StoreError(f"no section `{section}` — sections: {' · '.join(grammar.README_SECTIONS)}", 2)
+    text = " ".join(text.split())
+    if not text:
+        raise StoreError(f"usage: mike readme edit {name.lower()} <k> \"new text\" — to remove a line: mike readme drop {name.lower()} <k>", 2)
+    if name == "State":
+        return readme_set(case, ref, text)
+    parsed = _readme_sections(case, out)
+    ref = str(ref).strip()
+    if not ref.isdigit():
+        raise StoreError(f"usage: mike readme edit {name.lower()} <k> \"new text\" — k is the line's position (1 = first bullet)", 2)
+    k = int(ref)
+    bullets = [i for i, ln in enumerate(parsed.sections.get(name, [])) if ln.startswith("- ")]
+    if not 1 <= k <= len(bullets):
+        raise StoreError(f"{name} has {len(bullets)} line(s), nothing at position {k}", 4)
+    old = parsed.sections[name][bullets[k - 1]]
+    parsed.sections[name][bullets[k - 1]] = f"- {text}"
+    _write_readme(case, _render_readme(parsed), out)
+    out.say(f"README {name}: line {k} edited → «{text}» (was: «{old[2:]}»)")
+    return out
+
+
+def readme_touch(case: Path) -> Outcome:
+    """State was read and is still true: move the `as of` anchor to the newest journal entry and
+    change nothing else (feedback 2026-09-08: after every `todo done` the agent re-set `last:` with
+    the same text just to move the date — four times a session). Saying it is cheap; so is `set next`
+    with the old text — the named command is the honest form of the same confirmation (S5)."""
+    out = Outcome()
+    _readme_sections(case, out)
+    _write_readme(case, _readme_text(case, out), out, anchor=True)
+    out.say("README State: confirmed current — `as of` anchored to the newest journal entry, nothing else changed")
     return out
 
 
@@ -1443,40 +1539,116 @@ def mv(case: Path, old: str, new: str) -> Outcome:
     src.unlink()
     if n:
         touched.append(f"{new_rel} ({n} of its own)")
-    # 2. the three owned files: links and `old/path` pointers, written through the stamp door;
-    #    README last, so its derived lines (`last:` from the journal) see the rewritten journal
+    touched += _follow_links(case, src, dst, out, skip=dst)
+    if "README.md" not in " ".join(touched):
+        _refresh_readme(case, out)  # Links follow the files
+    out.say(f"moved: {old_rel} → {new_rel}" + (f" · links rewritten: {', '.join(touched)}" if touched else " · no links pointed at it"))
+    return out
+
+
+def relink(case: Path, old: str, new: str) -> Outcome:
+    """The file already moved outside mike (a plain `mv`, a rename in the editor): every link to
+    `old` now points at `new` — the rewrite `mike mv` does, without moving anything. The one door
+    to a link in the journal, which hands cannot touch (feedback 2026-09-08: 10 dead journal links
+    after files were moved without mike, nothing to see them with and nothing to fix them with).
+    `new` = none: the file is gone for good, or the link was an example written without backticks —
+    the link is retired into literal text (`[name](old)` in inline code): the words stay verbatim,
+    nothing claims a file any more. Without it a dead journal link would be a line in Order that
+    nothing can close — caught on this tool's own journal within a minute of adding the check."""
+    out = Outcome()
+    src = case / old
+    if case.resolve() not in src.resolve().parents:
+        raise StoreError("relink works inside the case folder only", 2)
+    old_rel = src.relative_to(case).as_posix()
+    if new.strip().lower() == "none":
+        if src.exists():
+            raise StoreError(f"{old} exists — a link to it is not dead; to retire the links delete or move the file first", 4)
+        touched = _follow_links(case, src, None, out)
+        if "README.md" not in " ".join(touched):
+            _refresh_readme(case, out)
+        n = sum(int(t.rsplit("(", 1)[1].rstrip(")").split()[0]) for t in touched) if touched else 0
+        out.say(f"retired: {old_rel} — {n} link(s) now literal text `[name]({old_rel})`" + (f": {', '.join(touched)}" if touched else " (none pointed at it)"))
+        return out
+    dst = case / new
+    if src.exists():
+        raise StoreError(f"{old} still exists — to move it and rewrite the links in one go: mike mv {old} {new}", 4)
+    if not dst.is_file():
+        raise StoreError(f"{new} is not a file in the case (paths are relative to the case: docs/x.md) — "
+                         f"relink points the links at a file that exists; gone for good or an example: mike relink {old} none", 4)
+    if case.resolve() not in dst.resolve().parents:
+        raise StoreError("relink works inside the case folder only", 2)
+    new_rel = dst.relative_to(case).as_posix()
+    touched = _follow_links(case, src, dst, out)
+    if "README.md" not in " ".join(touched):
+        _refresh_readme(case, out)
+    out.say(f"relinked: {old_rel} → {new_rel}" + (f" · links rewritten: {', '.join(touched)}" if touched else " · no links pointed at it"))
+    return out
+
+
+FULL_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(([^)\s]+)\)")
+
+
+def _retire_links(text: str, base: Path, src: Path):
+    """Every markdown link in `text` (living in `base`) that resolves to `src` becomes inline code —
+    the words stay, the claim of a file goes. Returns (text, count)."""
+    count = 0
+
+    def fix(m):
+        nonlocal count
+        target = m.group(2)
+        if re.match(r"^[a-z][a-z0-9+.-]*:", target) or target.startswith("#"):
+            return m.group(0)
+        if (base / target.partition("#")[0]).resolve() != src.resolve():
+            return m.group(0)
+        count += 1
+        return f"`{m.group(0)}`"
+
+    text = "".join(seg if code else FULL_LINK_RE.sub(fix, seg) for seg, code in order.outside_code(text))
+    return text, count
+
+
+def _follow_links(case: Path, src: Path, dst: Optional[Path], out: Outcome, skip: Optional[Path] = None) -> List[str]:
+    """Every link to `src` in the case now points at `dst` (or, with `dst` None, is retired into
+    literal text): the three owned files through the stamp door (README last, so its derived
+    `last:` reads the rewritten journal), then every other markdown file of the case except `skip`
+    (a moved file, already rewritten) and the legacy archive. Returns what was touched, for the report."""
+    old_rel = src.relative_to(case).as_posix()
+    new_rel = dst.relative_to(case).as_posix() if dst is not None else None
+
+    def rewrite(text: str, base: Path):
+        return _rewrite_links(text, base, src, dst) if dst is not None else _retire_links(text, base, src)
+
+    touched: List[str] = []
     for name in ("JOURNAL.md", "TODO.md", "README.md"):
         p = store.file_path(case, name)
         if not p.exists():
             continue
         text, _ = stamp.split(store.read(case, name))
-        new_text, n = _rewrite_links(text, case, src, dst)
-        k = new_text.count(f"`{old_rel}`")
-        new_text = new_text.replace(f"`{old_rel}`", f"`{new_rel}`")
+        new_text, n = rewrite(text, case)
+        k = new_text.count(f"`{old_rel}`") if new_rel else 0
+        if new_rel:
+            new_text = new_text.replace(f"`{old_rel}`", f"`{new_rel}`")
         if new_text != text:
             if name == "README.md":
                 _write_readme(case, new_text, out)
             else:
                 out.absorb(store.write(case, name, new_text))
             touched.append(f"{name} ({n + k})")
-    # 3. every other markdown file of the case (documents, phase files), never the legacy archive
+    # every other markdown file of the case (documents, phase files), never the legacy archive
     for p in sorted(case.rglob("*.md")):
         rel = p.relative_to(case)
-        if p == dst or any(part.startswith(".") or part in ("node_modules", "legacy") for part in rel.parts):
+        if p == skip or any(part.startswith(".") or part in ("node_modules", "legacy") for part in rel.parts):
             continue
         if rel.parts[0] == store.CASES_DIR or any(store.is_case_dir(case / Path(*rel.parts[:i + 1])) for i in range(len(rel.parts) - 1)):
             continue
         if p.parent == case and p.name in store.FILES:
             continue
         text = p.read_text(encoding="utf-8", errors="ignore")
-        new_text, n = _rewrite_links(text, p.parent, src, dst)
+        new_text, n = rewrite(text, p.parent)
         if n:
             p.write_text(new_text, encoding="utf-8")
             touched.append(f"{rel.as_posix()} ({n})")
-    if "README.md" not in " ".join(touched):
-        _refresh_readme(case, out)  # Links follow the files
-    out.say(f"moved: {old_rel} → {new_rel}" + (f" · links rewritten: {', '.join(touched)}" if touched else " · no links pointed at it"))
-    return out
+    return touched
 
 
 # ---- dates: what the tool can count -----------------------------------------------------------------

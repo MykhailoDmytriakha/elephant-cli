@@ -9,7 +9,7 @@
 ```sh
 git clone https://github.com/MykhailoDmytriakha/mike-cli.git ~/MyProjects/mike-cli   # клон может лежать где угодно
 ln -sf ~/MyProjects/mike-cli/bin/mike ~/.local/bin/mike
-mike --version        # → mike 0.18.0
+mike --version        # → mike 0.19.0
 ```
 
 Обновление на любой машине — `git pull` в клоне: команда, правила и тесты приезжают одним движением, symlink переустанавливать не нужно.
@@ -47,7 +47,8 @@ mike case new "название дела" --goal "цель одной строк
 - Владелец читает только README и TODO → включи правило дела: `mike readme add context "rule: items link their material"`. С ним `todo add` напомнит про ссылку `[имя](docs/файл.md)` в тексте пункта, а `Order` назовёт пункты без неё.
 - Не знаешь причину, работа больше одной сессии или нужно решение владельца → `mike spawn "имя" --goal "…"`: вложенное дело той же формы; закрыл его → `mike done "итог"`, родитель получит строку сам.
 - Проверить всё: `mike check` (нарушения → выход 3); что видит mike отсюда: `mike doctor`; как всё устроено целиком: `mike help model`; mike ведёт себя не так → `mike feedback "заголовок" --actual "…" --expected "…"`.
-- Заканчиваешь → снова `mike`: если `Order` говорит «State is behind» — перепиши `State` (`mike readme set next "…"`; устаревшую строку убирает `mike readme set <prefix> ""`). Следующая сессия начнётся с этой строки.
+- Текст с `$` (суммы) пиши в одинарных кавычках: `mike todo add 3 'заплатить $150'` — в двойных shell съест `$150`, а `mike` откажет записывать след.
+- Заканчиваешь → снова `mike`: если `Order` говорит «State is behind» — перепиши `State` (`mike readme set next "…"`; верен как есть — `mike readme touch`; устаревшую строку убирает `mike readme set <prefix> ""`). Следующая сессия начнётся с этой строки.
 ```
 
 ## 4. Проверить, что работает
