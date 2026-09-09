@@ -498,8 +498,9 @@ BARE_MD_RE = re.compile(r"(?<![\w/(])((?:[\w.-]+/)+[\w.-]+\.md)\b")
 
 def _link_targets(text: str, base: Path, case: Optional[Path] = None) -> List[Path]:
     """Resolved targets `text` points at: markdown links (relative to the file), plus bare paths to
-    `.md` files (`research/survey.md`, also in backticks) — that is how agents and closed phase lines
-    cite files, and a citation is a reference. Fenced code blocks are examples, not references."""
+    `.md` files (`research/survey.md`, also in backticks) — that is how agents cite files in prose
+    (and how phase lines did before 0.18), and a citation is a reference. Fenced code blocks are
+    examples, not references."""
     out = []
     text = "".join(seg if not (code and seg.startswith("```")) else " " * len(seg) for seg, code in outside_code(text))
     for m in LINK_RE.finditer(text):

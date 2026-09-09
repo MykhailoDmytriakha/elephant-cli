@@ -129,6 +129,11 @@ class TodoTests(unittest.TestCase):
         r = grammar.parse_todo(TODO_OK.replace(" · phases/1-research.md", ""))
         self.assertIn("F5", rules(r.errors))
 
+    def test_closed_phase_summary_links_its_file(self):  # the form mike writes since 0.18 (feedback 2026-09-08)
+        r = grammar.parse_todo(TODO_OK.replace(" · phases/1-research.md", " · [phases/1-research.md](phases/1-research.md)"))
+        self.assertTrue(r.ok, r.errors)
+        self.assertIn("[phases/1-research.md](phases/1-research.md)", r.phase(1).summary)
+
     def test_closed_phase_with_items(self):
         r = grammar.parse_todo(TODO_OK.replace("- [x] 1 Research —", "- [x] 1 Research —").replace(
             "- [ ] 2 Concept\n", "- [ ] 2 Concept\n") + "  - [ ] 3.1 x\n")

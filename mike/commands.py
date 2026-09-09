@@ -50,13 +50,27 @@ def _phase_of(todo: grammar.Todo) -> str:
 
 
 # ---- TODO rendering (machine-owned text) ---------------------------------------------------------
+BARE_PHASE_PATH_RE = re.compile(r"(?<![\w/(\[`])(phases/\d+-[a-z0-9-]+\.md)(?![\w)`])")
+
+
+def _phase_link(file_name: str) -> str:
+    """The phase file cited from TODO — a markdown link, so the editor opens it (feedback 2026-09-08:
+    a bare `phases/2-calls.md` is text to the reader, `[…](…)` next to it is a link)."""
+    return f"[phases/{file_name}](phases/{file_name})"
+
+
+def _link_phase_paths(summary: str) -> str:
+    """A phase line written before 0.18 cites its file as a bare path; every write renders it as a link."""
+    return BARE_PHASE_PATH_RE.sub(lambda m: f"[{m.group(1)}]({m.group(1)})", summary)
+
+
 def render_todo(todo: grammar.Todo) -> str:
     out = [f"# {todo.title}", ""]
     for p in sorted(todo.phases, key=lambda x: x.n):
         mark = "x" if p.done else " "
         head = f"- [{mark}] {p.n} {p.name}"
         if p.summary:
-            head += f" — {p.summary}"
+            head += f" — {_link_phase_paths(p.summary)}"
         out.append(head)
         for it in [i for i in p.items if not i.held] + [i for i in p.items if i.held]:
             mark = "x" if it.done else ("~" if it.held else " ")
@@ -84,7 +98,7 @@ def _derive_todo(case: Path, todo: grammar.Todo) -> bool:
             continue
         if parsed.errors or not parsed.goal:
             continue
-        tail = f"{order._short(parsed.goal, 110)} · phases/{pf.name}"
+        tail = f"{order._short(parsed.goal, 110)} · {_phase_link(pf.name)}"
         if p.summary != tail:
             p.summary, changed = tail, True
     return changed
@@ -915,16 +929,24 @@ def phase_close(case: Path, n: int, summary: str) -> Outcome:
     if phase.items:
         text.append("")
         text.append("## Items at close")
-        text.extend(f"- {it.n}.{it.m} {'✓' if it.done else '✗'} {it.text}" for it in phase.items)
+        text.extend(_item_line_for_phase_file(case, pf, it) for it in phase.items)
     pf.write_text("\n".join(text).rstrip("\n") + "\n", encoding="utf-8")
     rel = f"phases/{pf.name}"
     phase.done, phase.items = True, []
-    phase.summary = f"{summary} · {date} · {rel}" if rel not in summary else summary
+    phase.summary = f"{summary} · {date} · {_phase_link(pf.name)}" if rel not in summary else summary
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
     out.lines = log(case, "PHASE", f"{phase.name} закрыта → {summary}", f"p{n}").lines + out.lines
     out.say(f"closed: phase {n} {phase.name} → TODO.md (collapsed), {rel} (result), README.md State")
     return out
+
+
+def _item_line_for_phase_file(case: Path, pf: Path, it: grammar.Item) -> str:
+    """An item copied from TODO into the phase file keeps pointing at the same files: TODO lives in the
+    case root, the phase file in phases/, so every relative link is re-based (`docs/x.md` → `../docs/x.md`).
+    Feedback 2026-09-08: verbatim copies left `mike check` with broken links after every `phase close`."""
+    text, _ = _rewrite_links(it.text, case, new_base=pf.parent)
+    return f"- {it.n}.{it.m} {'✓' if it.done else '✗'} {text}"
 
 
 def _cancel_phase(case: Path, todo: grammar.Todo, phase: grammar.Phase, why: str, out: Outcome) -> str:
@@ -938,12 +960,12 @@ def _cancel_phase(case: Path, todo: grammar.Todo, phase: grammar.Phase, why: str
     lines = pf.read_text(encoding="utf-8").split("\n")
     lines[2] = f"result: снято: {why}"
     if phase.items:
-        lines += ["", "## Items at cancel", *(f"- {it.n}.{it.m} {'✓' if it.done else '✗'} {it.text}" for it in phase.items)]
+        lines += ["", "## Items at cancel", *(_item_line_for_phase_file(case, pf, it) for it in phase.items)]
     pf.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
     items = ", ".join(f"{it.n}.{it.m}" for it in phase.items if not it.done)
     waits = ", ".join(phase.waits)
     phase.done, phase.items, phase.waits = True, [], []
-    phase.summary = f"снято: {why} · {date} · phases/{pf.name}"
+    phase.summary = f"снято: {why} · {date} · {_phase_link(pf.name)}"
     text = f"снята фаза {phase.n} {phase.name} — {why}"
     if items:
         text += f" (пункты сняты: {items})"
@@ -1362,9 +1384,11 @@ def feedback(title: str, expected: str, actual: str, why: str, acceptance: str, 
 
 
 # ---- mv: a file moves, its links follow -----------------------------------------------------------
-def _rewrite_links(text: str, base: Path, src: Path, dst: Path, new_base: Optional[Path] = None):
+def _rewrite_links(text: str, base: Path, src: Optional[Path] = None, dst: Optional[Path] = None,
+                   new_base: Optional[Path] = None):
     """Markdown link targets in `text` (a file living in `base`) that resolve to `src` now point at
-    `dst`; when the file itself moves (`new_base`), every relative target is re-based as well.
+    `dst`; when the text itself moves (`new_base`), every relative target is re-based as well —
+    with `src` omitted that is all it does (a line copied from TODO into phases/).
     Returns (text, number of links rewritten). URLs and anchors are left alone."""
     import os
     count = 0
@@ -1376,10 +1400,10 @@ def _rewrite_links(text: str, base: Path, src: Path, dst: Path, new_base: Option
             return m.group(0)
         path, _, anchor = target.partition("#")
         resolved = (base / path).resolve()
-        if resolved == src.resolve():
+        if src is not None and resolved == src.resolve():
             new = os.path.relpath(dst, new_base or base)
-        elif new_base is not None and new_base != base:
-            new = os.path.relpath(resolved, new_base)
+        elif new_base is not None and new_base.resolve() != base.resolve():
+            new = os.path.relpath(resolved, new_base.resolve())
         else:
             return m.group(0)
         if new == path:

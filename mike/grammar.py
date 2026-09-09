@@ -234,12 +234,12 @@ def parse_todo(text: str) -> Todo:
                 r.error("F13", i, f"phase name `{name}` must be English, 1–3 words, letters/digits/hyphen")
             if done:
                 if not summary:
-                    r.error("F5", i, f"closed phase {n} needs a summary: `— result · date · … · phases/{n}-name.md`")
+                    r.error("F5", i, f"closed phase {n} needs a summary: `— result · date · … · [phases/{n}-name.md](phases/{n}-name.md)`")
                 else:
                     if not DATE_RE.search(summary):
                         r.error("F5", i, f"closed phase {n}: summary has no date")
                     if not re.search(rf"phases/{n}-[a-z0-9-]+\.md", summary):
-                        r.error("F5", i, f"closed phase {n}: summary must end with `phases/{n}-name.md`")
+                        r.error("F5", i, f"closed phase {n}: summary must end with a link to its file: `[phases/{n}-name.md](phases/{n}-name.md)`")
             # An open phase may carry `— <one-line intent>` (rolling wave); only closed phases need a summary.
             phase = Phase(n, name, done, i, summary)
             r.phases.append(phase)

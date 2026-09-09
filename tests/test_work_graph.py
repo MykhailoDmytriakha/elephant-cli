@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mike import grammar
+from mike import commands, grammar, store
 from tests.test_commands import run
 
 
@@ -29,13 +29,13 @@ class Base(unittest.TestCase):
 class PhaseLines(Base):
     def test_open_phase_line_carries_goal_and_path_and_follows_the_file(self):
         run("phase", "open", "1", "Build", "--goal", "ship the build")
-        self.assertIn("- [ ] 1 Build — ship the build · phases/1-build.md", self.read("TODO.md"))
+        self.assertIn("- [ ] 1 Build — ship the build · [phases/1-build.md](phases/1-build.md)", self.read("TODO.md"))
         pf = self.case / "phases" / "1-build.md"
         pf.write_text(pf.read_text(encoding="utf-8").replace("goal: ship the build", "goal: ship the build to five users"), encoding="utf-8")
         code, out, err = run()
         self.assertEqual(code, 0, err)
         self.assertIn("TODO refreshed", out)
-        self.assertIn("- [ ] 1 Build — ship the build to five users · phases/1-build.md", self.read("TODO.md"))
+        self.assertIn("- [ ] 1 Build — ship the build to five users · [phases/1-build.md](phases/1-build.md)", self.read("TODO.md"))
         code, out, err = run("check")
         self.assertEqual(code, 0, err + out)
 
@@ -45,7 +45,7 @@ class PhaseLines(Base):
         self.assertIn("- [ ] 2 Rollout — first users\n", self.read("TODO.md"))
         run()
         self.assertIn("- [ ] 2 Rollout — first users\n", self.read("TODO.md"), "no file, no derived tail")
-        self.assertIn("- [ ] 1 Build — g · phases/1-build.md", self.read("TODO.md"))
+        self.assertIn("- [ ] 1 Build — g · [phases/1-build.md](phases/1-build.md)", self.read("TODO.md"))
 
 
 class CaseMap(unittest.TestCase):
@@ -282,3 +282,64 @@ class CaseCancel(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PhaseLinks(Base):
+    """Feedback 2026-09-08 (BibleTruck): to the editor a bare `phases/2-calls.md` in a TODO line is text
+    while `[x](docs/y.md)` beside it is a link; and `phase close` copied item lines verbatim into
+    phases/, so every `[x](docs/y.md)` broke one folder down and `check` reported broken links."""
+
+    def setUp(self):
+        super().setUp()
+        (self.case / "docs" / "calls").mkdir(parents=True)
+        (self.case / "docs" / "calls" / "2026-09-01-sergey.md").write_text("summary: the call\n", encoding="utf-8")
+        run("phase", "open", "1", "Calls", "--goal", "g")
+        run("todo", "add", "1", "Sergey: did he name the window — [sergey](docs/calls/2026-09-01-sergey.md)")
+        run("log", "RESULT", "r")
+        run("log", "DECISION", "reflect: x")
+        run("log", "DECISION", "align: y")
+
+    def test_phase_close_rebases_item_links_into_the_phase_file(self):
+        run("todo", "done", "1.1", "yes")
+        code, out, err = run("phase", "close", "1", "window confirmed")
+        self.assertEqual(code, 0, err)
+        pf = self.read("phases/1-calls.md")
+        self.assertIn("- 1.1 ✓ Sergey: did he name the window — [sergey](../docs/calls/2026-09-01-sergey.md)", pf)
+        self.assertNotIn("](docs/", pf)
+        code, out, err = run("check")
+        self.assertEqual(code, 0, err + out)
+        self.assertNotIn("broken link", err + out)
+
+    def test_phase_cancel_rebases_item_links_too(self):
+        code, out, err = run("phase", "cancel", "1", "no calls")
+        self.assertEqual(code, 0, err)
+        self.assertIn("- 1.1 ✗ Sergey: did he name the window — [sergey](../docs/calls/2026-09-01-sergey.md)",
+                      self.read("phases/1-calls.md"))
+        code, out, err = run("check")
+        self.assertNotIn("broken link", err + out)
+
+    def test_closed_phase_line_links_its_file(self):
+        run("todo", "done", "1.1", "yes")
+        run("phase", "close", "1", "window confirmed")
+        self.assertRegex(self.read("TODO.md"),
+                         r"- \[x\] 1 Calls — window confirmed · \d{4}-\d{2}-\d{2} · \[phases/1-calls\.md\]\(phases/1-calls\.md\)\n")
+        code, out, err = run("check")
+        self.assertEqual(code, 0, err + out)
+
+    def test_a_bare_phase_path_from_an_older_mike_becomes_a_link_on_the_next_write(self):
+        run("todo", "done", "1.1", "yes")
+        run("phase", "close", "1", "window confirmed")
+        older = self.read("TODO.md").replace("[phases/1-calls.md](phases/1-calls.md)", "phases/1-calls.md")
+        store.write(self.case, "TODO.md", older)  # the form every mike before 0.18 wrote
+        self.assertIn("· phases/1-calls.md\n", self.read("TODO.md"))
+        self.assertEqual(run("check")[0], 0, "the old form is still valid grammar")
+        run("phase", "plan", "2", "Rollout", "--goal", "first users")  # any write through the door
+        t = self.read("TODO.md")
+        self.assertIn("· [phases/1-calls.md](phases/1-calls.md)\n", t)
+        self.assertNotIn("· phases/1-calls.md\n", t)
+
+    def test_link_normalisation_is_idempotent_and_leaves_code_alone(self):
+        link = "[phases/1-calls.md](phases/1-calls.md)"
+        self.assertEqual(commands._link_phase_paths(f"r · 2026-09-08 · {link}"), f"r · 2026-09-08 · {link}")
+        self.assertEqual(commands._link_phase_paths("see `phases/1-calls.md` here"), "see `phases/1-calls.md` here")
+        self.assertEqual(commands._link_phase_paths("r · phases/1-calls.md"), f"r · {link}")

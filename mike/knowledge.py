@@ -148,7 +148,10 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
 - close: needs in the journal — a RESULT for pN, `DECISION · reflect: <lesson about the process>`
   and `DECISION · align: <next phase re-planned with what we now know>` — and every item of the
   phase ended: done with an outcome or cancelled with a reason (F20; an open item holds the phase
-  open). Then `mike phase close 2 "what it delivered"` fills result:, collapses TODO, updates State.
+  open). Then `mike phase close 2 "what it delivered"` fills result:, collapses TODO to one line
+  `- [x] 2 Name — result · date · [phases/2-name.md](phases/2-name.md)` (the path is a link — it opens
+  from the editor), lists the items under `## Items at close` in the phase file with their links
+  re-based (`docs/x.md` → `../docs/x.md`, the same files as from TODO), updates State.
 - cancel: `mike phase cancel 2 "why"` — the branch is not needed: its items are cancelled with it,
   the file says `result: снято: …`, TODO keeps one line marked «снято», progress shows ✗.
 - the next phase will not open until the previous one passed all of the above.""",
