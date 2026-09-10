@@ -58,7 +58,11 @@ class Feedback(unittest.TestCase):
         t = broken / "TODO.md"
         t.write_text(t.read_text() + "- [ ] 1 Плохо\n")
         code, out, err = run("check")
+        self.assertEqual(code, 3, "the broken case has the freshest journal — it is the case in hand")
+        self.assertIn("in hand: 2026-", out + err)
+        code, out, err = run("check", "--all")
         self.assertEqual(code, 3)
+        self.assertIn("cases: 2 (all)", out + err)
         code, out, err = run("--case", "clean-case", "check")
         self.assertEqual(code, 0, err)
         self.assertIn("violations: 0", out)

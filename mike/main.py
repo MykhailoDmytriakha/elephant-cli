@@ -47,7 +47,8 @@ EXAMPLES = """examples
   mike order --adopt                     move file descriptions from README Links into the files as `summary:`
   mike migrate                           legacy case (files mike never stamped): dry run — what maps where, nothing changes
   mike migrate --apply                   archive the legacy files byte-for-byte, write canonical ones atomically
-  mike check                             all cases against the rules; violations → exit 3
+  mike check                             the case in hand against the rules; violations → exit 3
+  mike check --all                       every case in the workspace (a legacy case = one line per file, not its error dump)
   mike doctor                            read-only diagnostics, changes nothing
   mike --case connect-database check     check one case only
   mike help model                        how it all fits: nodes, rendered lines, edges, two ends, what is refused vs shown
@@ -120,7 +121,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--adopt", action="store_true", help="write `summary:` into files from their README Links descriptions")
     s = sub.add_parser("migrate", help="legacy case → mike's grammar: dry run by default, --apply archives and writes", allow_abbrev=False)
     s.add_argument("--apply", action="store_true", help="archive legacy files under legacy/<date-time>/ and write the canonical files")
-    sub.add_parser("check", help="verify every case against the rules", allow_abbrev=False)
+    s = sub.add_parser("check", help="the case in hand against the rules (violations → exit 3); --all: every case in the workspace", allow_abbrev=False)
+    s.add_argument("--all", action="store_true", help="every case here, legacy ones included (one line each); default: the case in hand")
     sub.add_parser("doctor", help="read-only diagnostics: what mike sees from here; changes nothing", allow_abbrev=False)
     sub.add_parser("status", help="where the case stands — the same screen as bare `mike` (git/oc/cf habit)", allow_abbrev=False)
     s = sub.add_parser("help", help="examples; `mike help <topic>` opens a knowledge dose", allow_abbrev=False)
@@ -204,8 +206,16 @@ def run(argv=None) -> int:
                     raise StoreError("usage: mike case use <name or unique suffix>", 2)
                 out = commands.case_use(root, args.name)
         elif args.cmd == "check":
-            only = store.resolve_case(root, args.case) if args.case else None
-            out = commands.check(root, only)
+            if args.all:
+                only = None
+            elif args.case:
+                only = store.resolve_case(root, args.case)
+            else:
+                try:
+                    only = store.hand(root)  # the case in hand, like every other command (feedback 2026-09-09)
+                except StoreError:
+                    only = None  # nothing in hand (every case closed): the whole workspace
+            out = commands.check(root, only, everything=args.all)
         else:
             case = store.hand(root, args.case)
             if args.cmd is None or args.cmd == "status":

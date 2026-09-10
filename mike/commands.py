@@ -2032,7 +2032,12 @@ def migrate_cmd(case: Path, apply: bool = False) -> Outcome:
     return out
 
 
-def check(root: Path, only: Optional[Path] = None) -> Outcome:
+def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> Outcome:
+    """The case in hand (`only`, with its nested cases) against the rules; `only` None = every case
+    here. Feedback 2026-09-09: a workspace with legacy cases from past months made the bare `check`
+    a 1 MB dump and exit 3 while the case in hand was clean — a gate the agent could not pass. Now
+    the bare command means the case in hand, like every other command; `--all` is the workspace,
+    and a legacy file there is one line with its recovery, not its every grammar error."""
     out = Outcome()
     cases = store.all_cases(root)  # the project case first in root mode (feedback 2026-09-01 #1)
     rejected = store.scan(root)[1]
@@ -2044,6 +2049,7 @@ def check(root: Path, only: Optional[Path] = None) -> Outcome:
     log_lines = []
     date, time = _now()
     for case in cases:
+        legacy = dict(store.legacy_files(case))  # name → why: never stamped, outside the grammar
         for name, parse in (("README.md", grammar.parse_readme), ("TODO.md", grammar.parse_todo), ("JOURNAL.md", grammar.parse_journal)):
             p = store.file_path(case, name)
             if not p.exists():
@@ -2052,6 +2058,11 @@ def check(root: Path, only: Optional[Path] = None) -> Outcome:
                 continue
             text = p.read_text(encoding="utf-8")
             r = parse(text)
+            if name in legacy:  # one line, with the one recovery — its errors are not a to-do list, migrate is
+                out.say(f"x {case.name}/{name}: legacy — {legacy[name]}, not listed → mike --case {case.name} migrate")
+                log_lines.append(f"{date} {time} · {case.name} · {name} · legacy · {legacy[name]}")
+                errors += 1
+                continue
             for f in r.errors:
                 out.say(f"x {case.name}/{name}: {f}")
                 log_lines.append(f"{date} {time} · {case.name} · {name} · {f.rule} · {f.message}")
@@ -2069,9 +2080,6 @@ def check(root: Path, only: Optional[Path] = None) -> Outcome:
                 errors += 1
         for rec in store.recover_files(case):
             out.warn(f"{case.name}: pending {rec.name}")
-        legacy = store.legacy_files(case)
-        if legacy:
-            out.say(f"  {case.name}: legacy file(s) never stamped by mike — {', '.join(n for n, _ in legacy)} → {store.MIGRATE_HINT}")
         readme_text_ = store.read(case, "README.md") if store.file_path(case, "README.md").exists() else ""
         for folder in sorted(case.iterdir()):
             if (not folder.is_dir() or folder.name.startswith(".") or folder.name == "phases"
@@ -2108,7 +2116,8 @@ def check(root: Path, only: Optional[Path] = None) -> Outcome:
     if not cases:
         out.say("cases: 0 — NOTHING WAS CHECKED (no cases found here); a zero here is not a green light")
     else:
-        out.say(f"cases: {len(cases)} · violations: {errors} · warnings: {len(out.warnings)}")
+        scope = "all" if only is None else f"in hand: {only.name}" + ("" if everything else " · every case: mike check --all")
+        out.say(f"cases: {len(cases)} ({scope}) · violations: {errors} · warnings: {len(out.warnings)}")
     if errors:
         raise StoreError("\n".join(out.lines + [f"warning: {w}" for w in out.warnings]), 3)
     return out

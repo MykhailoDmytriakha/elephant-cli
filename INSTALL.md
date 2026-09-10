@@ -9,7 +9,7 @@
 ```sh
 git clone https://github.com/MykhailoDmytriakha/mike-cli.git ~/MyProjects/mike-cli   # клон может лежать где угодно
 ln -sf ~/MyProjects/mike-cli/bin/mike ~/.local/bin/mike
-mike --version        # → mike 0.21.1
+mike --version        # → mike 0.22.0
 ```
 
 Обновление на любой машине — `git pull` в клоне: команда, правила и тесты приезжают одним движением, symlink переустанавливать не нужно.
@@ -46,7 +46,7 @@ mike case new "название дела" --goal "цель одной строк
 - Пункт больше не нужен → `mike todo cancel N.M "почему"` (не `done`); результат отменился → `mike todo reopen N.M "почему"`; пункт переехал в другую фазу → `mike todo move N.M K`; переносишь файл → `mike mv old new` — ссылки переписываются сами.
 - Владелец читает только README и TODO → включи правило дела: `mike readme add context "rule: items link their material"`. С ним `todo add` напомнит про ссылку `[имя](docs/файл.md)` в тексте пункта, а `Order` назовёт пункты без неё.
 - Не знаешь причину, работа больше одной сессии или нужно решение владельца → `mike spawn "имя" --goal "…"`: вложенное дело той же формы; закрыл его → `mike done "итог"`, родитель получит строку сам.
-- Проверить всё: `mike check` (нарушения → выход 3); что видит mike отсюда: `mike doctor`; как всё устроено целиком: `mike help model`; mike ведёт себя не так → `mike feedback "заголовок" --actual "…" --expected "…"`.
+- Проверить дело: `mike check` (нарушения → выход 3; все дела пространства — `mike check --all`); что видит mike отсюда: `mike doctor`; как всё устроено целиком: `mike help model`; mike ведёт себя не так → `mike feedback "заголовок" --actual "…" --expected "…"`.
 - Текст с `$` (суммы) пиши в одинарных кавычках: `mike todo add 3 'заплатить $150'` — в двойных shell съест `$150`, а `mike` откажет записывать след.
 - Заканчиваешь → снова `mike`: если `Order` говорит «State is behind» — перепиши `State` (`mike readme set next "…"`; верен как есть — `mike readme touch`; устаревшую строку убирает `mike readme set <prefix> ""`). Следующая сессия начнётся с этой строки.
 ```
@@ -55,7 +55,7 @@ mike case new "название дела" --goal "цель одной строк
 
 - `mike` в проекте → экран `mike · case in hand: …`, выход 0
 - `mike` вне проекта → `no .cases/ found …`, выход 4 — так и должно быть
-- `mike check` → `violations: 0`
+- `mike check` → `violations: 0` (дело в руках; `mike check --all` — все дела, legacy-дело там одной строкой на файл)
 - `mike order` → `order: ✓ everything in place` (или список того, что поправить)
 - дело велось до `mike` (файлы без `stamp:`) → `mike migrate` покажет план, `mike migrate --apply` перенесёт: старые файлы byte-for-byte в `legacy/`, новые — в грамматике
 

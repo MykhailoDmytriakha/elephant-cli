@@ -247,3 +247,30 @@ class MoveBinary(Base):
         self.assertEqual(code, 0, err)
         self.assertIn("not UTF-8 text — moved as is", err)
         self.assertTrue((self.case / "docs" / "archive" / "old.md").exists())
+
+
+class CheckScope(Base):
+    """Feedback 2026-09-09 17:54: `mike check` scanned every case, dumped the errors of unmigrated
+    cases from past months (1 MB+) and exited 3 while the case in hand was clean."""
+
+    def test_check_means_the_case_in_hand_and_all_is_explicit(self):
+        from tests import test_migrate as tm
+        legacy = self.case.parent / "2026-08-27-legacy-case"
+        legacy.mkdir()
+        for name, text in (("README.md", tm.LEGACY_README), ("TODO.md", tm.LEGACY_TODO), ("JOURNAL.md", tm.LEGACY_JOURNAL)):
+            (legacy / name).write_text(text, encoding="utf-8")
+            os.utime(legacy / name, (1_700_000_000, 1_700_000_000))  # months old: the hand stays on the clean case
+        code, out, err = run("check")
+        self.assertEqual(code, 0, err + out)
+        self.assertIn(f"cases: 1 (in hand: {self.case.name} · every case: mike check --all) · violations: 0", out)
+        self.assertNotIn("legacy", out + err)
+        code, out, err = run("check", "--all")
+        self.assertEqual(code, 3)
+        text = out + err
+        self.assertIn("cases: 2 (all) · violations: 3", text)
+        legacy_lines = [ln for ln in text.splitlines() if ln.startswith("x 2026-08-27-legacy-case/") or "x 2026-08-27-legacy-case/" in ln]
+        self.assertEqual(len(legacy_lines), 3, "one line per legacy file, not its every grammar error")
+        self.assertIn("never stamped, not listed → mike --case 2026-08-27-legacy-case migrate", text)
+        code, out, err = run("--case", "2026-08-27-legacy-case", "check")
+        self.assertEqual(code, 3)
+        self.assertIn("in hand: 2026-08-27-legacy-case", out + err)
