@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mike import grammar, stamp
+from elephant import grammar, stamp
 from tests.test_commands import run
 
 
@@ -15,7 +15,7 @@ class Feedback(unittest.TestCase):
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
         self.root = Path(self.tmp.name).resolve() / ".cases"
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
 
     def tearDown(self):
         os.chdir(self.old)
@@ -40,7 +40,7 @@ class Feedback(unittest.TestCase):
     def test_preexisting_violation_does_not_deadlock_writes(self):
         run("case", "new", "demo case", "--goal", "g")
         case = next(p for p in self.root.iterdir() if p.is_dir())
-        # simulate a file written by an older mike: valid stamp over content with a 300-char line
+        # simulate a file written by an older el: valid stamp over content with a 300-char line
         body, _ = stamp.split((case / "JOURNAL.md").read_text())
         broken = body.replace("  PHASE · дело открыто: g", "  PHASE · " + "x" * 300)
         (case / "JOURNAL.md").write_text(stamp.apply(broken))
@@ -76,7 +76,7 @@ class PhaseReference(unittest.TestCase):
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
         self.root = Path(self.tmp.name).resolve() / ".cases"
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         run("case", "new", "feedback probe", "--goal", "probe")
         run("phase", "open", "1", "Release validation", "--goal", "probe")
 
@@ -100,7 +100,7 @@ class PhaseReference(unittest.TestCase):
     def test_unknown_reference_is_actionable(self):
         code, out, err = run("log", "--phase", "No Such Phase", "DECISION", "x")
         self.assertEqual(code, 2)
-        self.assertIn("mike log --phase p1", err)
+        self.assertIn("el log --phase p1", err)
         self.assertIn("p1 Release validation", err)
 
 
@@ -109,17 +109,17 @@ class FeedbackCommand(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ["MIKE_FEEDBACK_DIR"] = str(Path(self.tmp.name) / "pool")
+        os.environ["EL_FEEDBACK_DIR"] = str(Path(self.tmp.name) / "pool")
         run("case", "new", "probe case", "--goal", "g")
 
     def tearDown(self):
-        del os.environ["MIKE_FEEDBACK_DIR"]
+        del os.environ["EL_FEEDBACK_DIR"]
         os.chdir(self.old)
         self.tmp.cleanup()
 
     def test_writes_artifact_and_prints_path(self):
         code, out, err = run("feedback", "log rejects names", "--actual", "exit 2 on visible name",
-                             "--expected", "resolve or hint", "--repro", "mike log --phase 'Release validation' …")
+                             "--expected", "resolve or hint", "--repro", "el log --phase 'Release validation' …")
         self.assertEqual(code, 0, err)
         self.assertIn("feedback written: ", out)
         path = Path(out.split("feedback written: ", 1)[1].strip())
@@ -129,14 +129,14 @@ class FeedbackCommand(unittest.TestCase):
 
     def test_malformed_feedback_refused(self):
         self.assertEqual(run("feedback", "only a title")[0], 2)
-        self.assertFalse(any(Path(os.environ["MIKE_FEEDBACK_DIR"]).glob("*")) if Path(os.environ["MIKE_FEEDBACK_DIR"]).exists() else False)
+        self.assertFalse(any(Path(os.environ["EL_FEEDBACK_DIR"]).glob("*")) if Path(os.environ["EL_FEEDBACK_DIR"]).exists() else False)
 
 
 class HelpTopics(unittest.TestCase):
-    """Knowledge doses inside the tool: `mike help <topic>`."""
+    """Knowledge doses inside the tool: `el help <topic>`."""
 
     def test_every_topic_prints(self):
-        from mike import knowledge
+        from elephant import knowledge
         for topic in knowledge.TOPICS:
             code, out, err = run("help", topic)
             self.assertEqual(code, 0, f"{topic}: {err}")
@@ -158,7 +158,7 @@ class ErrorUX(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
 
     def tearDown(self):
         os.chdir(self.old)
@@ -170,7 +170,7 @@ class ErrorUX(unittest.TestCase):
         for stream in (out, err):
             self.assertIn("ERROR [exit 4]", stream)
             self.assertIn("recovery: ", stream)
-            self.assertIn("mike help errors", stream)
+            self.assertIn("el help errors", stream)
 
     def test_non_entry_error_stays_on_stderr(self):
         code, out, err = run("case", "list")
@@ -198,7 +198,7 @@ class ErrorUX(unittest.TestCase):
     def test_errors_topic_exists(self):
         code, out, err = run("help", "errors")
         self.assertEqual(code, 0)
-        self.assertIn("mike doctor", out)
+        self.assertIn("el doctor", out)
         self.assertIn("AGENTS.md", out)
 
 
@@ -209,7 +209,7 @@ class CaseRootHygiene(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         run("case", "new", "demo case", "--goal", "g")
         self.case = next(p for p in (Path(self.tmp.name) / ".cases").iterdir() if p.is_dir())
 

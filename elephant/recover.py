@@ -1,8 +1,8 @@
 """Rebuild a case file by its grammar (rule S4).
 
-When a stamp does not match, `mike` does not restore bytes — it re-parses the file: lines the grammar
+When a stamp does not match, `el` does not restore bytes — it re-parses the file: lines the grammar
 accepts stay, lines it rejects are moved out to `<FILE>.recover.md` for the agent to re-enter through
-`mike` commands. Whole-file violations (wrong section order, size over the hard limit) cannot be fixed
+`el` commands. Whole-file violations (wrong section order, size over the hard limit) cannot be fixed
 by dropping lines and are returned as fatal findings instead.
 """
 from typing import Callable, List, Optional, Tuple

@@ -1,7 +1,7 @@
 """S1–S4: stamp line at the end of a file."""
 import unittest
 
-from mike import stamp
+from elephant import stamp
 
 
 class StampTests(unittest.TestCase):

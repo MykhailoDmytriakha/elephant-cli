@@ -1,4 +1,4 @@
-"""Owner's report 2026-09-09: `mike --version` on another machine died at import with
+"""Owner's report 2026-09-09: `el --version` on another machine died at import with
 `NameError: name 'Dict' is not defined` (commands.py, `_blocking`). Python 3.14 evaluates
 annotations lazily (PEP 649), so a typing name missing from the import is invisible where the
 tests run; Python ≤ 3.13 evaluates them at `def` time and refuses to import the module at all.
@@ -9,16 +9,16 @@ import pkgutil
 import typing
 import unittest
 
-import mike
+import elephant
 
 
 class Annotations(unittest.TestCase):
     def test_every_annotation_resolves_on_every_python(self):
         failures = []
-        for info in pkgutil.iter_modules(mike.__path__):
+        for info in pkgutil.iter_modules(elephant.__path__):
             if info.name == "__main__":
                 continue  # importing it runs main() on unittest's argv
-            mod = importlib.import_module(f"mike.{info.name}")
+            mod = importlib.import_module(f"elephant.{info.name}")
             for name, obj in inspect.getmembers(mod):
                 if getattr(obj, "__module__", None) != mod.__name__:
                     continue

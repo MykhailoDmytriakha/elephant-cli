@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mike import grammar, order
+from elephant import grammar, order
 from tests.test_commands import run
 
 
@@ -14,7 +14,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         run("case", "new", "demo case", "--goal", "g")
         run("phase", "open", "1", "Work", "--goal", "g")
         self.case = next(p for p in (Path(self.tmp.name) / ".cases").iterdir() if p.is_dir())
@@ -57,7 +57,7 @@ class Summaries(Base):
         self.doc("research/facts.md", "# F\nsummary: факты\n")
         code, out, err = run()
         self.assertEqual(code, 0, err)
-        self.assertIn('- research/ — (describe this folder: mike readme add links "research/ — …")', self.readme())
+        self.assertIn('- research/ — (describe this folder: el readme add links "research/ — …")', self.readme())
         self.assertIn("folder research/ has no description", out)
         run("readme", "add", "links", "research/ — установленные факты")
         code, out, err = run()
@@ -227,16 +227,16 @@ class Entry(Base):
     def test_entry_ends_with_order_and_instructions(self):
         code, out, err = run()
         self.assertIn("## Order", out)
-        self.assertIn("how to work: mike help start", out)
+        self.assertIn("how to work: el help start", out)
 
     def test_rules_pointer_in_the_footer_resolves(self):
         # feedback 2026-09-03: `case new` ships no RULES.md, so a project must not be sent to a dead path
         code, out, err = run()
-        self.assertIn("rules: mike help model · files · order · limits", out)
+        self.assertIn("rules: el help model · files · order · limits", out)
         self.assertNotIn(".cases/RULES.md", out)
         (Path(self.tmp.name) / ".cases" / "RULES.md").write_text("# RULES\n", encoding="utf-8")
         code, out, err = run()
-        self.assertIn("rules: .cases/RULES.md · mike help model · files · order · limits", out)
+        self.assertIn("rules: .cases/RULES.md · el help model · files · order · limits", out)
 
     def test_no_cases_prints_onboarding(self):
         with tempfile.TemporaryDirectory() as empty:
@@ -244,7 +244,7 @@ class Entry(Base):
             code, out, err = run()
             self.assertEqual(code, 4)
             self.assertIn("start here", out)
-            self.assertIn("mike case new", out)
+            self.assertIn("el case new", out)
             os.chdir(self.tmp.name)
 
 
@@ -256,7 +256,7 @@ class PhaseRename(Base):
         run("phase", "close", "1", "done")
         todo = grammar.parse_todo((self.case / "TODO.md").read_text())
         todo.phases.append(grammar.Phase(2, "Agent hookup", False, 0))
-        from mike import commands, store
+        from elephant import commands, store
         store.write(self.case, "TODO.md", commands.render_todo(todo))  # a planned phase 2
         code, out, err = run("phase", "open", "2", "Order", "--goal", "tidy by itself")
         self.assertEqual(code, 0, err)
@@ -285,8 +285,8 @@ class RootMode(unittest.TestCase):
             self.assertNotIn("src/", r, "source folders are not case content")
             self.assertNotIn("src/notes.md", out)
             self.assertNotIn(".cases/RULES.md", out, "root mode: .cases/ is empty, the pointer must not name it")
-            self.assertIn("rules: mike help model · files · order · limits", out)
-            # a line the agent wrote for a file mike does not render must survive every render
+            self.assertIn("rules: el help model · files · order · limits", out)
+            # a line the agent wrote for a file Elephant does not render must survive every render
             run("readme", "add", "links", "[notes.md](src/notes.md) — заметки к коду")
             run()
             run()

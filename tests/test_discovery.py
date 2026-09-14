@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mike import stamp, store
+from elephant import stamp, store
 from tests.test_commands import run
 from tests.test_grammar import JOURNAL_OK, README_OK, TODO_OK
 from tests.test_store import make_case
@@ -18,7 +18,7 @@ class Discovery(unittest.TestCase):
         os.chdir(self.tmp.name)
         self.root = Path(self.tmp.name).resolve() / ".cases"
         self.root.mkdir()
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
 
     def tearDown(self):
         os.chdir(self.old)

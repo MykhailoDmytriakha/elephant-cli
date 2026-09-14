@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mike import grammar
+from elephant import grammar
 from tests.test_commands import run
 
 
@@ -15,7 +15,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         run("case", "new", "demo case", "--goal", "g")
         run("phase", "open", "1", "Build", "--goal", "g")
         self.case = next(p for p in (Path(self.tmp.name) / ".cases").iterdir() if p.is_dir())
@@ -56,8 +56,8 @@ class Dates(Base):
         self.assertIn(f"next 7 days: 1.3 ({in3.isoformat()[5:]})", out)
         self.assertIn("overdue: 1 — see Order", out)
         self.assertIn(f"deadline {in10} «decision meeting» in 10 days", out)
-        self.assertIn(f"overdue: 1.2 «call back» was due {yesterday} → mike todo done 1.2 · mike todo due 1.2 <date> · "
-                      f"mike todo cancel 1.2 \"why\"", out)
+        self.assertIn(f"overdue: 1.2 «call back» was due {yesterday} → el todo done 1.2 · el todo due 1.2 <date> · "
+                      f"el todo cancel 1.2 \"why\"", out)
         run("todo", "done", "1.2", "ok")
         self.assertNotIn("overdue", run()[1], "a done item stops counting")
         run("todo", "due", "1.1", "none")
@@ -110,7 +110,7 @@ class CrossPhaseMove(Base):
         self.assertIn("already in phase 1", run("todo", "move", "1.1", "1")[1])
         code, out, err = run("todo", "move", "1.1", "5")
         self.assertEqual(code, 4)
-        self.assertIn("mike phase plan 5", err)
+        self.assertIn("el phase plan 5", err)
         self.assertNotIn("moved", self.read("JOURNAL.md"), "a move is an action, not an event (P5)")
 
 
@@ -173,8 +173,8 @@ class Mv(Base):
         run("todo", "add", "1", "read [b](docs/b.md)")
         code, out, err = run()
         self.assertEqual(code, 0, err)
-        self.assertIn("2 broken link(s): TODO.md → docs/b.md, docs/a.md → gone.md → fix the link, or move files with `mike mv old new`", out)
-        # check: a dead link in the files mike holds is a violation (F16); in a document — a warning
+        self.assertIn("2 broken link(s): TODO.md → docs/b.md, docs/a.md → gone.md → fix the link, or move files with `el mv old new`", out)
+        # check: a dead link in the files el holds is a violation (F16); in a document — a warning
         code, out, err = run("check")
         self.assertEqual(code, 3, "the owner reads `violations:` — a dead link in TODO must count there")
         self.assertIn("F16 · broken link → docs/b.md", out + err)
@@ -204,7 +204,7 @@ class StateLines(Base):
         self.assertIn("no `- пауза:` line", err)
         code, out, err = run("readme", "set", "progress", "")
         self.assertEqual(code, 2)
-        self.assertIn("held by mike", err)
+        self.assertIn("held by el", err)
         self.assertIn("- progress:", self.read("README.md"))
         self.assertEqual(run("readme", "drop", "decisions", "пауза")[0], 2, "only State goes by prefix")
 
@@ -220,7 +220,7 @@ class ItemsLinkRule(Base):
         code, out, err = run("readme", "add", "context", "rule: items link their material")
         self.assertEqual(code, 0, err)
         code, out, err = run()
-        self.assertIn("1 item(s) without a link to their material — 1.1 → mike todo edit N.M", out)
+        self.assertIn("1 item(s) without a link to their material — 1.1 → el todo edit N.M", out)
         code, out, err = run("todo", "add", "1", "book the hall")
         self.assertEqual(code, 0, err)
         self.assertIn("1.3 has no link to its material — this case's rule", err)
@@ -242,7 +242,7 @@ class Aliases(Base):
 
 
 class OwnedLines(Base):
-    def test_a_long_progress_line_rendered_by_mike_does_not_warn(self):
+    def test_a_long_progress_line_rendered_by_el_does_not_warn(self):
         # feedback 2026-09-04: 21 phases → a 491-char progress line warned on every command with no fix
         for n in range(2, 22):
             run("phase", "plan", str(n), f"Stage Number {n}", "--goal", "g")
@@ -258,7 +258,7 @@ class OwnedLines(Base):
 
 class ReadmeBudget(Base):
     def test_rendered_links_do_not_count_against_the_readme_cap(self):
-        # feedback 2026-09-03: the file index mike renders squeezed the owner's own lines out of 8 KB
+        # feedback 2026-09-03: the file index el renders squeezed the owner's own lines out of 8 KB
         for i in range(110):
             self.doc(f"docs/f{i:03d}.md", f"# F{i}\nsummary: {'описание ' * 12}{i}\n")
         run("readme", "add", "links", "docs/ — документы")
@@ -273,7 +273,7 @@ class ReadmeBudget(Base):
         code, out, err = run("readme", "add", "decisions", "ещё одно")
         self.assertEqual(code, 0, err)
         self.assertIn("of your text", err)
-        self.assertIn("Links rendered by mike:", err)
+        self.assertIn("Links rendered by el:", err)
         self.assertIn("not counted", err)
 
 

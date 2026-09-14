@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mike import commands, grammar, store
+from elephant import commands, grammar, store
 from tests.test_commands import run
 
 
@@ -14,7 +14,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         run("case", "new", "demo case", "--goal", "g")
         self.case = next(p for p in (Path(self.tmp.name) / ".cases").iterdir() if p.is_dir())
 
@@ -53,7 +53,7 @@ class CaseMap(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         run("case", "new", "--root", "my app", "--goal", "g")
         self.project = Path(self.tmp.name)
 
@@ -75,7 +75,7 @@ class CaseMap(unittest.TestCase):
         code, out, err = run("--case", self.project.name)
         self.assertEqual(code, 0, err)
         r = (self.project / "README.md").read_text(encoding="utf-8")
-        self.assertIn("- cases: 1 open · 1 closed — every case: mike case list", r)
+        self.assertIn("- cases: 1 open · 1 closed — every case: el case list", r)
         self.assertIn(f"  - [{db}](.cases/{db}/README.md) — 1 Build ▶ · next: write the client", r)
         self.assertIn(f"  - closed: [{ob}](.cases/{ob}/README.md) — ", r)
         self.assertIn("closed early: not needed", r)
@@ -138,7 +138,7 @@ class Dependencies(Base):
         code, out, err = run("todo", "done", "1.1")
         self.assertEqual(code, 2)
         self.assertIn("what came out", err)
-        self.assertIn("mike todo cancel 1.1", err)
+        self.assertIn("el todo cancel 1.1", err)
         code, out, err = run("todo", "done", "1.2", "did it anyway")
         self.assertEqual(code, 0, err)
         self.assertIn("1.2 was after 1.1, still open", err)
@@ -157,7 +157,7 @@ class Dependencies(Base):
         code, out, err = run("todo", "cancel", "2.1", "not needed")
         self.assertEqual(code, 0, err)
         code, out, err = run()
-        self.assertIn("1.3 is after 2.1, which is gone (cancelled or dropped) → mike todo after 1.3 <refs|none>", out)
+        self.assertIn("1.3 is after 2.1, which is gone (cancelled or dropped) → el todo after 1.3 <refs|none>", out)
         self.assertIn("blocked: 1.3 (after 2.1)", out)
         self.assertIn("added: 2.2 e", run("todo", "add", "2", "e")[1], "a cancelled number lives in the journal and is not reused")
         self.assertIn("added: 1.4 d", run("todo", "add", "1", "d")[1])
@@ -230,7 +230,7 @@ class Unreferenced(Base):
         (self.case / "phases" / "1-build.md").write_text((self.case / "phases" / "1-build.md").read_text(encoding="utf-8") + "\nsources: `docs/f.md` cited bare\n", encoding="utf-8")
         code, out, err = run()
         self.assertEqual(code, 0, err)
-        self.assertIn("1 file(s) nothing in the work points at — docs/d.md → link it from an item, a phase file or a decision · park it: mike mv <file> archive/", out)
+        self.assertIn("1 file(s) nothing in the work points at — docs/d.md → link it from an item, a phase file or a decision · park it: el mv <file> archive/", out)
         self.assertNotIn("docs/b.md", out.split("nothing in the work")[1].split("\n")[0])
         run("log", "PROBLEM", "mentioned [d](docs/d.md) in passing")  # a PROBLEM is not evidence
         self.assertIn("docs/d.md → link it", run()[1])
@@ -252,7 +252,7 @@ class CaseCancel(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         run("case", "new", "--root", "my app", "--goal", "g")
         self.project = Path(self.tmp.name)
 
@@ -326,11 +326,11 @@ class PhaseLinks(Base):
         code, out, err = run("check")
         self.assertEqual(code, 0, err + out)
 
-    def test_a_bare_phase_path_from_an_older_mike_becomes_a_link_on_the_next_write(self):
+    def test_a_bare_phase_path_from_an_older_el_becomes_a_link_on_the_next_write(self):
         run("todo", "done", "1.1", "yes")
         run("phase", "close", "1", "window confirmed")
         older = self.read("TODO.md").replace("[phases/1-calls.md](phases/1-calls.md)", "phases/1-calls.md")
-        store.write(self.case, "TODO.md", older)  # the form every mike before 0.18 wrote
+        store.write(self.case, "TODO.md", older)  # the form every el before 0.18 wrote
         self.assertIn("· phases/1-calls.md\n", self.read("TODO.md"))
         self.assertEqual(run("check")[0], 0, "the old form is still valid grammar")
         run("phase", "plan", "2", "Rollout", "--goal", "first users")  # any write through the door

@@ -15,7 +15,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         run("case", "new", "demo case", "--goal", "g")
         run("phase", "open", "1", "Work", "--goal", "g")
         self.case = next(p for p in (Path(self.tmp.name) / ".cases").iterdir() if p.is_dir())
@@ -58,23 +58,23 @@ class ReadmeLines(Base):
         code, out, err = run("readme", "set", "1 Реклама", "1 Реклама — вилка 1850-7300")
         self.assertEqual(code, 4)
         self.assertIn("is Decisions line 1", err)
-        self.assertIn('mike readme edit decisions 1 "…"', err)
+        self.assertIn('el readme edit decisions 1 "…"', err)
         r = self.read("README.md")
         self.assertNotIn("- 1 Реклама:", r, "no doubled line quietly opened in State")
         self.assertIn("- 1 Реклама — вилка 1000-3500", r)
         self.assertEqual(run("readme", "set", "next", "a new State line is still fine")[0], 0)
 
-    def test_set_refuses_the_lines_mike_derives(self):
+    def test_set_refuses_the_lines_el_derives(self):
         code, out, err = run("readme", "set", "last", "x")
         self.assertEqual(code, 2)
-        self.assertIn("mike readme touch", err)
+        self.assertIn("el readme touch", err)
 
     def test_touch_confirms_state_without_rewriting_it(self):
         run("readme", "set", "next", "second measurement")
         run("log", "RESULT", "first measurement: 48 ms")
         code, out, err = run()
         self.assertIn("State is behind", out)
-        self.assertIn("mike readme touch", out)
+        self.assertIn("el readme touch", out)
         code, out, err = run("readme", "touch")
         self.assertEqual(code, 0, err)
         self.assertIn("confirmed current", out)
@@ -153,10 +153,10 @@ class JournalLinks(Base):
         run("log", "RESULT", "call done — [a](docs/a.md); an example [name](path) stays an example")
         self.assertNotIn("broken link", run()[1])
         (self.case / "docs" / "calls").mkdir()
-        os.rename(self.case / "docs" / "a.md", self.case / "docs" / "calls" / "a.md")  # moved without mike
+        os.rename(self.case / "docs" / "a.md", self.case / "docs" / "calls" / "a.md")  # moved without el
         code, out, err = run()
         self.assertIn("JOURNAL.md → docs/a.md", out)
-        self.assertIn("mike relink old new", out)
+        self.assertIn("el relink old new", out)
         code, out, err = run("relink", "docs/a.md", "docs/calls/a.md")
         self.assertEqual(code, 0, err)
         self.assertIn("relinked: docs/a.md → docs/calls/a.md · links rewritten: JOURNAL.md (1)", out)
@@ -165,7 +165,7 @@ class JournalLinks(Base):
         self.assertEqual(code, 0, err)
         self.assertNotIn("broken link", out)
         self.assertEqual(self.read("README.md").count("[a.md](docs/calls/a.md)"), 1, "the stale rendered line is absorbed, not doubled")
-        self.assertNotIn("bypassing mike", err, "relink writes through the stamp door")
+        self.assertNotIn("bypassing Elephant", err, "relink writes through the stamp door")
         code, out, err = run("check")
         self.assertEqual(code, 0, err + out)
 
@@ -173,7 +173,7 @@ class JournalLinks(Base):
         run("log", "DECISION", "every item links its material like [x](docs/y.md)")  # an example, no backticks
         code, out, err = run()
         self.assertIn("JOURNAL.md → docs/y.md", out)
-        self.assertIn("mike relink old none", out)
+        self.assertIn("el relink old none", out)
         code, out, err = run("relink", "docs/y.md", "none")
         self.assertEqual(code, 0, err)
         self.assertIn("retired: docs/y.md — 1 link(s) now literal text `[name](docs/y.md)`: JOURNAL.md (1)", out)
@@ -187,7 +187,7 @@ class JournalLinks(Base):
         self.doc("docs/a.md")
         code, out, err = run("relink", "docs/a.md", "docs/b.md")
         self.assertEqual(code, 4)
-        self.assertIn("mike mv docs/a.md docs/b.md", err)
+        self.assertIn("el mv docs/a.md docs/b.md", err)
         code, out, err = run("relink", "docs/gone.md", "docs/nowhere.md")
         self.assertEqual(code, 4)
         self.assertIn("not a file in the case", err)

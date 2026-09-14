@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mike import grammar, store
+from elephant import grammar, store
 from tests.test_commands import run
 
 
@@ -14,7 +14,7 @@ class ProjectMode(unittest.TestCase):
         self.old = os.getcwd()
         self.project = Path(self.tmp.name).resolve()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         (self.project / "app.py").write_text("print('the app itself')\n")
         run("case", "new", "--root", "my app", "--goal", "большое приложение как верхнее дело")
 

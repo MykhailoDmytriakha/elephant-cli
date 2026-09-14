@@ -1,4 +1,4 @@
-"""The ten commands of `mike` — every write to the three files goes through here (P3).
+"""The ten commands of `el` — every write to the three files goes through here (P3).
 
 Each function takes the case folder (already resolved by main), does its preconditions (exit 4),
 validates through the grammar (exit 3) and writes with a fresh stamp. Functions return the lines
@@ -33,10 +33,10 @@ class Outcome:
             self.warnings.append(f"{report.path.name}: {f}")
         if report.recovered:
             self.warnings.append(
-                f"{report.path.name}: written bypassing mike — rebuilt by grammar, {report.recovered_lines} line(s) moved to "
-                f"{report.recovered.name}: re-enter them with mike, then run: rm '{report.recovered}' (S4)")
+                f"{report.path.name}: written bypassing Elephant — rebuilt by grammar, {report.recovered_lines} line(s) moved to "
+                f"{report.recovered.name}: re-enter them with el, then run: rm '{report.recovered}' (S4)")
         elif report.bypassed:
-            self.warnings.append(f"{report.path.name}: written bypassing mike — content was valid, stamp renewed (S4)")
+            self.warnings.append(f"{report.path.name}: written bypassing Elephant — content was valid, stamp renewed (S4)")
 
 
 def _now():
@@ -111,13 +111,13 @@ def _write_todo(case: Path, todo: grammar.Todo):
 
 
 def _unparsable(case: Path, name: str) -> StoreError:
-    """The precise blocker: a legacy file (never stamped, outside the grammar) names `mike migrate`;
-    a file mike wrote that broke since names `mike check` (S4 rebuilds it on the next write)."""
+    """The precise blocker: a legacy file (never stamped, outside the grammar) names `el migrate`;
+    a file el wrote that broke since names `el check` (S4 rebuilds it on the next write)."""
     why = migrate.legacy_reason(case, name)
     if why:
-        return StoreError(f"{name} is outside mike's grammar and was never stamped by mike ({why}) — a legacy case; "
+        return StoreError(f"{name} is outside Elephant's grammar and was never stamped by Elephant ({why}) — a legacy case; "
                           f"nothing is written until it is migrated", 3, recovery=store.MIGRATE_HINT)
-    return StoreError(f"{name} is not parsable — see the violations: mike check", 3, recovery="mike check")
+    return StoreError(f"{name} is not parsable — see the violations: el check", 3, recovery="el check")
 
 
 def _todo(case: Path, out: Optional[Outcome] = None) -> grammar.Todo:
@@ -197,7 +197,7 @@ def _replace_section(body: str, name: str, new_lines: List[str]) -> str:
 
 
 def _derive_readme(case: Path, body: str) -> str:
-    """Refresh what mike owns inside README: `progress:` (from TODO), `last:` (newest RESULT in the
+    """Refresh what el owns inside README: `progress:` (from TODO), `last:` (newest RESULT in the
     journal), and the folder/file lines of Links (from the files' own `summary:` lines, F14).
     What the agent wrote stays; only the derived parts move. Unparsable input is returned as is."""
     parsed = grammar.parse_readme(body)
@@ -302,7 +302,7 @@ def _resolve_phase(todo: grammar.Todo, ref: str) -> str:
     if len(named) == 1:
         return f"p{named[0].n}"
     known = " · ".join(f"p{p.n} {p.name}" for p in sorted(todo.phases, key=lambda x: x.n)) or "none yet"
-    raise StoreError(f"cannot resolve phase `{ref}` — use the canonical form, e.g. `mike log --phase p1 DECISION \"…\"`; "
+    raise StoreError(f"cannot resolve phase `{ref}` — use the canonical form, e.g. `el log --phase p1 DECISION \"…\"`; "
                      f"phases here: {known}", 2)
 
 
@@ -377,16 +377,16 @@ def _trim_suggestion(text: str, limit: int) -> str:
 
 # ---- todo ---------------------------------------------------------------------------------------
 def todo_done(case: Path, ref: str, outcome: str = "") -> Outcome:
-    """Done with evidence (F20): `mike todo done N.M "what came out"` — the outcome goes to the journal
-    as `RESULT · N.M: …`. Nothing to say? Then it was not done: `mike todo cancel N.M "why"`."""
+    """Done with evidence (F20): `el todo done N.M "what came out"` — the outcome goes to the journal
+    as `RESULT · N.M: …`. Nothing to say? Then it was not done: `el todo cancel N.M "why"`."""
     out = Outcome()
     if not re.fullmatch(r"[\d.,\s–-]+", ref) or "." not in ref:
-        raise StoreError("use `mike todo done N.M \"what came out\"` (or a range N.A-N.B, a list N.A, N.B) for items, "
-                         "`mike phase close N` for a phase", 2)
+        raise StoreError("use `el todo done N.M \"what came out\"` (or a range N.A-N.B, a list N.A, N.B) for items, "
+                         "`el phase close N` for a phase", 2)
     outcome = " ".join(outcome.split())
     if not outcome:
-        raise StoreError(f"done needs what came out (F20): mike todo done {ref} \"what came out\" — "
-                         f"nothing came out? then it was not done: mike todo cancel {ref} \"why\"", 2)
+        raise StoreError(f"done needs what came out (F20): el todo done {ref} \"what came out\" — "
+                         f"nothing came out? then it was not done: el todo cancel {ref} \"why\"", 2)
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)
     already = [it for it in items if it.done]
@@ -476,7 +476,7 @@ def _set_after(case: Path, todo: grammar.Todo, item: grammar.Item, refs: List[st
             if ref == me:
                 raise StoreError(f"{me} cannot be after itself", 2)
             if ref not in items:
-                raise StoreError(f"no item {ref} to be after — check the number or add it first (mike todo add N \"…\")", 4)
+                raise StoreError(f"no item {ref} to be after — check the number or add it first (el todo add N \"…\")", 4)
         elif ref not in kids:
             raise StoreError(f"`{ref}` is neither an item N.M nor a nested case here" + (f" (cases: {', '.join(sorted(kids))})" if kids else ""), 4)
         if ref not in clean:
@@ -558,12 +558,12 @@ def _gone_lines(case: Path, todo: grammar.Todo) -> List[str]:
     for key, blockers in _blocking(case, todo).items():
         gone = [r for r, st in blockers if st == "gone"]
         if gone:
-            out.append(f"{key} is after {', '.join(gone)}, which is gone (cancelled or dropped) → mike todo after {key} <refs|none> · or mike todo cancel {key} \"why\"")
+            out.append(f"{key} is after {', '.join(gone)}, which is gone (cancelled or dropped) → el todo after {key} <refs|none> · or el todo cancel {key} \"why\"")
     return out
 
 
 def todo_after(case: Path, ref: str, refs: str) -> Outcome:
-    """Set (or clear with `none`) what item N.M waits for: `mike todo after 2.5 "2.3, 1.7, case-name"`."""
+    """Set (or clear with `none`) what item N.M waits for: `el todo after 2.5 "2.3, 1.7, case-name"`."""
     out = Outcome()
     todo = _todo(case, out)
     phase, item = _find_item(todo, ref)
@@ -595,7 +595,7 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None) -> O
     batch of four cost four `move`s — the number is for life, the position is not)."""
     out = Outcome()
     if not ref.isdigit():
-        raise StoreError("use `mike todo add N \"text\"` — N is the phase number", 2)
+        raise StoreError("use `el todo add N \"text\"` — N is the phase number", 2)
     todo = _todo(case, out)
     phase = todo.phase(int(ref))
     if phase is None or phase.done:
@@ -614,7 +614,7 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None) -> O
                          f"markdown links count as their name\n"
                          f"  suggestion: \"{_trim_suggestion(text, grammar.TODO_ITEM_CHARS)}\"\n"
                          f"  (a re-added item takes the next free number at the END of the list — "
-                         f"`mike todo add {ref} \"…\" --before {phase.n}.K` puts it in place)", 3)
+                         f"`el todo add {ref} \"…\" --before {phase.n}.K` puts it in place)", 3)
     m = _next_number(case, todo, phase)
     item = grammar.Item(phase.n, m, False, text, 0, due=due)
     phase.items.insert(at, item)
@@ -636,7 +636,7 @@ def _remind_link(case: Path, ref: str, text: str, out: Outcome):
         return
     if _items_link_rule(body) and "](" not in text:
         out.warn(f"{ref} has no link to its material — this case's rule: items link their material; "
-                 f"mike todo edit {ref} \"{text} — [name](docs/file.md)\"")
+                 f"el todo edit {ref} \"{text} — [name](docs/file.md)\"")
 
 
 def _find_item(todo: grammar.Todo, ref: str):
@@ -674,7 +674,7 @@ def _select_items(todo: grammar.Todo, ref: str):
     if "," in ref:
         pairs = [_find_item(todo, r.strip()) for r in ref.split(",") if r.strip()]
         if len({p.n for p, _ in pairs}) > 1:
-            raise StoreError("one phase per call: `mike todo done 3.1, 3.4, 3.5` — items of another phase go in a second call", 2)
+            raise StoreError("one phase per call: `el todo done 3.1, 3.4, 3.5` — items of another phase go in a second call", 2)
         seen, items = set(), []
         for _, it in pairs:
             if it.m not in seen:
@@ -740,7 +740,7 @@ def todo_move(case: Path, ref: str, to: str) -> Outcome:
         # number changes, said aloud (feedback 2026-09-03: re-cutting a phase meant drop + add × 15)
         dest = todo.phase(int(to))
         if dest is None or dest.done:
-            raise StoreError(f"phase {to} is missing or closed — plan it first: mike phase plan {to} \"Name\"", 4)
+            raise StoreError(f"phase {to} is missing or closed — plan it first: el phase plan {to} \"Name\"", 4)
         if dest is phase:
             out.say(f"{ref} is already in phase {to} — nothing changed")
             return out
@@ -762,12 +762,12 @@ def todo_move(case: Path, ref: str, to: str) -> Outcome:
     else:
         m = re.fullmatch(r"(\d+)\.(\d+)", to)
         if not m or int(m.group(1)) != phase.n:
-            raise StoreError(f"move works inside one phase: `mike todo move {phase.n}.M {phase.n}.K` (before K) "
-                             f"or `mike todo move {phase.n}.M last`; to another phase — drop and add", 2)
+            raise StoreError(f"move works inside one phase: `el todo move {phase.n}.M {phase.n}.K` (before K) "
+                             f"or `el todo move {phase.n}.M last`; to another phase — drop and add", 2)
         target = next((it for it in phase.items if it.m == int(m.group(2))), None)
         if target is None:
             raise StoreError(f"no item {to} in phase {phase.n} (items: {_number_ranges(phase)}); "
-                             f"to put it last: mike todo move {ref} last", 4)
+                             f"to put it last: el todo move {ref} last", 4)
         if target is item:
             out.say(f"{ref} is already there — nothing changed")
             return out
@@ -787,7 +787,7 @@ def todo_hold(case: Path, ref: str, reason: str) -> Outcome:
         raise StoreError(f"item {ref} is done — nothing to hold", 4)
     item.held, item.hold_reason = True, " ".join(reason.split())
     out.absorb(_write_todo(case, todo))
-    out.say(f"on hold: {ref} (held items sit at the end of the phase; `mike todo resume {ref}` brings it back)")
+    out.say(f"on hold: {ref} (held items sit at the end of the phase; `el todo resume {ref}` brings it back)")
     return out
 
 
@@ -799,14 +799,14 @@ def todo_reopen(case: Path, ref: str, why: str) -> Outcome:
     out = Outcome()
     why = " ".join(why.split())
     if not why:
-        raise StoreError(f"reopen needs the reason: mike todo reopen {ref} \"why the result no longer holds\"", 2)
+        raise StoreError(f"reopen needs the reason: el todo reopen {ref} \"why the result no longer holds\"", 2)
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)  # a closed phase refuses: its items live in the phase file
     open_ = [it for it in items if not it.done]
     items = [it for it in items if it.done]
     if open_:
         out.say(f"open already, nothing changed: {_refs(phase, open_)}"
-                + (" (on hold — mike todo resume)" if any(it.held for it in open_) else ""))
+                + (" (on hold — el todo resume)" if any(it.held for it in open_) else ""))
     if not items:
         return out
     for it in items:
@@ -839,14 +839,14 @@ def todo_drop(case: Path, ref: str) -> Outcome:
     phase, item = _find_item(todo, ref)
     ref_by = [f"{it.n}.{it.m}" for it in _all_items(todo) if ref in it.after]
     if ref_by:  # F19: an item others wait for does not vanish silently
-        raise StoreError(f"{ref} is a dependency of {', '.join(ref_by)} — rewire them first (mike todo after N.M <refs|none>) "
-                         f"or cancel {ref} with a reason (mike todo cancel {ref} \"why\")", 4)
+        raise StoreError(f"{ref} is a dependency of {', '.join(ref_by)} — rewire them first (el todo after N.M <refs|none>) "
+                         f"or cancel {ref} with a reason (el todo cancel {ref} \"why\")", 4)
     phase.items.remove(item)
     out.absorb(_write_todo(case, todo))
     # the numbers of the others are kept (N.M is for life) — and said aloud, so the next command in a
     # batch is aimed at a number the caller has just been shown (feedback 2026-09-03)
     out.say(f"dropped: {ref} «{item.text}» — numbers kept, phase {phase.n} now reads {_number_ranges(phase)} "
-            f"(git keeps the history; a decision behind it → mike log DECISION)")
+            f"(git keeps the history; a decision behind it → el log DECISION)")
     return out
 
 
@@ -857,7 +857,7 @@ def todo_cancel(case: Path, ref: str, why: str) -> Outcome:
     out = Outcome()
     why = " ".join(why.split())
     if not why:
-        raise StoreError("cancel needs a reason: `mike todo cancel N.M \"why it is no longer needed\"`", 2)
+        raise StoreError("cancel needs a reason: `el todo cancel N.M \"why it is no longer needed\"`", 2)
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)
     for it in items:
@@ -901,7 +901,7 @@ def _closing_checks(case: Path, prev: grammar.Phase, journal: grammar.Journal) -
     if pf0.exists():
         parsed0 = grammar.parse_phase_file(pf0.read_text(encoding="utf-8"))
         if not parsed0.errors and parsed0.goal.startswith("migrated from legacy"):
-            return []  # closed by `mike migrate`: its RESULT/reflect/align live in the legacy archive
+            return []  # closed by `el migrate`: its RESULT/reflect/align live in the legacy archive
     evs = _events_for_phase(journal, f"p{prev.n}")
     if not any(ev.type == "RESULT" for ev in evs):
         missing.append(f"phase {prev.n}: no RESULT in the journal (F9)")
@@ -924,7 +924,7 @@ def _closing_checks(case: Path, prev: grammar.Phase, journal: grammar.Journal) -
 def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     """Name the next phase now, open it later: `- [ ] N Name — <intent>` in TODO, no phase file, no
     journal event (a plan is not an event, P5). Items may be parked under it (`todo add N`); it
-    opens with `mike phase open N` once the previous phase is closed — P8 stays: planned ≠ open.
+    opens with `el phase open N` once the previous phase is closed — P8 stays: planned ≠ open.
     Feedback 2026-09-03: a dated deadline outside the current phase had nowhere to live in TODO."""
     out = Outcome()
     if not grammar.PHASE_NAME_RE.match(name):
@@ -941,11 +941,11 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
         if existing.done and (existing.summary or "").startswith("снято"):
             return _replan_cancelled(case, todo, existing, name, intent, free, out)
         if existing.done:
-            raise StoreError(f"phase {n} {existing.name} is closed — pick the next number: mike phase plan {free} \"{name}\"", 4)
+            raise StoreError(f"phase {n} {existing.name} is closed — pick the next number: el phase plan {free} \"{name}\"", 4)
         pf = _phase_file(case, n, existing.name)
         if pf.exists():
             raise StoreError(f"phase {n} {existing.name} is open — its goal lives in {pf.relative_to(case)} (line `goal:`): "
-                             f"edit it there, the TODO line follows (F18); a new phase: mike phase plan {free} \"{name}\"", 4)
+                             f"edit it there, the TODO line follows (F18); a new phase: el phase plan {free} \"{name}\"", 4)
         # planned, not open: a plan is rough when made and sharpens until it opens — the same command
         # re-plans it (feedback 2026-09-08: a goal with a hole in it was frozen by «already planned»)
         changes = []
@@ -965,8 +965,8 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     todo.phases.append(grammar.Phase(n, name, False, 0, intent))
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
-    out.say(f"planned: phase {n} {name} → TODO.md (no phase file until it opens) · items now: mike todo add {n} \"…\" · "
-            f"open once the previous phase is closed: mike phase open {n}")
+    out.say(f"planned: phase {n} {name} → TODO.md (no phase file until it opens) · items now: el todo add {n} \"…\" · "
+            f"open once the previous phase is closed: el phase open {n}")
     return out
 
 
@@ -981,7 +981,7 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
     journal = _journal(case, out)
     if any(ev.type == "PHASE" and "открыта" in ev.text for ev in _events_for_phase(journal, f"p{n}")):
         raise StoreError(f"phase {n} {phase.name} ran before it was cancelled — its file and journal hold its story; "
-                         f"plan the work again under the next number: mike phase plan {free} \"{name}\"", 4)
+                         f"plan the work again under the next number: el phase plan {free} \"{name}\"", 4)
     pf = _phase_file(case, n, phase.name)
     old_goal, items, extra = "", [], []
     if pf.exists():
@@ -1001,7 +1001,7 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
                 extra.append(ln)
         if extra:
             raise StoreError(f"{pf.relative_to(case)} holds more than the header and the cancelled items — "
-                             f"not a born-closed file; plan the work under the next number: mike phase plan {free} \"{name}\"", 4)
+                             f"not a born-closed file; plan the work under the next number: el phase plan {free} \"{name}\"", 4)
         parsed = grammar.parse_phase_file("\n".join(lines))
         old_goal = "" if parsed.errors or parsed.goal == "—" else parsed.goal
     was = phase.summary or ""
@@ -1013,7 +1013,7 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
     _sync_progress(case, todo, out)
     out.lines = log(case, "DECISION", f"фаза {n} {name} возвращена в план ({was.split(' · ')[0]})", f"p{n}").lines + out.lines
     out.say(f"re-planned: phase {n} {name} — {phase.summary or '(no goal)'} → TODO.md (was cancelled)"
-            + (f" · items back: {_refs(phase, items)}" if items else "") + f" · open it later: mike phase open {n}")
+            + (f" · items back: {_refs(phase, items)}" if items else "") + f" · open it later: el phase open {n}")
     return out
 
 
@@ -1022,9 +1022,9 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     todo = _todo(case, out)
     existing = todo.phase(n)
     if not name and existing is not None and not existing.done:
-        name = existing.name  # `mike phase open N` opens the planned phase under its planned name
+        name = existing.name  # `el phase open N` opens the planned phase under its planned name
     if not name:
-        raise StoreError(f"phase open needs a name: `mike phase open {n} \"CLI core\" --goal …` — no planned phase {n} to take it from", 2)
+        raise StoreError(f"phase open needs a name: `el phase open {n} \"CLI core\" --goal …` — no planned phase {n} to take it from", 2)
     if not grammar.PHASE_NAME_RE.match(name):
         raise StoreError(f"phase name `{name}` must be English, 1–3 words (F13)", 2)
     if existing and existing.done:
@@ -1039,11 +1039,11 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
         if prev.done:
             missing = _closing_checks(case, prev, journal)
         elif _phase_file(case, prev.n, prev.name).exists():
-            missing = [f"phase {prev.n} {prev.name} is still open — close it first (P8): mike phase close {prev.n} \"…\" "
-                       f"· or cancel it: mike phase cancel {prev.n} \"why\""]
+            missing = [f"phase {prev.n} {prev.name} is still open — close it first (P8): el phase close {prev.n} \"…\" "
+                       f"· or cancel it: el phase cancel {prev.n} \"why\""]
         else:  # planned, never opened: phases run in order — the plan below has to open or go
             missing = [f"phase {prev.n} {prev.name} is planned and not opened — phases run in order: "
-                       f"mike phase open {prev.n} · or, if it is not needed: mike phase cancel {prev.n} \"why\""]
+                       f"el phase open {prev.n} · or, if it is not needed: el phase cancel {prev.n} \"why\""]
         if missing:
             raise StoreError("cannot open phase %d:\n  " % n + "\n  ".join(missing), 4)
     renamed = None
@@ -1082,14 +1082,14 @@ def phase_close(case: Path, n: int, summary: str) -> Outcome:
         # «phases/22-….md is missing (F12)» and the agent wrote the file by hand). Opening is the one
         # place the gates on the previous phase run and the PHASE event is logged — so open it now.
         raise StoreError(f"phase {n} {phase.name} was planned and never opened — nothing to close yet: "
-                         f"mike phase open {n} (creates phases/{_phase_file(case, n, phase.name).name} from the plan), "
-                         f"then mike phase close {n} \"…\"", 4)
+                         f"el phase open {n} (creates phases/{_phase_file(case, n, phase.name).name} from the plan), "
+                         f"then el phase close {n} \"…\"", 4)
     journal = _journal(case, out)
     missing = [m for m in _closing_checks(case, phase, journal) if "result:" not in m]
     open_items = [f"{it.n}.{it.m}" for it in phase.items if not it.done]
     if open_items:  # F20: a phase closes only when every item ended — done with evidence, or cancelled with a reason
         missing.append(f"phase {n}: open items {', '.join(open_items)} — each must end one of two ways: "
-                       f"mike todo done N.M \"what came out\" · mike todo cancel N.M \"why\" (or cancel the phase: mike phase cancel {n} \"why\")")
+                       f"el todo done N.M \"what came out\" · el todo cancel N.M \"why\" (or cancel the phase: el phase cancel {n} \"why\")")
     if missing:
         raise StoreError("cannot close phase %d:\n  " % n + "\n  ".join(missing), 4)
     summary = " ".join(summary.split())
@@ -1115,7 +1115,7 @@ def phase_close(case: Path, n: int, summary: str) -> Outcome:
 def _item_line_for_phase_file(case: Path, pf: Path, it: grammar.Item) -> str:
     """An item copied from TODO into the phase file keeps pointing at the same files: TODO lives in the
     case root, the phase file in phases/, so every relative link is re-based (`docs/x.md` → `../docs/x.md`).
-    Feedback 2026-09-08: verbatim copies left `mike check` with broken links after every `phase close`."""
+    Feedback 2026-09-08: verbatim copies left `el check` with broken links after every `phase close`."""
     text, _ = _rewrite_links(it.text, case, new_base=pf.parent)
     return f"- {it.n}.{it.m} {'✓' if it.done else '✗'} {text}"
 
@@ -1146,11 +1146,11 @@ def _cancel_phase(case: Path, todo: grammar.Todo, phase: grammar.Phase, why: str
 
 
 def phase_cancel(case: Path, n: int, why: str) -> Outcome:
-    """The branch is not needed: `mike phase cancel N "why"` — the second honest end of a node (F20)."""
+    """The branch is not needed: `el phase cancel N "why"` — the second honest end of a node (F20)."""
     out = Outcome()
     why = " ".join(why.split())
     if not why:
-        raise StoreError(f"cancel needs a reason: mike phase cancel {n} \"why the phase is no longer needed\"", 2)
+        raise StoreError(f"cancel needs a reason: el phase cancel {n} \"why the phase is no longer needed\"", 2)
     todo = _todo(case, out)
     phase = todo.phase(n)
     if phase is None:
@@ -1214,14 +1214,14 @@ def readme_set(case: Path, prefix: str, text: str) -> Outcome:
     """Replace (or create) the `- <prefix>: …` line in State — one line instead of a full rewrite.
     State only: a prefix that names a line of another section is refused with that line's edit
     command (feedback 2026-09-08: `set "1 Реклама" …` on a Decisions line quietly opened a second,
-    doubled line in State); mike's own lines are not set by hand (F3)."""
+    doubled line in State); Elephant's own lines are not set by hand (F3)."""
     out = Outcome()
     parsed = _readme_sections(case, out)  # ensures the file parses before we touch it
     prefix = prefix.rstrip(":")
     text = " ".join(text.split())
     if prefix.lower() in STATE_OWNED:
-        raise StoreError(f"`- {prefix}:` is held by mike (derived on every write) — it is not set by hand (F3); "
-                         f"State is still true and only its anchor is behind: mike readme touch", 2)
+        raise StoreError(f"`- {prefix}:` is held by el (derived on every write) — it is not set by hand (F3); "
+                         f"State is still true and only its anchor is behind: el readme touch", 2)
     if not text:  # an empty value removes the line — what the caller tries first (feedback 2026-09-03)
         return readme_drop(case, "state", prefix)
     if not any(ln.startswith(f"- {prefix}:") for ln in parsed.sections.get("State", [])):
@@ -1229,14 +1229,14 @@ def readme_set(case: Path, prefix: str, text: str) -> Outcome:
         if hit:
             name, k, line = hit
             raise StoreError(f"`{prefix}` is not a State line — it is {name} line {k}: «{order._short(line, 60)}»; "
-                             f"set writes State only → mike readme edit {name.lower()} {k} \"…\"", 4)
+                             f"set writes State only → el readme edit {name.lower()} {k} \"…\"", 4)
     body = _set_state_line(_readme_text(case, out), f"{prefix}: ", text)
     _write_readme(case, body, out, anchor=True)
     out.say(f"README State: `- {prefix}: …` set (as of the newest journal entry)")
     return out
 
 
-STATE_OWNED = grammar.STATE_OWNED  # lines mike derives on every write — not yours to remove
+STATE_OWNED = grammar.STATE_OWNED  # lines el derives on every write — not yours to remove
 
 
 def readme_add(case: Path, section: str, line: str) -> Outcome:
@@ -1260,13 +1260,13 @@ def readme_edit(case: Path, section: str, ref: str, text: str) -> Outcome:
         raise StoreError(f"no section `{section}` — sections: {' · '.join(grammar.README_SECTIONS)}", 2)
     text = " ".join(text.split())
     if not text:
-        raise StoreError(f"usage: mike readme edit {name.lower()} <k> \"new text\" — to remove a line: mike readme drop {name.lower()} <k>", 2)
+        raise StoreError(f"usage: el readme edit {name.lower()} <k> \"new text\" — to remove a line: el readme drop {name.lower()} <k>", 2)
     if name == "State":
         return readme_set(case, ref, text)
     parsed = _readme_sections(case, out)
     ref = str(ref).strip()
     if not ref.isdigit():
-        raise StoreError(f"usage: mike readme edit {name.lower()} <k> \"new text\" — k is the line's position (1 = first bullet)", 2)
+        raise StoreError(f"usage: el readme edit {name.lower()} <k> \"new text\" — k is the line's position (1 = first bullet)", 2)
     k = int(ref)
     bullets = [i for i, ln in enumerate(parsed.sections.get(name, [])) if ln.startswith("- ")]
     if not 1 <= k <= len(bullets):
@@ -1291,7 +1291,7 @@ def readme_touch(case: Path) -> Outcome:
 
 
 def readme_drop(case: Path, section: str, ref: str) -> Outcome:
-    """Drop line k of a section; in State a line is addressed by its prefix (`mike readme drop
+    """Drop line k of a section; in State a line is addressed by its prefix (`el readme drop
     state пауза`) — State lines were one-way before (feedback 2026-09-03)."""
     out = Outcome()
     name = SECTION_NAMES.get(section.lower())
@@ -1301,10 +1301,10 @@ def readme_drop(case: Path, section: str, ref: str) -> Outcome:
     ref = str(ref).strip()
     if not ref.isdigit():
         if name != "State":
-            raise StoreError(f"usage: mike readme drop {name.lower()} <k> — a position; only State lines go by prefix", 2)
+            raise StoreError(f"usage: el readme drop {name.lower()} <k> — a position; only State lines go by prefix", 2)
         prefix = ref.rstrip(":")
         if prefix.lower() in STATE_OWNED:
-            raise StoreError(f"`- {prefix}:` is held by mike (derived on every write) — it does not get removed (F3)", 2)
+            raise StoreError(f"`- {prefix}:` is held by el (derived on every write) — it does not get removed (F3)", 2)
         at = next((i for i, ln in enumerate(parsed.sections.get("State", [])) if ln.startswith(f"- {prefix}:")), None)
         if at is None:
             have = ", ".join(ln[2:].split(":")[0] for ln in parsed.sections.get("State", []) if ln.startswith("- "))
@@ -1353,7 +1353,7 @@ def case_new(root: Path, name: str, goal: str, parent: Optional[Path] = None) ->
     d, t = _now()
     readme_text = "\n".join([
         f"# {title}", "", "## Context", goal, "", "## State", "- progress: (no phases yet)",
-        "- next: open phase 1 — `mike phase open 1 <Name> --goal \"…\"`", f"- as of: {d} {t} · p0 (1 event)", "",
+        "- next: open phase 1 — `el phase open 1 <Name> --goal \"…\"`", f"- as of: {d} {t} · p0 (1 event)", "",
         "## Decisions", "", "## Problems", "", "## Links", *links, ""])
     store_write_fresh(case, "README.md", readme_text)
     store_write_fresh(case, "TODO.md", f"# TODO — {title}\n")
@@ -1373,7 +1373,7 @@ def case_list(root: Path) -> Outcome:
     if not cases:
         for path, reason in rejected0:
             out.warn(f"not a case, ignored: {path.relative_to(root)} — {reason}")
-        out.say("no cases yet — `mike case new <name> --goal \"…\"`")
+        out.say("no cases yet — `el case new <name> --goal \"…\"`")
         return out
     try:
         current = store.hand(root)
@@ -1393,7 +1393,7 @@ def case_list(root: Path) -> Outcome:
         if waits:
             bits.append("waits: " + ", ".join(waits))
         out.say(f"{mark} {'  ' * depth}{case.name} — {' · '.join(bits)}")
-    out.say("", "current is marked *; switch: `mike case use <name>`")
+    out.say("", "current is marked *; switch: `el case use <name>`")
     return out
 
 
@@ -1418,19 +1418,19 @@ def project_new(root: Path, name: str, goal: str) -> Outcome:
         f = store.file_path(project, fname)
         if f.exists():
             raise StoreError(f"{f.name} already exists in {project} — it may be your public readme or docs; "
-                             f"move its content aside first, mike will not overwrite it", 4)
+                             f"move its content aside first, el will not overwrite it", 4)
     title = name.strip()
     goal = " ".join(goal.split())
     d, t = _now()
     store_write_fresh(project, "README.md", "\n".join([
         f"# {title}", "", "## Context", goal, "", "## State", "- progress: (no phases yet)",
-        "- next: open phase 1 — `mike phase open 1 <Name> --goal \"…\"`", f"- as of: {d} {t} · p0 (1 event)", "",
+        "- next: open phase 1 — `el phase open 1 <Name> --goal \"…\"`", f"- as of: {d} {t} · p0 (1 event)", "",
         "## Decisions", "", "## Problems", "", "## Links", ""]))
     store_write_fresh(project, "TODO.md", f"# TODO — {title}\n")
     event_lines, _ = _render_event("PHASE", f"проект открыт: {goal}")
     store_write_fresh(project, "JOURNAL.md", "\n".join([f"# JOURNAL — {title}", "", f"- {d} {t} · p0", *event_lines]) + "\n")
     out.say(f"root mode on: {project.name} is now the top case (README/TODO/JOURNAL in the project root); "
-            f"feature cases live in .cases/ — `mike case new \"…\" --goal \"…\"`")
+            f"feature cases live in .cases/ — `el case new \"…\" --goal \"…\"`")
     return out
 
 
@@ -1473,7 +1473,7 @@ def done(root: Path, case: Path, summary: str) -> Outcome:
     live = [f"{n} ({st})" for n, st in live if st != "closed"]
     if live:  # F20: a parent closes only when every child is done or cancelled; BROKEN holds it open (F18)
         raise StoreError("cannot close the case: nested cases still open — " + ", ".join(live) +
-                         " → close each (mike --case <name> done \"…\") or cancel it with a reason", 4)
+                         " → close each (el --case <name> done \"…\") or cancel it with a reason", 4)
     summary = " ".join(summary.split())
     date, _ = _now()
     text = _set_state_line(_readme_text(case, out), "closed: ", f"{date} · {summary}")
@@ -1506,7 +1506,7 @@ def case_cancel(root: Path, case: Path, why: str) -> Outcome:
     out = Outcome()
     why = " ".join(why.split())
     if not why:
-        raise StoreError("cancel needs a reason: mike case cancel \"why the case is no longer needed\"", 2)
+        raise StoreError("cancel needs a reason: el case cancel \"why the case is no longer needed\"", 2)
     todo = _todo(case, out)
     if re.search(r"^- closed: ", _readme_text(case, out), re.M):
         raise StoreError(f"{case.name} is already closed", 4)
@@ -1539,11 +1539,11 @@ def case_cancel(root: Path, case: Path, why: str) -> Outcome:
 
 # ---- doctor -------------------------------------------------------------------------------------
 def doctor() -> Outcome:
-    """Read-only diagnostics: what mike sees from here. Never writes, never rebuilds (feedback #4)."""
+    """Read-only diagnostics: what el sees from here. Never writes, never rebuilds (feedback #4)."""
     from . import __version__
 
     out = Outcome()
-    out.say(f"mike {__version__} · python OK · cwd: {Path.cwd()} (mike never changes your cwd)")
+    out.say(f"el {__version__} · python OK · cwd: {Path.cwd()} (el never changes your cwd)")
     try:
         root = store.find_root()
     except StoreError as e:
@@ -1564,14 +1564,14 @@ def doctor() -> Outcome:
                 out.say(f"  ! {name}: MISSING (L3)")
                 continue
             _, state = stamp.verify(f.read_text(encoding="utf-8"))
-            note = {"ok": "stamp ok", "missing": "no stamp yet (set on first mike write)",
-                    "mismatch": "stamp MISMATCH — edited bypassing mike; next mike write will rebuild (S4)",
-                    "not-last": "stamp NOT LAST — something appended after it; next mike write will rebuild (S4)"}[state]
+            note = {"ok": "stamp ok", "missing": "no stamp yet (set on first el write)",
+                    "mismatch": "stamp MISMATCH — edited bypassing Elephant; next el write will rebuild (S4)",
+                    "not-last": "stamp NOT LAST — something appended after it; next el write will rebuild (S4)"}[state]
             out.say(f"  {f.name}: {note}")
         for name, why in store.legacy_files(case):
             out.say(f"  ! {name}: legacy — {why}; outside the grammar and never stamped → {store.MIGRATE_HINT}")
         for rec in store.recover_files(case):
-            out.say(f"  ! pending {rec.name} — re-enter its lines with mike, then: rm '{rec}'")
+            out.say(f"  ! pending {rec.name} — re-enter its lines with el, then: rm '{rec}'")
         if case != store.project_case(store.find_root()):
             for stray in store.stray_files(case):
                 out.say(f"  ! extra file in the case root: {stray.name} — move into a folder by kind (L4)")
@@ -1583,11 +1583,11 @@ def doctor() -> Outcome:
 
 # ---- feedback -----------------------------------------------------------------------------------
 def feedback_dir() -> Path:
-    """Feedback pool lives in the mike-cli clone (env MIKE_FEEDBACK_DIR overrides, e.g. in tests) —
+    """Feedback pool lives in the elephant-cli clone (env EL_FEEDBACK_DIR overrides, e.g. in tests) —
     it travels between machines with `git pull`, like elephant's pool."""
     import os as _os
 
-    override = _os.environ.get("MIKE_FEEDBACK_DIR")
+    override = _os.environ.get("EL_FEEDBACK_DIR")
     return Path(override) if override else Path(__file__).resolve().parent.parent / "feedback"
 
 
@@ -1607,7 +1607,7 @@ def feedback(title: str, expected: str, actual: str, why: str, acceptance: str, 
     except StoreError:
         case = "—"
     from . import __version__
-    sections = [f"# {title}", "", f"date: {d} {t} · mike {__version__} · case: {case}", ""]
+    sections = [f"# {title}", "", f"date: {d} {t} · el {__version__} · case: {case}", ""]
     for heading, text_ in (("Reproduction", repro), ("Actual", actual), ("Expected", expected),
                            ("Why", why), ("Acceptance", acceptance)):
         if text_:
@@ -1696,10 +1696,10 @@ def mv(case: Path, old: str, new: str) -> Outcome:
 
 
 def relink(case: Path, old: str, new: str) -> Outcome:
-    """The file already moved outside mike (a plain `mv`, a rename in the editor): every link to
-    `old` now points at `new` — the rewrite `mike mv` does, without moving anything. The one door
+    """The file already moved outside el (a plain `mv`, a rename in the editor): every link to
+    `old` now points at `new` — the rewrite `el mv` does, without moving anything. The one door
     to a link in the journal, which hands cannot touch (feedback 2026-09-08: 10 dead journal links
-    after files were moved without mike, nothing to see them with and nothing to fix them with).
+    after files were moved without el, nothing to see them with and nothing to fix them with).
     `new` = none: the file is gone for good, or the link was an example written without backticks —
     the link is retired into literal text (`[name](old)` in inline code): the words stay verbatim,
     nothing claims a file any more. Without it a dead journal link would be a line in Order that
@@ -1720,10 +1720,10 @@ def relink(case: Path, old: str, new: str) -> Outcome:
         return out
     dst = case / new
     if src.exists():
-        raise StoreError(f"{old} still exists — to move it and rewrite the links in one go: mike mv {old} {new}", 4)
+        raise StoreError(f"{old} still exists — to move it and rewrite the links in one go: el mv {old} {new}", 4)
     if not dst.is_file():
         raise StoreError(f"{new} is not a file in the case (paths are relative to the case: docs/x.md) — "
-                         f"relink points the links at a file that exists; gone for good or an example: mike relink {old} none", 4)
+                         f"relink points the links at a file that exists; gone for good or an example: el relink {old} none", 4)
     if case.resolve() not in dst.resolve().parents:
         raise StoreError("relink works inside the case folder only", 2)
     new_rel = dst.relative_to(case).as_posix()
@@ -1868,14 +1868,14 @@ def _blind_items(todo: grammar.Todo, readme_body: str) -> List[str]:
     if not blind:
         return []
     shown = ", ".join(f"{it.n}.{it.m}" for it in blind[:6]) + (f" … +{len(blind) - 6}" if len(blind) > 6 else "")
-    return [f"{len(blind)} item(s) without a link to their material — {shown} → mike todo edit N.M \"text — [name](docs/file.md)\" "
+    return [f"{len(blind)} item(s) without a link to their material — {shown} → el todo edit N.M \"text — [name](docs/file.md)\" "
             f"(this case's rule: items link their material)"]
 
 
 def _overdue_lines(todo: grammar.Todo, readme_body: str) -> List[str]:
     overdue = _dated(todo, readme_body, dt.date.today())[0]
-    return [f"overdue: {it.n}.{it.m} «{it.text}» was due {d.isoformat()} → mike todo done {it.n}.{it.m} · "
-            f"mike todo due {it.n}.{it.m} <date> · mike todo cancel {it.n}.{it.m} \"why\"" for it, d in overdue]
+    return [f"overdue: {it.n}.{it.m} «{it.text}» was due {d.isoformat()} → el todo done {it.n}.{it.m} · "
+            f"el todo due {it.n}.{it.m} <date> · el todo cancel {it.n}.{it.m} \"why\"" for it, d in overdue]
 
 
 # ---- entry, order and check ---------------------------------------------------------------------
@@ -1921,22 +1921,22 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         pass
     legacy = store.legacy_files(case)
     if legacy:
-        lines.insert(0, f"legacy file(s) outside mike's grammar, never stamped: {', '.join(n for n, _ in legacy)} → "
+        lines.insert(0, f"legacy file(s) outside Elephant's grammar, never stamped: {', '.join(n for n, _ in legacy)} → "
                         f"{store.MIGRATE_HINT}")
     for rec in store.recover_files(case):
-        lines.append(f"pending {rec.name} → re-enter its lines with mike, then: rm '{rec}' (S4)")
+        lines.append(f"pending {rec.name} → re-enter its lines with el, then: rm '{rec}' (S4)")
     if case != store.project_case(root):
         for stray in store.stray_files(case):
             lines.append(f"extra file in the case root: {stray.name} → move it into a folder by kind (L4)")
     return lines
 
 
-RULES_TOPICS = "mike help model · files · order · limits"
+RULES_TOPICS = "el help model · files · order · limits"
 
 
 def _rules_pointer(root: Path) -> str:
     """Where the rules can be read FROM HERE. The help topics always answer; the spec file only where
-    it exists (the mike-cli clone) — `case new` ships no RULES.md into a project, and a pointer printed
+    it exists (the elephant-cli clone) — `case new` ships no RULES.md into a project, and a pointer printed
     on every entry must resolve (feedback 2026-09-03: root case, `.cases/` empty, pointer dead)."""
     spec = root / "RULES.md"
     return f"{spec.relative_to(root.parent)} · {RULES_TOPICS}" if spec.is_file() else RULES_TOPICS
@@ -1945,10 +1945,10 @@ def _rules_pointer(root: Path) -> str:
 def entry(root: Path, case: Path) -> Outcome:
     out = Outcome()
     names = store.chain(case, root)
-    out.say(f"mike · case in hand: {' › '.join(names)}", "")
+    out.say(f"el · case in hand: {' › '.join(names)}", "")
     others = [c.name for c in store.all_cases(root) if store.is_open(c) and c != case]
     if others:
-        out.say("other open cases: " + " · ".join(others) + " — switch: `mike case use <name>`", "")
+        out.say("other open cases: " + " · ".join(others) + " — switch: `el case use <name>`", "")
     readme_body = _refresh_readme(case, out)
     todo_body, _ = stamp.split(store.read(case, "TODO.md"))
     todo = grammar.parse_todo(todo_body)
@@ -1975,7 +1975,7 @@ def entry(root: Path, case: Path) -> Outcome:
         out.say(f"## Order — {len(issues)} thing(s) to put back", *(f"- {ln}" for ln in issues), "")
     else:
         out.say("## Order", "- ✓ everything in place: files carry summaries, Links follow the files, State is current", "")
-    out.say(f"how to work: mike help start · what goes where: mike help where · rules: {_rules_pointer(root)} · full check: mike check")
+    out.say(f"how to work: el help start · what goes where: el help where · rules: {_rules_pointer(root)} · full check: el check")
     total = "\n".join(out.lines)
     if len(total) > MAX_SCREEN:
         out.lines = [total[:MAX_SCREEN], "", f"[truncated at {MAX_SCREEN} chars — README/TODO/JOURNAL are on disk]"]
@@ -1985,13 +1985,13 @@ def entry(root: Path, case: Path) -> Outcome:
 def order_cmd(root: Path, case: Path, adopt: bool = False) -> Outcome:
     """What is out of order in the case in hand, with the command that fixes each line (P12).
     `--adopt`: move the descriptions the agent wrote in README Links into the files as `summary:`
-    lines (F14) — the one mechanical fix mike can do on the lower layer."""
+    lines (F14) — the one mechanical fix el can do on the lower layer."""
     out = Outcome()
     if adopt:
         body = _readme_text(case, out)
         parsed = grammar.parse_readme(body)
         if parsed.errors:
-            raise StoreError("README.md is not parsable — run `mike check`", 3)
+            raise StoreError("README.md is not parsable — run `el check`", 3)
         _, fallback = order.render_links(case, _is_project(case), parsed.sections.get("Links", []))
         changed = order.adopt(case, fallback)
         for rel in changed:
@@ -2014,7 +2014,7 @@ def migrate_cmd(case: Path, apply: bool = False) -> Outcome:
     date, time = _now()
     plan = migrate.analyse(case, (date, time))
     if plan.empty:
-        out.say(f"nothing to migrate: {case.name} — the three files are in mike's grammar and stamped (or absent)")
+        out.say(f"nothing to migrate: {case.name} — the three files are in Elephant's grammar and stamped (or absent)")
         return out
     out.say(*migrate.report(plan, dry=not apply))
     if not apply:
@@ -2023,12 +2023,12 @@ def migrate_cmd(case: Path, apply: bool = False) -> Outcome:
         out.say(line)
     rel = plan.archive.relative_to(case)
     out.lines += log(case, "PHASE", f"дело перенесено из legacy формата → {rel}/ ({', '.join(sorted(plan.legacy))} byte-for-byte); "
-                     f"журнал не конвертирован — перенеси нужное: mike log; State переписать: mike readme set next", "p0").lines
+                     f"журнал не конвертирован — перенеси нужное: el log; State переписать: el readme set next", "p0").lines
     if "README.md" not in plan.legacy:  # README kept: it still gets the pointer to the archive
         out.lines += readme_add(case, "links", f"{migrate.ARCHIVE_DIR}/ — файлы дела до миграции {date}, byte-for-byte: "
                                 f"{', '.join(sorted(plan.legacy))}").lines
     _sync_progress(case, _todo(case, out), out)
-    out.say("migrated — now: mike (Order shows what to rewrite) · mike readme set next \"…\" · mike check")
+    out.say("migrated — now: el (Order shows what to rewrite) · el readme set next \"…\" · el check")
     return out
 
 
@@ -2059,7 +2059,7 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
             text = p.read_text(encoding="utf-8")
             r = parse(text)
             if name in legacy:  # one line, with the one recovery — its errors are not a to-do list, migrate is
-                out.say(f"x {case.name}/{name}: legacy — {legacy[name]}, not listed → mike --case {case.name} migrate")
+                out.say(f"x {case.name}/{name}: legacy — {legacy[name]}, not listed → el --case {case.name} migrate")
                 log_lines.append(f"{date} {time} · {case.name} · {name} · legacy · {legacy[name]}")
                 errors += 1
                 continue
@@ -2070,7 +2070,7 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
             for f in r.warnings:
                 out.warn(f"{case.name}/{name}: {f}")
             if r.stamp_state in ("mismatch", "not-last"):
-                out.warn(f"{case.name}/{name}: stamp {r.stamp_state} — written bypassing mike (S4)")
+                out.warn(f"{case.name}/{name}: stamp {r.stamp_state} — written bypassing Elephant (S4)")
                 log_lines.append(f"{date} {time} · {case.name} · {name} · S4 · stamp {r.stamp_state}")
         for pf in sorted((case / "phases").glob("*.md")) if (case / "phases").exists() else []:
             r = grammar.parse_phase_file(pf.read_text(encoding="utf-8"))
@@ -2088,15 +2088,15 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
             if f"{folder.name}/" not in readme_text_:
                 n_files = sum(1 for f in folder.rglob("*") if f.is_file())
                 out.warn(f"{case.name}: folder {folder.name}/ ({n_files} file(s)) has no line in README Links — "
-                         f"for the owner it does not exist (L5); add: mike readme add links \"{folder.name}/ — …\"")
+                         f"for the owner it does not exist (L5); add: el readme add links \"{folder.name}/ — …\"")
         if case != store.project_case(root):
             for stray in store.stray_files(case):
                 out.say(f"x {case.name}: L4 · extra file in the case root: {stray.name} — only README/TODO/JOURNAL live "
                         f"there; move it into a folder by kind (docs/ research/ logs/ scripts/ …)")
                 log_lines.append(f"{date} {time} · {case.name} · {stray.name} · L4 · extra file in the case root")
                 errors += 1
-        # order of the lower layer (F14, F15, S5): shown, never refused — mike does not write those files;
-        # a closed case is an archive — `mike order` still answers there when asked, check stays quiet
+        # order of the lower layer (F14, F15, S5): shown, never refused — Elephant does not write those files;
+        # a closed case is an archive — `el order` still answers there when asked, check stays quiet
         if store.is_open(case) and store.file_path(case, "README.md").exists() and store.file_path(case, "JOURNAL.md").exists():
             rb, _ = stamp.split(readme_text_)
             jr = grammar.parse_journal(store.read(case, "JOURNAL.md"))
@@ -2104,10 +2104,10 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
             dead: list = []
             for ln in order.report(case, _is_project(case), rb, jr if not jr.errors else None, links, link_violations=dead):
                 out.warn(f"{case.name}: order · {ln}")
-            # a dead link in the files mike holds is a violation, not a warning: the owner clicks and
+            # a dead link in the files el holds is a violation, not a warning: the owner clicks and
             # nothing opens, and `violations: 0` is what gets read (feedback 2026-09-03)
             for f, t in dead:
-                out.say(f"x {case.name}/{f}: F16 · broken link → {t} — fix the link, or move files with `mike mv old new` (links follow)")
+                out.say(f"x {case.name}/{f}: F16 · broken link → {t} — fix the link, or move files with `el mv old new` (links follow)")
                 log_lines.append(f"{date} {time} · {case.name} · {f} · F16 · broken link → {t}")
                 errors += 1
     if log_lines:
@@ -2116,7 +2116,7 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
     if not cases:
         out.say("cases: 0 — NOTHING WAS CHECKED (no cases found here); a zero here is not a green light")
     else:
-        scope = "all" if only is None else f"in hand: {only.name}" + ("" if everything else " · every case: mike check --all")
+        scope = "all" if only is None else f"in hand: {only.name}" + ("" if everything else " · every case: el check --all")
         out.say(f"cases: {len(cases)} ({scope}) · violations: {errors} · warnings: {len(out.warnings)}")
     if errors:
         raise StoreError("\n".join(out.lines + [f"warning: {w}" for w in out.warnings]), 3)

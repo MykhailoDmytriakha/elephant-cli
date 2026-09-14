@@ -1,11 +1,11 @@
 """Planned phases — feedback 2026-09-03: a dated deadline outside the current phase had
-nowhere to live in TODO; `mike phase plan` names the next phase without opening it (P8: planned ≠ open)."""
+nowhere to live in TODO; `el phase plan` names the next phase without opening it (P8: planned ≠ open)."""
 import os
 import tempfile
 import unittest
 from pathlib import Path
 
-from mike import grammar
+from elephant import grammar
 from tests.test_commands import run
 
 
@@ -14,7 +14,7 @@ class PlannedPhase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         run("case", "new", "demo case", "--goal", "g")
         run("phase", "open", "1", "Build", "--goal", "ship the build")
         self.case = next(p for p in (Path(self.tmp.name) / ".cases").iterdir() if p.is_dir())
@@ -37,7 +37,7 @@ class PlannedPhase(unittest.TestCase):
         code, out, err = run("phase", "plan", "2", "Rollout", "--goal", "first users on the new build")
         self.assertEqual(code, 0, err)
         self.assertIn("planned: phase 2 Rollout", out)
-        self.assertIn("mike todo add 2", out)
+        self.assertIn("el todo add 2", out)
         self.assertIn("- [ ] 2 Rollout — first users on the new build", self.read("TODO.md"))
         self.assertFalse((self.case / "phases" / "2-rollout.md").exists(), "planned is not open: no phase file")
         self.assertIn("- progress: 1 Build ▶ · 2 Rollout", self.read("README.md"))
@@ -80,7 +80,7 @@ class PlannedPhase(unittest.TestCase):
         code, out, err = run("phase", "plan", "1", "Again", "--goal", "x")
         self.assertEqual(code, 4)
         self.assertIn("phase 1 Build is open", err)
-        self.assertIn('mike phase plan 2 "Again"', err)
+        self.assertIn('el phase plan 2 "Again"', err)
         code, out, err = run("phase", "plan", "2", "Выкатка", "--goal", "x")
         self.assertEqual(code, 2)
         self.assertIn("F13", err)

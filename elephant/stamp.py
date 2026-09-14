@@ -1,7 +1,7 @@
 """Stamp — the fingerprint line at the end of README.md, TODO.md, JOURNAL.md (rules S1–S4, F0).
 
 The stamp is the last line of the file: `stamp: <first 12 hex chars of sha256>` computed over
-everything above that line. No copies, no side files. Only `mike` writes it.
+everything above that line. No copies, no side files. Only `el` writes it.
 """
 import hashlib
 import re

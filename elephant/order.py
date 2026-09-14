@@ -187,7 +187,7 @@ def child_cases(case: Path, root_mode: bool) -> List[Path]:
 
 def child_status(child: Path) -> Tuple[str, str, str, str]:
     """('open' | 'closed' | 'broken', progress, next, closed) read from the child's own README —
-    the child describes itself; a README mike cannot parse makes the child BROKEN, and a broken
+    the child describes itself; a README el cannot parse makes the child BROKEN, and a broken
     child holds its parent open (F18)."""
     from . import store, stamp  # local: store imports order for the README render
     try:
@@ -217,18 +217,18 @@ def _render_cases(case: Path, root_mode: bool) -> List[str]:
     rows = [(k, child_status(k)) for k in kids]
     live = [(k, s) for k, s in rows if s[0] != "closed"]
     closed = sorted(((k, s) for k, s in rows if s[0] == "closed"), key=lambda ks: ks[1][3], reverse=True)
-    out = [f"- cases: {len(live)} open · {len(closed)} closed — every case: mike case list"]
+    out = [f"- cases: {len(live)} open · {len(closed)} closed — every case: el case list"]
     for k, s in live:
         link = f"[{k.name}]({prefix}{k.name}/README.md)"
         if s[0] == "broken":
-            out.append(f"  - {link} — BROKEN: README unparsable, holds this case open → mike --case {k.name} check")
+            out.append(f"  - {link} — BROKEN: README unparsable, holds this case open → el --case {k.name} check")
         else:
             desc = s[1] + (f" · next: {s[2]}" if s[2] else "")
             out.append(f"  - {link} — {_short(desc or '(no State yet)', SUMMARY_CHARS)}")
     for k, s in closed[:CASES_SHOWN_CLOSED]:
         out.append(f"  - closed: [{k.name}]({prefix}{k.name}/README.md) — {_short(s[3], SUMMARY_CHARS)}")
     if len(closed) > CASES_SHOWN_CLOSED:
-        out.append(f"  - … +{len(closed) - CASES_SHOWN_CLOSED} closed earlier — mike case list")
+        out.append(f"  - … +{len(closed) - CASES_SHOWN_CLOSED} closed earlier — el case list")
     return out
 
 
@@ -282,7 +282,7 @@ def render_links(case: Path, root_mode: bool, manual_lines: List[str]) -> Tuple[
     nested under it, each described by its own `summary:` line (F14).
 
     Returns (lines, fallback) where fallback maps file rel-path → description the agent had written
-    in Links for a file that has no summary line yet (kept so nothing is lost; `mike order --adopt`
+    in Links for a file that has no summary line yet (kept so nothing is lost; `el order --adopt`
     moves it into the file).
     """
     manual: List[str] = []
@@ -295,7 +295,7 @@ def render_links(case: Path, root_mode: bool, manual_lines: List[str]) -> Tuple[
             continue  # the cases block is rendered from the children's READMEs (F18)
         kind, a, b = _classify(stripped if stripped.startswith("- ") else raw, case)  # nested lines: by content, any depth
         if kind == "folder" and ((a.split("/")[0] in SKIP_DIRS and a != "phases") or a.startswith(".")):
-            manual.append(raw)  # a folder mike does not render (legacy/, scripts/ …): the agent's line stays as written
+            manual.append(raw)  # a folder Elephant does not render (legacy/, scripts/ …): the agent's line stays as written
         elif kind == "folder":
             # the newest real description wins; a placeholder we rendered earlier counts as none
             if b and not b.startswith(PLACEHOLDER_FOLDER):
@@ -312,7 +312,7 @@ def render_links(case: Path, root_mode: bool, manual_lines: List[str]) -> Tuple[
             if raw != stripped and stripped.startswith("- "):
                 t = (_pointer_target(stripped[2:]) or "").split("#")[0].rstrip("/")
                 if t and "/" in t and t.lower().endswith(".md") and not t.startswith("..") and not (case / t).exists():
-                    continue  # a nested line mike drew for a file that is gone (moved without mike, deleted, a phase
+                    continue  # a nested line el drew for a file that is gone (moved without el, deleted, a phase
                     #           file removed at re-plan): a dead pointer in the rendered index, not the agent's line —
                     #           kept, it made README violate F16 with no command to drop it (2026-09-09)
             manual.append(raw)
@@ -330,9 +330,9 @@ def render_links(case: Path, root_mode: bool, manual_lines: List[str]) -> Tuple[
         if desc:
             blocks.append(f"- {f.name}/ — {desc}")
         else:
-            blocks.append(f"- {f.name}/ — {PLACEHOLDER_FOLDER} mike readme add links \"{f.name}/ — …\")")
+            blocks.append(f"- {f.name}/ — {PLACEHOLDER_FOLDER} el readme add links \"{f.name}/ — …\")")
         _render_folder(f, 1, folder_desc, fallback, rendered, blocks)
-    # a line the agent wrote for a file mike does not render here (outside the content folders) is
+    # a line the agent wrote for a file Elephant does not render here (outside the content folders) is
     # never dropped: it stays among the manual lines — `line added` must stay true (feedback 2026-09-03)
     out = manual + [raw for rel, raw in fallback_raw.items() if rel not in rendered] + blocks + _render_cases(case, root_mode)
     return out, {rel: desc for rel, desc in fallback.items() if rel in rendered}
@@ -471,7 +471,7 @@ def broken_links(case: Path, folders: List[Folder], readme_body: str, todo_body:
                  journal: Optional[grammar.Journal] = None) -> List[Tuple[str, str]]:
     """(file, target) for every relative markdown link whose target does not exist — in README and
     TODO bodies, the journal, the phase files and the content folders. A moved file keeps its links
-    alive through `mike mv` (feedback 2026-09-03); moved without mike, `mike relink old new` mends
+    alive through `el mv` (feedback 2026-09-03); moved without el, `el relink old new` mends
     them — the journal included, which hands cannot touch (feedback 2026-09-08: 10 dead links there,
     invisible). In the journal only targets that look like files count (`docs/x.md`, not `path`):
     history may cite an example, and an example cannot be relinked."""
@@ -605,25 +605,25 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
         key = anchor(readme_body)
         if key is None:
             if any(ev.type in ("RESULT", "PHASE") for e in journal.entries for ev in e.events):
-                out.append("State has no `as of` anchor → rewrite it once: mike readme set next \"…\" (sets the anchor)")
+                out.append("State has no `as of` anchor → rewrite it once: el readme set next \"…\" (sets the anchor)")
         else:
             n, r, p = stale(journal, key)
             if r or p:
                 out.append(f"State is behind: {n} journal entr{'y' if n == 1 else 'ies'} touched since as of {key[0]} {key[1]} "
-                           f"({r} RESULT, {p} PHASE) → mike readme set next \"…\" · still true as it stands: mike readme touch "
-                           f"· or mike readme --file README.md")
+                           f"({r} RESULT, {p} PHASE) → el readme set next \"…\" · still true as it stands: el readme touch "
+                           f"· or el readme --file README.md")
     missing = [d.rel for f in folders for d in f.all_docs() if not d.summary]
     if missing:
         shown = ", ".join(missing[:4]) + (f" … +{len(missing) - 4}" if len(missing) > 4 else "")
         out.append(f"{len(missing)} file(s) without `summary:` — {shown} → add `summary: one line` as line 2, "
-                   f"or mike order --adopt (takes the descriptions from Links)")
+                   f"or el order --adopt (takes the descriptions from Links)")
     for f in folders:
         desc = described.get(f.name, "")
         if not desc or desc.startswith(PLACEHOLDER_FOLDER):
-            out.append(f"folder {f.name}/ has no description → mike readme add links \"{f.name}/ — что здесь\"")
+            out.append(f"folder {f.name}/ has no description → el readme add links \"{f.name}/ — что здесь\"")
     for k in child_cases(case, root_mode):
         if child_status(k)[0] == "broken":
-            out.append(f"nested case {k.name}: README unparsable — it holds this case open (F18) → mike --case {k.name} check")
+            out.append(f"nested case {k.name}: README unparsable — it holds this case open (F18) → el --case {k.name} check")
     for small, other, share in duplicates(folders):
         out.append(f"{small} ≈ {other}: {int(share * 100)} % of {small.rsplit('/', 1)[-1]}'s text is verbatim in "
                    f"{other.rsplit('/', 1)[-1]} → say the difference in each summary, or merge")
@@ -637,7 +637,7 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
     if dead:
         shown = ", ".join(dead[:4]) + (f" … +{len(dead) - 4}" if len(dead) > 4 else "")
         out.append(f"{len(dead)} file(s) nothing in the work points at — {shown} → link it from an item, a phase file or a "
-                   f"decision · park it: mike mv <file> archive/ · or delete it (F21)")
+                   f"decision · park it: el mv <file> archive/ · or delete it (F21)")
     broken = broken_links(case, folders, readme_body, todo_body, journal)
     if link_violations is not None:
         link_violations.extend(dict.fromkeys((f, t) for f, t in broken if f in ("README.md", "TODO.md")))
@@ -645,6 +645,6 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
     if broken:
         pairs = list(dict.fromkeys(broken))  # five journal links to one gone file are one thing to fix
         shown = ", ".join(f"{f} → {t}" for f, t in pairs[:4]) + (f" … +{len(pairs) - 4}" if len(pairs) > 4 else "")
-        out.append(f"{len(broken)} broken link(s): {shown} → fix the link, or move files with `mike mv old new` (links follow); "
-                   f"already moved without mike: mike relink old new · gone for good or an example: mike relink old none")
+        out.append(f"{len(broken)} broken link(s): {shown} → fix the link, or move files with `el mv old new` (links follow); "
+                   f"already moved without el: el relink old new · gone for good or an example: el relink old none")
     return out

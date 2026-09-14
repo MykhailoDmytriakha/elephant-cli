@@ -1,7 +1,7 @@
 """Storage layer: find `.cases/`, pick the case in hand, read and write the three files safely.
 
 Rules touched: L1–L3 (layout), S1–S4 (stamp on every write, rebuild on mismatch), C7–C9.
-The case "in hand" is computed, never stored: `--case` flag > MIKE_CASE env > the open case whose
+The case "in hand" is computed, never stored: `--case` flag > EL_CASE env > the open case whose
 JOURNAL.md changed most recently.
 """
 import os
@@ -53,7 +53,7 @@ class WriteReport:
     warnings: List[grammar.Finding] = field(default_factory=list)
     recovered: Optional[Path] = None  # set when a mismatched file was rebuilt (S4)
     recovered_lines: int = 0
-    bypassed: bool = False  # the file had been written bypassing `mike` (stamp mismatch)
+    bypassed: bool = False  # the file had been written bypassing `el` (stamp mismatch)
 
 
 # ---- root and cases ------------------------------------------------------------------------------
@@ -64,8 +64,8 @@ def find_root(start: Optional[Path] = None) -> Path:
         if (d / CASES_DIR).is_dir():
             return d / CASES_DIR
     raise StoreError(f"no `{CASES_DIR}/` directory found from {here} upwards", 4,
-                     recovery="cd to the project root, or start: mike case new \"name\" --goal \"…\" — or, if THIS folder "
-                              "is the project itself: mike case new --root \"name\" --goal \"…\"")
+                     recovery="cd to the project root, or start: el case new \"name\" --goal \"…\" — or, if THIS folder "
+                              "is the project itself: el case new --root \"name\" --goal \"…\"")
 
 
 def is_case_dir(p: Path) -> bool:
@@ -135,7 +135,7 @@ def file_path(case: Path, name: str) -> Path:
 def read(case: Path, name: str) -> str:
     p = file_path(case, name)
     if not p.exists():
-        raise StoreError(f"{p} is missing (L3)", 4, recovery="mike doctor")
+        raise StoreError(f"{p} is missing (L3)", 4, recovery="el doctor")
     return p.read_text(encoding="utf-8")
 
 
@@ -144,7 +144,7 @@ def todo_of(case: Path) -> grammar.Todo:
 
 
 def is_open(case: Path) -> bool:
-    """A case is open until `mike done` writes `- closed: …` into README State."""
+    """A case is open until `el done` writes `- closed: …` into README State."""
     try:
         text = read(case, "README.md")
     except StoreError:
@@ -173,18 +173,18 @@ def resolve_case(root: Path, name: Optional[str]) -> Path:
         return partial[0]
     if len(partial) > 1:
         raise StoreError(f"`{name}` matches several cases: {', '.join(c.name for c in partial)}", 2)
-    raise StoreError(f"no case named `{name}` under {root}", 4, recovery="mike case list")
+    raise StoreError(f"no case named `{name}` under {root}", 4, recovery="el case list")
 
 
 def hand(root: Path, explicit: Optional[str] = None) -> Path:
-    """The case in hand: flag > MIKE_CASE > open case with the freshest JOURNAL.md (P2, C9)."""
-    name = explicit or os.environ.get("MIKE_CASE")
+    """The case in hand: flag > EL_CASE > open case with the freshest JOURNAL.md (P2, C9)."""
+    name = explicit or os.environ.get("EL_CASE")
     if name:
         return resolve_case(root, name)
     open_cases = [c for c in all_cases(root) if is_open(c)]
     if not open_cases:
         raise StoreError("every case here is closed — nothing to pick up", 4,
-                         recovery="mike case list · mike case new \"name\" --goal \"…\"")
+                         recovery="el case list · el case new \"name\" --goal \"…\"")
     def freshness(c: Path):
         j = file_path(c, "JOURNAL.md")
         return j.stat().st_mtime if j.exists() else 0
@@ -263,15 +263,15 @@ def write(case: Path, name: str, body: str) -> WriteReport:
     """Validate `body` by its grammar, then write it with a fresh stamp (C8: nothing is touched on refusal).
 
     A violation the command did NOT introduce (the broken line already sits in the current file —
-    e.g. left by an older mike version) must not deadlock every future write: the file is rebuilt,
+    e.g. left by an older el version) must not deadlock every future write: the file is rebuilt,
     the broken lines go to `<FILE>.recover.md`, the write proceeds with a warning (S4 semantics).
     """
     current_text = read(case, name) if file_path(case, name).exists() else ""
     _, current_state = stamp.verify(current_text) if current_text else (False, "missing")
     if current_text and current_state == "missing" and recover.PARSERS[name](current_text).errors:
-        # A legacy file: never stamped by mike and outside the grammar. Rebuilding it (S4) would
+        # A legacy file: never stamped by Elephant and outside the grammar. Rebuilding it (S4) would
         # move most of it into .recover.md — that is not migration (feedback 2026-09-02).
-        raise StoreError(f"{name} is outside mike's grammar and was never stamped by mike — a legacy file; "
+        raise StoreError(f"{name} is outside Elephant's grammar and was never stamped by Elephant — a legacy file; "
                          f"nothing is written into it until the case is migrated", 3, recovery=MIGRATE_HINT)
     report = check_stamp(case, name)
     result = recover.PARSERS[name](body)
@@ -305,8 +305,8 @@ def recover_files(case: Path) -> List[Path]:
 
 
 def legacy_files(case: Path) -> List[tuple]:
-    """Files among the three that the grammar rejects AND that carry no valid mike stamp — a case
-    written before mike or by hand since. Nothing is written into them: `mike migrate` first."""
+    """Files among the three that the grammar rejects AND that carry no valid el stamp — a case
+    written before el or by hand since. Nothing is written into them: `el migrate` first."""
     from . import migrate  # local import: migrate imports store
     out = []
     for name in FILES:
@@ -316,4 +316,4 @@ def legacy_files(case: Path) -> List[tuple]:
     return out
 
 
-MIGRATE_HINT = "mike migrate   (dry run, changes nothing) · then: mike migrate --apply"
+MIGRATE_HINT = "el migrate   (dry run, changes nothing) · then: el migrate --apply"

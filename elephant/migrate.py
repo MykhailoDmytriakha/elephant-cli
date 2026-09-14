@@ -1,7 +1,7 @@
-"""Migrate a legacy case into mike's grammar without losing a byte (P13 of .cases/RULES.md).
+"""Migrate a legacy case into Elephant's grammar without losing a byte (P13 of .cases/RULES.md).
 
-A legacy file is one of README.md / TODO.md / JOURNAL.md that mike did not stamp and that its
-grammar rejects — a case written before mike, or rewritten by hand since. Every write refuses
+A legacy file is one of README.md / TODO.md / JOURNAL.md that el did not stamp and that its
+grammar rejects — a case written before el, or rewritten by hand since. Every write refuses
 such a file, and rebuilding it by grammar (S4) would move most of it into `.recover.md`; so the
 door was a dead end (feedback 2026-09-02).
 
@@ -101,14 +101,14 @@ def _phase_name(heading: str, n: int, review: List[str]) -> str:
 
 # ---- analysis -----------------------------------------------------------------------------------
 def legacy_reason(case: Path, name: str) -> Optional[str]:
-    """Why the file is legacy: grammar errors AND no valid mike stamp. None when it is fine."""
+    """Why the file is legacy: grammar errors AND no valid el stamp. None when it is fine."""
     p = store.file_path(case, name)
     if not p.exists():
         return None
     text = p.read_text(encoding="utf-8")
     ok, state = stamp.verify(text)
     result = {"README.md": grammar.parse_readme, "TODO.md": grammar.parse_todo, "JOURNAL.md": grammar.parse_journal}[name](text)
-    # Legacy = the grammar rejects it AND mike never stamped it. A stamped file that broke since
+    # Legacy = the grammar rejects it AND el never stamped it. A stamped file that broke since
     # (mismatch / not-last) is the S4 case: hand edit → rebuilt by grammar on the next write.
     if result.errors and state == "missing":
         return f"{len(result.errors)} rule violation(s), never stamped"
@@ -146,7 +146,7 @@ def analyse(case: Path, now: Tuple[str, str]) -> Plan:
         plan.bodies["JOURNAL.md"] = f"# JOURNAL — {plan.title}\n"
         plan.notes.append(f"JOURNAL: {len(lines)} lines, {dated} dated heading(s) → not converted (an event needs a type and ≤ 200 chars; "
                           f"guessing would be lying) — kept in the archive; the new journal opens with one PHASE event pointing there")
-        plan.review.append(f"JOURNAL: re-enter what still matters with `mike log DECISION|PROBLEM|RESULT \"…\"` from {rel_archive}/JOURNAL.md")
+        plan.review.append(f"JOURNAL: re-enter what still matters with `el log DECISION|PROBLEM|RESULT \"…\"` from {rel_archive}/JOURNAL.md")
     return plan
 
 
@@ -200,8 +200,8 @@ def _plan_readme(case: Path, plan: Plan, rel_archive: str) -> str:
         plan.review.append(f"README: {len(pre)} line(s) before the first heading → not mapped, stay in the archive")
     if not mapped["Context"]:
         mapped["Context"] = [f"(перенесено из legacy формата {plan.stamp_at[:10]}; цель словами владельца — переписать: см. {rel_archive}/README.md)"]
-    mapped["State"] = ["- progress: (kept by mike)",
-                       f"- next: прочитать {rel_archive}/README.md и переписать State — mike readme set next \"…\"",
+    mapped["State"] = ["- progress: (kept by el)",
+                       f"- next: прочитать {rel_archive}/README.md и переписать State — el readme set next \"…\"",
                        f"- as of: {plan.stamp_at} · p0 (1 event)"]
     mapped["Links"] = [f"- {ARCHIVE_DIR}/ — файлы дела до миграции {plan.stamp_at[:10]}, byte-for-byte: {', '.join(sorted(plan.legacy))}"] + mapped["Links"]
     out = [f"# {plan.title}"]
@@ -269,7 +269,7 @@ def _plan_todo(case: Path, plan: Plan, rel_archive: str) -> str:
             p.done, p.items = True, []
     plan.notes.append("TODO: " + (" · ".join(
         f"{p.n} {p.name} ({'closed' if p.done else str(len(p.items)) + ' items, ' + str(sum(i.done for i in p.items)) + ' done'})"
-        for p in todo.phases) if todo.phases else "no headings and no checkbox lines → empty TODO (phases: mike phase open 1 …)"))
+        for p in todo.phases) if todo.phases else "no headings and no checkbox lines → empty TODO (phases: el phase open 1 …)"))
     return commands.render_todo(todo)
 
 
@@ -332,5 +332,5 @@ def report(plan: Plan, dry: bool) -> List[str]:
         out.append(f"review ({len(plan.review)}):")
         out += [f"  - {r}" for r in plan.review]
     if dry:
-        out.append("dry run — nothing changed. Apply: mike migrate --apply")
+        out.append("dry run — nothing changed. Apply: el migrate --apply")
     return out

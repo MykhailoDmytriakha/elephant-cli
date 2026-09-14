@@ -1,4 +1,4 @@
-"""Legacy case → mike's grammar (P13): the exact shape from the 2026-09-02 feedback — rich Markdown
+"""Legacy case → Elephant's grammar (P13): the exact shape from the 2026-09-02 feedback — rich Markdown
 README, a TODO with `Completed obligations` / `Phase SIT NC` headings, prose and nested evidence,
 a journal with dated headings, no stamps anywhere."""
 import os
@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mike import grammar, stamp
+from elephant import grammar, stamp
 from tests.test_commands import run
 
 LEGACY_README = """# PEPFS-33598 SRE SDK ingestion
@@ -69,7 +69,7 @@ class LegacyCase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         self.case = Path(self.tmp.name) / ".cases" / "2026-08-27-pepfs-33598-sre-sdk-ingestion"
         self.case.mkdir(parents=True)
         (self.case / "README.md").write_text(LEGACY_README, encoding="utf-8")
@@ -92,15 +92,15 @@ class LegacyCase(unittest.TestCase):
             code, out, err = run(*argv)
             self.assertEqual(code, 3, argv)
             self.assertIn("never stamped", err, argv)
-            self.assertIn("mike migrate", err, argv)
+            self.assertIn("el migrate", err, argv)
         self.assertEqual(self.snapshot(), before, "a refused write must not touch the legacy files")
         self.assertEqual(list(self.case.glob("*.recover.md")), [], "a legacy file is never gutted into .recover.md")
 
     def test_entry_and_doctor_name_the_legacy_files(self):
         code, out, err = run()
         self.assertEqual(code, 0, err)
-        self.assertIn("legacy file(s) outside mike's grammar", out)
-        self.assertIn("mike migrate", out)
+        self.assertIn("legacy file(s) outside Elephant's grammar", out)
+        self.assertIn("el migrate", out)
         code, out, err = run("doctor")
         self.assertIn("legacy —", out)
 
@@ -178,7 +178,7 @@ class LegacyCase(unittest.TestCase):
 
     def test_apply_rolls_back_when_a_write_fails(self):
         before = self.snapshot()
-        from mike import migrate, store
+        from elephant import migrate, store
         real = store._atomic_write
 
         def boom(path, text):
@@ -203,7 +203,7 @@ class PartlyLegacy(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         run("case", "new", "demo case", "--goal", "g")
         run("phase", "open", "1", "Work", "--goal", "g")
         self.case = next(p for p in (Path(self.tmp.name) / ".cases").iterdir() if p.is_dir())
@@ -222,13 +222,13 @@ class PartlyLegacy(unittest.TestCase):
         self.assertIn("progress: not synced", err)
         code, out, err = run("log", "RESULT", "x")
         self.assertEqual(code, 3)
-        self.assertIn("mike migrate", err)
+        self.assertIn("el migrate", err)
 
     def test_legacy_journal_is_never_rebuilt_into_recover(self):
         (self.case / "JOURNAL.md").write_text(LEGACY_JOURNAL, encoding="utf-8")
         code, out, err = run("log", "RESULT", "x")
         self.assertEqual(code, 3)
-        self.assertIn("JOURNAL.md is outside mike's grammar", err)
+        self.assertIn("JOURNAL.md is outside Elephant's grammar", err)
         self.assertEqual((self.case / "JOURNAL.md").read_text(), LEGACY_JOURNAL)
         self.assertEqual(list(self.case.glob("*.recover.md")), [])
         code, out, err = run("migrate")

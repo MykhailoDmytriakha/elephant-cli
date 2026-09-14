@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mike import grammar
+from elephant import grammar
 from tests.test_commands import run
 
 
@@ -14,7 +14,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         run("case", "new", "demo case", "--goal", "g")
         run("phase", "open", "1", "Work", "--goal", "g")
         self.case = next(p for p in (Path(self.tmp.name) / ".cases").iterdir() if p.is_dir())
@@ -34,7 +34,7 @@ class EditableTodo(Base):
         self.assertEqual(code, 0, err)
         self.assertEqual(self.todo().phase(1).items[0].text, "позвонить заказчику до пятницы")
         self.assertIn("was: «позвонить заказчику»", out)
-        # P5: an edit is not an event — since 0.9 mike writes no journal line for it (git keeps history)
+        # P5: an edit is not an event — since 0.9 el writes no journal line for it (git keeps history)
         self.assertNotIn("todo 1.1", (self.case / "JOURNAL.md").read_text())
 
     def test_move_reorders_and_keeps_the_numbers(self):
@@ -127,7 +127,7 @@ class RootCaseCheck(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
 
     def tearDown(self):
         os.chdir(self.old)
@@ -217,7 +217,7 @@ class MoveRange(Base):
         code, out, err = run("todo", "move", "1.1", "1.7")
         self.assertEqual(code, 4)
         self.assertIn("no item 1.7 in phase 1 (items: 1.1–1.3)", err)
-        self.assertIn("mike todo move 1.1 last", err)
+        self.assertIn("el todo move 1.1 last", err)
         self.assertEqual([it.text for it in self.todo().phase(1).items], ["a", "b", "c"], "nothing moved")
         self.assertEqual(run("todo", "move", "1.1", "1.0")[0], 4)
         code, out, err = run("todo", "move", "1.1", "last")

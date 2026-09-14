@@ -6,11 +6,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mike import grammar, main, stamp
+from elephant import grammar, main, stamp
 
 
 def run(*argv):
-    """Run mike with argv; return (code, stdout, stderr)."""
+    """Run el with argv; return (code, stdout, stderr)."""
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         code = main.run(list(argv))
@@ -23,7 +23,7 @@ class Flow(unittest.TestCase):
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
         self.root = Path(self.tmp.name).resolve() / ".cases"
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
 
     def tearDown(self):
         os.chdir(self.old)
@@ -146,7 +146,7 @@ class Flow(unittest.TestCase):
         j.write_text(j.read_text().replace("\n- ", "\nSOMEONE WROTE THIS\n- ", 1))
         code, out, err = run("log", "RESULT", "fine")
         self.assertEqual(code, 0, err)
-        self.assertIn("bypassing mike", err)
+        self.assertIn("bypassing Elephant", err)
         self.assertTrue((case / "JOURNAL.md.recover.md").exists())
         self.assertEqual((case / "JOURNAL.md.recover.md").read_text(), "SOMEONE WROTE THIS\n")
         code, out, _ = run()
@@ -184,14 +184,14 @@ if __name__ == "__main__":
 
 
 class CaseContext(unittest.TestCase):
-    """`mike case list` and `mike case use` — the hand as a switchable context, no state file."""
+    """`el case list` and `el case use` — the hand as a switchable context, no state file."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
         self.root = Path(self.tmp.name).resolve() / ".cases"
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         run("case", "new", "first case", "--goal", "g1")
         run("case", "new", "second case", "--goal", "g2")
 

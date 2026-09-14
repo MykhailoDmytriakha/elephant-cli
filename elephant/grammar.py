@@ -2,7 +2,7 @@
 
 Each parser returns a Result: a structured model plus `errors` (rule violations → the write
 is refused, exit code 3) and `warnings` (thresholds crossed → the write passes with a notice).
-Every finding names the rule it comes from, so `mike` can print "F7 · line 14 · ..." and the
+Every finding names the rule it comes from, so `el` can print "F7 · line 14 · ..." and the
 agent can look the rule up. Nothing here touches the filesystem.
 """
 import re
@@ -27,7 +27,7 @@ EVENT_WARN_CHARS = 180
 EVENT_BODY_LINES = 5
 
 README_SECTIONS = ["Context", "State", "Decisions", "Problems", "Links"]
-STATE_OWNED = ("progress", "last", "as of")  # State lines mike derives on every write (F3)
+STATE_OWNED = ("progress", "last", "as of")  # State lines el derives on every write (F3)
 JOURNAL_TYPES = {"PHASE", "DECISION", "PROBLEM", "RESULT"}
 
 TITLE_RE = re.compile(r"^# \S.*$")
@@ -295,7 +295,7 @@ class Readme(Result):
     sections: dict = field(default_factory=dict)  # name -> list of lines (without the heading)
     lines: int = 0
     bytes: int = 0
-    rendered_lines: int = 0   # Links lines mike renders from the files — not counted by F2
+    rendered_lines: int = 0   # Links lines el renders from the files — not counted by F2
     rendered_bytes: int = 0
 
 
@@ -321,15 +321,15 @@ def parse_readme(text: str) -> Readme:
         r.sections[current].append(raw)
         owned = current == "State" and raw.startswith(tuple(f"- {p}:" for p in STATE_OWNED))
         if raw.startswith("- ") and not owned and visible_len(raw.strip()) > README_POINTER_CHARS:
-            # lines mike derives (`progress:` over 21 phases) are not the agent's to shorten (feedback 2026-09-04)
+            # lines el derives (`progress:` over 21 phases) are not the agent's to shorten (feedback 2026-09-04)
             r.warn("F2", i, f"pointer line is {visible_len(raw.strip())} visible chars, over {README_POINTER_CHARS}")
     # F2 counts the text people write. The nested Links lines (files, sub-folders, `other:`) are
-    # rendered by mike from the files and cannot be shortened in README — they are reported, not
+    # rendered by el from the files and cannot be shortened in README — they are reported, not
     # counted (feedback 2026-09-03: a growing file index squeezed the owner's own five lines out).
     rendered = [ln for ln in r.sections.get("Links", []) if ln.startswith("  ")]
     r.rendered_lines, r.rendered_bytes = len(rendered), sum(len(ln.encode("utf-8")) + 1 for ln in rendered)
     own_lines, own_bytes = r.lines - r.rendered_lines, r.bytes - r.rendered_bytes
-    aside = (f" (Links rendered by mike: {r.rendered_lines} lines / {r.rendered_bytes} bytes more, not counted)"
+    aside = (f" (Links rendered by el: {r.rendered_lines} lines / {r.rendered_bytes} bytes more, not counted)"
              if rendered else "")
     if own_lines > README_MAX_LINES or own_bytes > README_MAX_BYTES:
         r.error("F2", 0, f"README is {own_lines} lines / {own_bytes} bytes of your text, limit {README_MAX_LINES} / {README_MAX_BYTES}{aside}")

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mike import grammar
+from elephant import grammar
 from tests.test_commands import run
 
 
@@ -14,7 +14,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.old = os.getcwd()
         os.chdir(self.tmp.name)
-        os.environ.pop("MIKE_CASE", None)
+        os.environ.pop("EL_CASE", None)
         run("case", "new", "demo case", "--goal", "g")
         run("phase", "open", "1", "Work", "--goal", "g")
         self.case = next(p for p in (Path(self.tmp.name) / ".cases").iterdir() if p.is_dir())
@@ -46,7 +46,7 @@ class Reopen(Base):
         self.assertIn("nothing changed", run("todo", "reopen", "1.1", "again")[1])
         code, out, err = run()
         self.assertIn("blocked", out, "1.2 waits for 1.1 again")
-        self.assertNotIn("bypassing mike", err)
+        self.assertNotIn("bypassing Elephant", err)
         self.assertEqual(run("check")[0], 0)
 
 
@@ -77,8 +77,8 @@ class OpenAfterCancelled(Base):
         code, out, err = run("phase", "open", "3")
         self.assertEqual(code, 4)
         self.assertIn("phase 2 Legacy is planned and not opened", err)
-        self.assertIn("mike phase open 2", err)
-        self.assertIn('mike phase cancel 2 "why"', err)
+        self.assertIn("el phase open 2", err)
+        self.assertIn('el phase cancel 2 "why"', err)
         run("phase", "cancel", "2", "not needed")
         code, out, err = run("phase", "open", "3")
         self.assertEqual(code, 0, err + out)
@@ -88,7 +88,7 @@ class OpenAfterCancelled(Base):
         code, out, err = run("phase", "open", "4")
         self.assertEqual(code, 4)
         self.assertIn("phase 3 UAT is still open — close it first", err)
-        self.assertIn('mike phase cancel 3 "why"', err)
+        self.assertIn('el phase cancel 3 "why"', err)
         self.assertEqual(run("check")[0], 0)
 
 
@@ -108,7 +108,7 @@ class ClosePlanned(Base):
         code, out, err = run("phase", "close", "2", "rolled out")
         self.assertEqual(code, 4)
         self.assertIn("phase 2 UAT was planned and never opened", err)
-        self.assertIn("mike phase open 2", err)
+        self.assertIn("el phase open 2", err)
         self.assertNotIn("F12", err)
         code, out, err = run("phase", "open", "2")
         self.assertEqual(code, 0, err)
@@ -192,12 +192,12 @@ class ReplanAfterCancel(Base):
         code, out, err = run("phase", "plan", "1", "Work", "--goal", "again")
         self.assertEqual(code, 4)
         self.assertIn("ran before it was cancelled", err)
-        self.assertIn('mike phase plan 2 "Work"', err)
+        self.assertIn('el phase plan 2 "Work"', err)
         self.assertTrue((self.case / "phases" / "1-work.md").exists())
 
 
 class StaleLinksLine(Base):
-    """A nested Links line mike drew for a file that is gone is a dead pointer in the rendered index:
+    """A nested Links line el drew for a file that is gone is a dead pointer in the rendered index:
     it made README violate F16 with nothing to drop it by (found twice on 2026-09-08/09)."""
 
     def test_a_rendered_line_for_a_gone_file_disappears_on_the_next_render(self):
@@ -218,7 +218,7 @@ class StaleLinksLine(Base):
 
 
 class MoveBinary(Base):
-    """Feedback 2026-09-09 13:24: `mike mv X.pdf outbox/X.pdf` died with UnicodeDecodeError reading
+    """Feedback 2026-09-09 13:24: `el mv X.pdf outbox/X.pdf` died with UnicodeDecodeError reading
     the pdf as UTF-8 to rewrite its own links; nothing moved, links elsewhere stayed dead."""
 
     def test_a_pdf_moves_as_bytes_and_links_to_it_follow(self):
@@ -250,7 +250,7 @@ class MoveBinary(Base):
 
 
 class CheckScope(Base):
-    """Feedback 2026-09-09 17:54: `mike check` scanned every case, dumped the errors of unmigrated
+    """Feedback 2026-09-09 17:54: `el check` scanned every case, dumped the errors of unmigrated
     cases from past months (1 MB+) and exited 3 while the case in hand was clean."""
 
     def test_check_means_the_case_in_hand_and_all_is_explicit(self):
@@ -262,7 +262,7 @@ class CheckScope(Base):
             os.utime(legacy / name, (1_700_000_000, 1_700_000_000))  # months old: the hand stays on the clean case
         code, out, err = run("check")
         self.assertEqual(code, 0, err + out)
-        self.assertIn(f"cases: 1 (in hand: {self.case.name} · every case: mike check --all) · violations: 0", out)
+        self.assertIn(f"cases: 1 (in hand: {self.case.name} · every case: el check --all) · violations: 0", out)
         self.assertNotIn("legacy", out + err)
         code, out, err = run("check", "--all")
         self.assertEqual(code, 3)
@@ -270,7 +270,7 @@ class CheckScope(Base):
         self.assertIn("cases: 2 (all) · violations: 3", text)
         legacy_lines = [ln for ln in text.splitlines() if ln.startswith("x 2026-08-27-legacy-case/") or "x 2026-08-27-legacy-case/" in ln]
         self.assertEqual(len(legacy_lines), 3, "one line per legacy file, not its every grammar error")
-        self.assertIn("never stamped, not listed → mike --case 2026-08-27-legacy-case migrate", text)
+        self.assertIn("never stamped, not listed → el --case 2026-08-27-legacy-case migrate", text)
         code, out, err = run("--case", "2026-08-27-legacy-case", "check")
         self.assertEqual(code, 3)
         self.assertIn("in hand: 2026-08-27-legacy-case", out + err)

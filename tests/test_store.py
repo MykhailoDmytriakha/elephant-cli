@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mike import grammar, recover, stamp, store
+from elephant import grammar, recover, stamp, store
 from tests.test_grammar import JOURNAL_OK, README_OK, TODO_OK
 
 
@@ -68,11 +68,11 @@ class StoreTests(unittest.TestCase):
 
     def test_hand_by_suffix_and_env(self):
         self.assertEqual(store.hand(self.root, "demo-case"), self.case)
-        os.environ["MIKE_CASE"] = "demo-case"
+        os.environ["EL_CASE"] = "demo-case"
         try:
             self.assertEqual(store.hand(self.root), self.case)
         finally:
-            del os.environ["MIKE_CASE"]
+            del os.environ["EL_CASE"]
 
     def test_closed_case_is_not_in_hand(self):
         closed_readme = README_OK.replace("## State\n", "## State\n- closed: 2026-08-29 · done\n")
