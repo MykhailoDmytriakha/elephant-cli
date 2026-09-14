@@ -75,7 +75,7 @@ class Folder:
     path: Path
     docs: List[Doc] = field(default_factory=list)          # markdown files directly inside
     subs: List["Folder"] = field(default_factory=list)     # sub-folders, scanned the same way
-    other: List[str] = field(default_factory=list)         # non-md files, as short labels
+    other: List[Tuple[str, str]] = field(default_factory=list)   # non-md files as (name, rel)
     md_bytes: int = 0
 
     def all_docs(self) -> List[Doc]:
@@ -155,7 +155,7 @@ def _scan_folder(d: Path, rel: str) -> Folder:
             folder.docs.append(Doc(f"{rel}/{child.name}", child, read_summary(child), size))
             folder.md_bytes += size
         else:
-            folder.other.append(child.name)
+            folder.other.append((child.name, f"{rel}/{child.name}"))
     return folder
 
 
@@ -260,7 +260,11 @@ def _classify(line: str, case: Path):
     if target:
         t = target.split("#")[0].rstrip("/")
         p = case / t
-        if t and "/" in t and p.is_file() and p.suffix.lower() == ".md" and not t.startswith("..") and t.split("/")[0] not in (".cases",):
+        # any kind of file, not only markdown: a pdf/html/png under work is material of the case and
+        # the map leads to it the same way (feedback 2026-09-11). The suffix decides where the
+        # description comes from (md: `summary:` in the body · other: this line), not whether the
+        # file may have a line of its own.
+        if t and "/" in t and p.is_file() and not t.startswith("..") and t.split("/")[0] not in (".cases",):
             desc = line[2:]
             # description = what follows the pointer: `- [x](y) — desc` / `- `y` — desc`
             k = desc.find(" — ")
@@ -350,13 +354,21 @@ def _render_folder(f: Folder, depth: int, folder_desc: Dict[str, str], fallback:
             out.append(f"{ind}- [{d.path.name}]({d.rel}) — {_short(summary, SUMMARY_CHARS)}")
         else:
             out.append(f"{ind}- [{d.path.name}]({d.rel}) — {PLACEHOLDER_FILE} → add `summary: …` as line 2")
+    plain = []
+    for name, rel in f.other:
+        desc = fallback.get(rel)
+        if desc:  # described by the agent in Links: a file under work, not an attachment — it
+            rendered.add(rel)  # belongs among the folder's documents, before the sub-folders
+            out.append(f"{ind}- [{name}]({rel}) — {_short(desc, SUMMARY_CHARS)}")
+        else:
+            plain.append(name)
     for s in f.subs:
         desc = folder_desc.get(s.name, "")
         out.append(f"{ind}- {s.name}/" + (f" — {desc}" if desc else ""))
         _render_folder(s, depth + 1, folder_desc, fallback, rendered, out)
-    if f.other:
-        shown = f.other[:6]
-        more = f" … +{len(f.other) - 6}" if len(f.other) > 6 else ""
+    if plain:
+        shown = plain[:6]
+        more = f" … +{len(plain) - 6}" if len(plain) > 6 else ""
         out.append(f"{ind}- other: {', '.join(shown)}{more}")
 
 
@@ -366,7 +378,7 @@ def adopt(case: Path, fallback: Dict[str, str]) -> List[str]:
     changed = []
     for rel, desc in fallback.items():
         p = case / rel
-        if rel.startswith("phases/") or not p.is_file() or read_summary(p):
+        if rel.startswith("phases/") or not p.is_file() or p.suffix.lower() != ".md" or read_summary(p):
             continue  # a phase file describes itself by goal:/result: (F12) — never touched
         lines = p.read_text(encoding="utf-8").split("\n")
         at = next((i + 1 for i, ln in enumerate(lines[:SUMMARY_SCAN_LINES]) if ln.startswith("# ")), 0)

@@ -53,7 +53,8 @@ TOPICS = {
     "order": """order — the case keeps itself tidy (F14, F15, S5, P12)
 Every `el` entry ends with `## Order`: each line = one thing out of place + the command that fixes it.
 - files without `summary:` → add `summary: one line` as line 2 of the file (under its title);
-  descriptions already written in README Links → `el order --adopt` moves them into the files.
+  descriptions already written in README Links → `el order --adopt` moves them into the files
+  (markdown only — a file with no body keeps its description in the Links line).
 - folder without a description → `el readme add links "docs/ — что здесь"` (the folder line is
   yours; the file lines under it are rendered by el from the summaries).
 - two files sharing their text (≥ 50 % of the smaller one's phrasing appears verbatim in the other)
@@ -91,8 +92,11 @@ happened. Now the lower layer is visible from the top, and the top is rendered f
   starts with `summary: <one line>` under its title (F14); README Links is rendered by el: your
   folder line (`- docs/ — что здесь`) with the files nested under it, described by their summaries.
   Sub-folders (docs/notes/ …) render one level deeper, each file by its own summary; their line
-  `- docs/notes/ — …` is yours and optional. A line you wrote for a file Elephant does not render
-  (outside the content folders) stays as written — nothing in Links is dropped silently.
+  `- docs/notes/ — …` is yours and optional. A file that is not .md (pdf, html, png, a script) has
+  no body to read: describe it with a Links line — `el readme add links "docs/council/send.html —
+  what it is"` — and it renders as a link among the folder's documents; undescribed ones stay
+  folded into one `other:` line. A line you wrote for a file Elephant does not render (outside the
+  content folders) stays as written — nothing in Links is dropped silently.
   Recipes are NOT per-case: they go to the project-root .howto/.
 - README State carries lines el owns: `progress:` (from TODO), `last:` (newest RESULT),
   `as of:` (the journal entry State was last rewritten against, S5). Yours: next, ждёт, due …

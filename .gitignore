@@ -1,4 +1,5 @@
-.cases/
+.cases/*
+!.cases/RULES.md
 .claude/
 .DS_Store
 __pycache__/
