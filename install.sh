@@ -14,7 +14,8 @@
 #
 # What it deliberately does NOT do: touch any agent's skill folder. The skill (skill/SKILL.md)
 # is the same text for Claude Code, Codex, Copilot or any other harness — and this machine may
-# not have the one you expect. You connect it yourself; the recipe is printed at the end.
+# not have the one you expect. You connect it yourself — link it, do not copy it, so `git pull`
+# updates the skill with the command; the recipe is printed at the end.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,6 +43,6 @@ printf '%s\n' \
   "done      el — the command · update: git -C \"$HERE\" pull" \
   "" \
   "next      teach the agent, once per project — either way works:" \
-  "          skill   cp -r \"$HERE/skill\" ~/.claude/skills/elephant   (Claude Code; Codex and Copilot read their own folder)" \
+  "          skill   ln -sfn \"$HERE/skill\" ~/.claude/skills/elephant   (a link, not a copy: git pull updates it too)" \
   "          text    paste section 3 of \"$HERE/INSTALL.md\" into the project's CLAUDE.md / AGENTS.md / GEMINI.md" \
   "          then    cd <your project> && el case new \"first case\" --goal \"…\""

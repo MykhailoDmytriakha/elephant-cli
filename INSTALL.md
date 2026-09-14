@@ -30,7 +30,7 @@ el case new "название дела" --goal "цель одной строко
 
 ## 3. Научить агента — один раз на проект
 
-Два пути, любой работает. **Скилл** — папка `skill/` этого репозитория: скопируй её туда, где твой harness держит скиллы (Claude Code → `cp -r skill ~/.claude/skills/elephant`); скилл — только дверь, инструкция живёт в самой команде. **Текст** — вставь блок ниже в файл инструкций своего harness (Claude Code → `CLAUDE.md` · Codex → `AGENTS.md` · Gemini → `GEMINI.md` · Cursor → `.cursor/rules/` · VS Code Copilot → `.github/copilot-instructions.md`). Если ты агент и читаешь это — вставь его сам в файл, который читает твой harness, и работай по нему.
+Два пути, любой работает. **Скилл** — папка `skill/` этого репозитория: поставь на неё ссылку там, где твой harness держит скиллы (Claude Code → `ln -sfn ~/MyProjects/elephant-cli/skill ~/.claude/skills/elephant`) — ссылка, а не копия: тогда `git pull` обновляет скилл вместе с командой. Скилл — только дверь, инструкция живёт в самой команде. **Текст** — вставь блок ниже в файл инструкций своего harness (Claude Code → `CLAUDE.md` · Codex → `AGENTS.md` · Gemini → `GEMINI.md` · Cursor → `.cursor/rules/` · VS Code Copilot → `.github/copilot-instructions.md`). Если ты агент и читаешь это — вставь его сам в файл, который читает твой harness, и работай по нему.
 
 ```markdown
 ## Elephant — память работы в .cases/
