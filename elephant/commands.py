@@ -1324,8 +1324,22 @@ def readme_drop(case: Path, section: str, ref: str) -> Outcome:
 
 
 # ---- cases --------------------------------------------------------------------------------------
+# A case is named in the words the owner says — often Cyrillic. The folder name stays latin (paths,
+# links and git behave), so the name is transliterated instead of refused: the human name survives
+# as the README title (dry run 2026-09-14 — `case new "договор с подрядчиком"` died on L2, and the
+# message spoke of "letters/digits" while the agent had typed letters).
+_TRANSLIT = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "ґ": "g", "д": "d", "е": "e", "ё": "e", "є": "ye",
+    "ж": "zh", "з": "z", "и": "i", "і": "i", "ї": "yi", "й": "y", "к": "k", "л": "l", "м": "m",
+    "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f", "х": "h",
+    "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu",
+    "я": "ya",
+}
+
+
 def _slug(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    latin = "".join(_TRANSLIT.get(ch, ch) for ch in name.lower())
+    return re.sub(r"[^a-z0-9]+", "-", latin).strip("-")
 
 
 def _case_folder(name: str) -> str:
@@ -1337,7 +1351,9 @@ def _case_folder(name: str) -> str:
         date, _ = _now()
     folder = f"{date}-{_slug(name)}"
     if not store.CASE_NAME_RE.match(folder):
-        raise StoreError(f"`{folder}` is not a valid case name: date prefix + words of letters/digits, hyphens (L2)", 2)
+        raise StoreError(f"`{name.strip()}` leaves no folder name: a case is `YYYY-MM-DD-<words>`, and nothing in "
+                         f"this name became letters or digits (L2)", 2,
+                         recovery='name it in words, e.g. el case new "contract with the builder" --goal "…"')
     return folder
 
 

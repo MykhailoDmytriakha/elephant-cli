@@ -181,9 +181,13 @@ def hand(root: Path, explicit: Optional[str] = None) -> Path:
     name = explicit or os.environ.get("EL_CASE")
     if name:
         return resolve_case(root, name)
-    open_cases = [c for c in all_cases(root) if is_open(c)]
+    cases = all_cases(root)
+    if not cases:  # zero cases is not "all of them are closed": an empty space must say so (2026-09-14)
+        raise StoreError("no case here yet — nothing to pick up", 4,
+                         recovery="el case new \"name\" --goal \"what done looks like, in the owner's words\"")
+    open_cases = [c for c in cases if is_open(c)]
     if not open_cases:
-        raise StoreError("every case here is closed — nothing to pick up", 4,
+        raise StoreError(f"every case here is closed ({len(cases)}) — nothing to pick up", 4,
                          recovery="el case list · el case new \"name\" --goal \"…\"")
     def freshness(c: Path):
         j = file_path(c, "JOURNAL.md")

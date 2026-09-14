@@ -203,6 +203,8 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
 
     "cases": """cases — units of work longer than a session
 - `el case new "name" --goal "…"` — new case folder .cases/YYYY-MM-DD-name/ with the three files.
+  Name it in the owner's own words, any language: Cyrillic is transliterated into the folder name
+  and the name itself stays as the README title.
 - `el case list` — every case, current marked *; `el case use <name>` — switch the hand.
 - The hand follows the freshest journal; one agent works one case at a time.
 - Rule of nesting: know what to do → an item N.M; do NOT know the cause / needs its own research /
