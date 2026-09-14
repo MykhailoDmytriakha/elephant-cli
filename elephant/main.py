@@ -32,6 +32,7 @@ EXAMPLES = """examples
   el phase plan 4 "Rollout" --goal "first users on the new build"   name the NEXT phase now, park items under it (todo add 4), open it later
   el log DECISION "reflect: …"  ·  el log DECISION "align: …"   (both before closing)
   el phase close 3 "parsers, stamp and commands work, 55 tests"
+  el phase close 4 "…"                 a planned phase out of turn whose every item ended closes from the plan; own clock next time: el spawn
   el readme add decisions "2026-09-05 · X over Y — why" · el readme drop decisions 2 · el readme drop state пауза
   el readme edit decisions 3 "2026-09-05 · X over Y — why"   line 3 in place, order kept (context · decisions · problems · links)
   el readme touch                      State read and still true after new RESULTs: moves `as of` only (Order: State is behind)

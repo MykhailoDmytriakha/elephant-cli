@@ -892,6 +892,14 @@ def _phase_file(case: Path, n: int, name: str) -> Path:
     return case / "phases" / f"{n}-{slug}.md"
 
 
+# Phases are the stages of ONE pipeline: in order, one in flight (P8). Work that runs alongside on its
+# own clock is a nested case (P11) — its own phases, its own agent, one rendered line at the parent.
+# Said at the moment the model is stretched (feedback 2026-09-14: a 2024 matter was planned as phase 4,
+# ran next to phase 1 and finished first — open refused, close refused, cancel a lie).
+ALONGSIDE_HINT = ("phases are one pipeline, in order, one in flight; work that runs alongside on its own clock is a "
+                  "nested case: el spawn \"name\" --goal \"…\" (P11) — its own phases, one line at the parent when it closes")
+
+
 def _closing_checks(case: Path, prev: grammar.Phase, journal: grammar.Journal) -> List[str]:
     """What P8 demands from a phase before the next one may open."""
     missing = []
@@ -903,12 +911,14 @@ def _closing_checks(case: Path, prev: grammar.Phase, journal: grammar.Journal) -
         if not parsed0.errors and parsed0.goal.startswith("migrated from legacy"):
             return []  # closed by `el migrate`: its RESULT/reflect/align live in the legacy archive
     evs = _events_for_phase(journal, f"p{prev.n}")
+    # each gate names its command under `--phase N`: a phase that ends out of turn is not the current
+    # one, and a bare `el log` would file its reflect/align under the wrong phase (feedback 2026-09-14)
     if not any(ev.type == "RESULT" for ev in evs):
-        missing.append(f"phase {prev.n}: no RESULT in the journal (F9)")
+        missing.append(f"phase {prev.n}: no RESULT in the journal (F9) → el log --phase {prev.n} RESULT \"what came out\"")
     if not any(ev.text.startswith("reflect:") for ev in evs):
-        missing.append(f"phase {prev.n}: no `DECISION · reflect: …` (P8)")
+        missing.append(f"phase {prev.n}: no `DECISION · reflect: …` (P8) → el log --phase {prev.n} DECISION \"reflect: …\"")
     if not any(ev.text.startswith("align:") for ev in evs):
-        missing.append(f"phase {prev.n}: no `DECISION · align: …` (P8)")
+        missing.append(f"phase {prev.n}: no `DECISION · align: …` (P8) → el log --phase {prev.n} DECISION \"align: …\"")
     pf = _phase_file(case, prev.n, prev.name)
     if not pf.exists():
         missing.append(f"phase {prev.n}: {pf.relative_to(case)} is missing (F12)")
@@ -1040,10 +1050,10 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
             missing = _closing_checks(case, prev, journal)
         elif _phase_file(case, prev.n, prev.name).exists():
             missing = [f"phase {prev.n} {prev.name} is still open — close it first (P8): el phase close {prev.n} \"…\" "
-                       f"· or cancel it: el phase cancel {prev.n} \"why\""]
+                       f"· or cancel it: el phase cancel {prev.n} \"why\"", ALONGSIDE_HINT]
         else:  # planned, never opened: phases run in order — the plan below has to open or go
             missing = [f"phase {prev.n} {prev.name} is planned and not opened — phases run in order: "
-                       f"el phase open {prev.n} · or, if it is not needed: el phase cancel {prev.n} \"why\""]
+                       f"el phase open {prev.n} · or, if it is not needed: el phase cancel {prev.n} \"why\"", ALONGSIDE_HINT]
         if missing:
             raise StoreError("cannot open phase %d:\n  " % n + "\n  ".join(missing), 4)
     renamed = None
@@ -1077,16 +1087,35 @@ def phase_close(case: Path, n: int, summary: str) -> Outcome:
     if phase.done:
         out.say(f"phase {n} {phase.name} is already closed — nothing changed")
         return out
-    if not _phase_file(case, n, phase.name).exists():
-        # planned, never opened, yet its items were worked in TODO (feedback 2026-09-09: `close` died with
-        # «phases/22-….md is missing (F12)» and the agent wrote the file by hand). Opening is the one
-        # place the gates on the previous phase run and the PHASE event is logged — so open it now.
-        raise StoreError(f"phase {n} {phase.name} was planned and never opened — nothing to close yet: "
-                         f"el phase open {n} (creates phases/{_phase_file(case, n, phase.name).name} from the plan), "
-                         f"then el phase close {n} \"…\"", 4)
-    journal = _journal(case, out)
-    missing = [m for m in _closing_checks(case, phase, journal) if "result:" not in m]
+    pf = _phase_file(case, n, phase.name)
     open_items = [f"{it.n}.{it.m}" for it in phase.items if not it.done]
+    alongside = None  # (the earlier phase, its state) when this planned phase ended out of turn
+    if not pf.exists():
+        prev = max((p for p in todo.phases if p.n < n), key=lambda p: p.n, default=None)
+        if prev is None or prev.done:
+            # planned, never opened, and it COULD open: the pipeline is intact, so walk it (feedback
+            # 2026-09-09: `close` died with «phases/22-….md is missing (F12)» and the agent wrote the file
+            # by hand). Opening is the one place the gates on the previous phase run and PHASE is logged.
+            raise StoreError(f"phase {n} {phase.name} was planned and never opened — nothing to close yet: "
+                             f"el phase open {n} (creates phases/{pf.name} from the plan), "
+                             f"then el phase close {n} \"…\"", 4)
+        # out of turn: an earlier phase is not done, so `open` is refused (phases run in order) — yet the
+        # work parked under this plan may have ended already: it ran alongside (feedback 2026-09-14:
+        # phase 4 ran next to phase 1 and finished first; open refused, cancel would call finished work
+        # «not needed», so the branch had no honest end). A finished branch closes from the plan.
+        state = "open" if _phase_file(case, prev.n, prev.name).exists() else "planned"
+        if not phase.items or open_items:
+            what = f"open items {', '.join(open_items)}" if open_items else "no items"
+            raise StoreError(f"phase {n} {phase.name} is planned and out of turn (phase {prev.n} {prev.name} is still {state}) — "
+                             f"it closes from the plan once every item ended, and it has {what}: "
+                             f"el todo done N.M \"what came out\" · el todo cancel N.M \"why\" · not needed at all: "
+                             f"el phase cancel {n} \"why\"\n  {ALONGSIDE_HINT}", 4)
+        cur = todo.current()  # the phase in flight, if any — that is what this one ran alongside
+        running = cur if cur is not None and cur.n != n and _phase_file(case, cur.n, cur.name).exists() else None
+        alongside = (prev, state, running)
+    journal = _journal(case, out)
+    missing = [m for m in _closing_checks(case, phase, journal)
+               if "result:" not in m and not (alongside and "is missing (F12)" in m)]
     if open_items:  # F20: a phase closes only when every item ended — done with evidence, or cancelled with a reason
         missing.append(f"phase {n}: open items {', '.join(open_items)} — each must end one of two ways: "
                        f"el todo done N.M \"what came out\" · el todo cancel N.M \"why\" (or cancel the phase: el phase cancel {n} \"why\")")
@@ -1094,7 +1123,10 @@ def phase_close(case: Path, n: int, summary: str) -> Outcome:
         raise StoreError("cannot close phase %d:\n  " % n + "\n  ".join(missing), 4)
     summary = " ".join(summary.split())
     date, _ = _now()
-    pf = _phase_file(case, n, phase.name)
+    if alongside:  # every gate passed — only now is the file born (a refused close writes nothing)
+        pf.parent.mkdir(exist_ok=True)
+        pf.write_text(f"# Phase {n} — {phase.name}\ngoal: {phase.summary or '—'}\nresult:\n\n## Notes\n", encoding="utf-8")
+        out.say(f"created: {pf.relative_to(case)} (from the plan)")
     text = pf.read_text(encoding="utf-8").split("\n")
     text[2] = f"result: {summary}"
     if phase.items:
@@ -1107,8 +1139,15 @@ def phase_close(case: Path, n: int, summary: str) -> Outcome:
     phase.summary = f"{summary} · {date} · {_phase_link(pf.name)}" if rel not in summary else summary
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
-    out.lines = log(case, "PHASE", f"{phase.name} закрыта → {summary}", f"p{n}").lines + out.lines
+    ran = ""
+    if alongside:  # the journal names the phase that was running; nothing in flight = closed before its turn
+        ran = (f" (шла параллельно фазе {alongside[2].n}, без открытия)" if alongside[2]
+               else " (закрыта до своей очереди, без открытия)")
+    out.lines = log(case, "PHASE", f"{phase.name} закрыта{ran} → {summary}", f"p{n}").lines + out.lines
     out.say(f"closed: phase {n} {phase.name} → TODO.md (collapsed), {rel} (result), README.md State")
+    if alongside:
+        out.say(f"closed from the plan, out of turn — phase {alongside[0].n} {alongside[0].name} is still {alongside[1]}, "
+                f"the pipeline stays in order. {ALONGSIDE_HINT}")
     return out
 
 
@@ -1924,6 +1963,28 @@ def _refresh_readme(case: Path, out: Outcome) -> str:
     return body
 
 
+def _ended_phase_lines(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal]) -> List[str]:
+    """A phase whose every item ended is ready to end itself — the moment the owner decides: close it,
+    or add what is still missing. The tool forces the downward rule (an open item holds its phase);
+    the upward one is shown here (feedback 2026-09-14: phase 4 stood open over one [x] item and
+    `order` said everything was in place). A phase with no items says nothing — nothing ended there.
+    The line names what the close still needs, so the command it offers is one the tool will take."""
+    lines: List[str] = []
+    for p in sorted(todo.phases, key=lambda x: x.n):
+        if p.done or not p.items or any(not it.done for it in p.items):
+            continue
+        needs: List[str] = []
+        if journal is not None:
+            for m in _closing_checks(case, p, journal):
+                if "result:" in m or "is missing (F12)" in m:
+                    continue
+                needs.append(m.split(" → ", 1)[1] if " → " in m else m.split(": ", 1)[-1])
+        lines.append(f"phase {p.n} {p.name}: every item ended ({len(p.items)} done) → close it: el phase close {p.n} \"what came out\""
+                     + (f" — first: {' · '.join(needs)}" if needs else "")
+                     + f" · or add what is missing: el todo add {p.n} \"…\"")
+    return lines
+
+
 def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[grammar.Journal]) -> List[str]:
     parsed = grammar.parse_readme(readme_body)
     links = parsed.sections.get("Links", []) if not parsed.errors else []
@@ -1933,6 +1994,7 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_overdue_lines(todo_now, readme_body))  # a date that passed is out of order
         lines.extend(_blind_items(todo_now, readme_body))    # an item with nowhere to go (case rule)
         lines.extend(_gone_lines(case, todo_now))              # waiting for something that no longer exists (F19)
+        lines.extend(_ended_phase_lines(case, todo_now, journal))  # every item ended: the phase is ready to end (F20)
     except StoreError:
         pass
     legacy = store.legacy_files(case)

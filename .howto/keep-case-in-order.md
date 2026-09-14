@@ -1,4 +1,4 @@
-when: Order говорит «State is behind» · «file(s) without summary» · «folder has no description» · «≈ … is verbatim in» · «limit 24» · README Links устарел · вход Elephant длинный · беспорядок в docs/
+when: Order говорит «State is behind» · «file(s) without summary» · «folder has no description» · «≈ … is verbatim in» · «limit 24» · «every item ended» · «phases run in order» · «out of turn» · README Links устарел · вход Elephant длинный · беспорядок в docs/
 
 # Держать дело в порядке
 
@@ -20,6 +20,8 @@ when: Order говорит «State is behind» · «file(s) without summary» ·
 | `N.M is after N.K, which is gone` | зависимость снята или удалена: перевязать `el todo after N.M "…"` (или `none`) — либо снять сам пункт `el todo cancel N.M "почему"` |
 | `nested case X: README unparsable` | ребёнок сломан и держит родителя открытым (F18): `el --case X check`, починить через `el migrate` или команды |
 | `cannot close phase N: open items …` (отказ) | у каждого пункта два конца (F20): `el todo done N.M "что вышло"` или `el todo cancel N.M "почему"`; вся фаза не нужна — `el phase cancel N "почему"` |
+| `phase N Name: every item ended (k done) → close it …` | работа фазы кончилась — решить: закрыть (`el phase close N "что вышло"`; строка называет, чего ещё не хватает — RESULT, reflect, align под `el log --phase N …`) или дописать недостающий пункт (`el todo add N "…"`) |
+| `cannot open phase N: … phases run in order` (отказ) | фазы — один pipeline по порядку, одна в полёте; работа со своим ритмом — вложенное дело `el spawn "…" --goal "…"`; уже сделанная под планом фаза не по очереди закрывается из плана: `el phase close N "…"` |
 | `extra file in the case root` | унести в папку по виду (`docs/`, `research/`, `logs/`) |
 | `pending X.recover.md` | внести строки командами Elephant, потом `rm` |
 

@@ -22,6 +22,9 @@ TOPICS = {
 - two ends for every node (F20): done with what came out, or cancelled with a reason —
   `el todo cancel` · `el phase cancel` · `el case cancel`. A parent closes only when every
   child ended: an open item holds its phase, an open phase holds its case, a BROKEN child its parent.
+  The other direction is shown, not forced: every item of a phase ended → Order says close it or
+  add what is missing — the owner decides, the tool names the moment. Phases are one pipeline
+  (in order, one in flight); work on its own clock is a nested case (`el spawn`), one line at the parent.
 - computed on entry: `dates:` (due today · overdue · deadline), `unblocked:` (open items whose
   blockers are done), and the Order block — what is out of place plus the command that fixes it.
   Nothing in the work points at a file → it is named (F21): link it, park it in archive/, delete it.
@@ -73,6 +76,9 @@ Every `el` entry ends with `## Order`: each line = one thing out of place + the 
   (RESULT/DECISION evidence counts, the rendered index and plain journal chatter do not), park it
   in archive/ (`el mv`), or delete it. Shown, never deleted by el.
 - an item after something gone (cancelled or dropped) → `el todo after N.M <refs|none>` or cancel it.
+- a phase whose every item ended → close it (`el phase close N "…"`) or add what is still missing
+  (`el todo add N "…"`); the line names what the close needs first (RESULT, reflect:, align: —
+  `el log --phase N …`). A phase with no items says nothing. Shown until the phase ends (F20).
 Nothing here is refused (Elephant does not write those files); it is shown on every entry until fixed.
 Why: a limit on README alone pushed the water one layer down — new files were cheap, merging never
 happened. Now the lower layer is visible from the top, and the top is rendered from it.""",
@@ -199,7 +205,14 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   before it was cancelled keeps its story; plan the work again under the next number.
 - the next phase will not open until the previous one passed all of the above — a cancelled phase
   passes by itself (it never ran); a phase that is still open must close or be cancelled; a phase
-  planned below and never opened must open first or be cancelled: phases run in order.""",
+  planned below and never opened must open first or be cancelled: phases are one pipeline, in
+  order, one in flight.
+- out of turn: work parked under a planned phase may end before its turn (it ran alongside). Then
+  `el phase close N "…"` closes it straight from the plan once every item ended — the file is born
+  at close, the journal says it ran alongside, progress shows ✓; `open` stays refused. Every gate
+  still applies, logged under that phase: `el log --phase N RESULT|DECISION "…"`. Next time, work
+  that runs on its own clock is a nested case, not a phase: `el spawn "name" --goal "…"` (P11) —
+  its own phases, its own agent, one rendered line at the parent when it closes.""",
 
     "cases": """cases — units of work longer than a session
 - `el case new "name" --goal "…"` — new case folder .cases/YYYY-MM-DD-name/ with the three files.
