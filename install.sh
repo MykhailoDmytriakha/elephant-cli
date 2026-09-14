@@ -12,10 +12,8 @@
 #   ~/.local/bin/el  →  <clone>/bin/el        the command
 #   <clone>/feedback/ exists                  the tool's own inbox (el feedback), travels with git
 #
-# What it deliberately does NOT do: touch any agent's skill folder. The skill (skill/SKILL.md)
-# is the same text for Claude Code, Codex, Copilot or any other harness — and this machine may
-# not have the one you expect. You connect it yourself — link it, do not copy it, so `git pull`
-# updates the skill with the command; the recipe is printed at the end.
+# What it deliberately does NOT do: touch any agent's config. Teaching the agent is one paste of
+# AGENT.md into whatever file this harness reads — the tool explains itself from there.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,7 +40,6 @@ python3 -c 'import sys; print("python    " + sys.version.split()[0] + " ok")' \
 printf '%s\n' \
   "done      el — the command · update: git -C \"$HERE\" pull" \
   "" \
-  "next      teach the agent, once per project — either way works:" \
-  "          skill   ln -sfn \"$HERE/skill\" ~/.claude/skills/elephant   (a link, not a copy: git pull updates it too)" \
-  "          text    paste section 3 of \"$HERE/INSTALL.md\" into the project's CLAUDE.md / AGENTS.md / GEMINI.md" \
+  "next      teach the agent, once per project:" \
+  "          paste   the block under the line in \"$HERE/AGENT.md\" into the project's CLAUDE.md / AGENTS.md / GEMINI.md" \
   "          then    cd <your project> && el case new \"first case\" --goal \"…\""
