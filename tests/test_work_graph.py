@@ -138,7 +138,7 @@ class Dependencies(Base):
         code, out, err = run("todo", "done", "1.1")
         self.assertEqual(code, 2, "the kind of evidence comes first (F20, 2026-09-14)")
         self.assertIn("what came out", err)
-        self.assertIn("file:<path in the case>", err)
+        self.assertIn("file:<path in the case or the project>", err)
         code, out, err = run("todo", "done", "1.1", "owner")
         self.assertEqual(code, 2, "a kind without an outcome is not done")
         self.assertIn("el todo cancel 1.1", err)

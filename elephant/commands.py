@@ -5,6 +5,7 @@ validates through the grammar (exit 3) and writes with a fresh stamp. Functions 
 to print on success; warnings are collected in `Outcome.warnings` and printed to stderr by main.
 """
 import datetime as dt
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -269,9 +270,28 @@ def _render_event(typ: str, text: str):
     """Turn text into journal lines: `  TYPE · headline` + up to 5 wrapped body lines (F7).
 
     A long text is split at word boundaries instead of being refused — the limit shapes the
-    record, it must not block the write (live feedback 2026-08-31).
+    record, it must not block the write (live feedback 2026-08-31). An author's line break is kept
+    as a body line of its own: fields written one per line stay one per line (feedback 2026-09-14:
+    `closed BUG-1 / root: a / fix: b` came out as one run-on sentence, and nothing said so).
     """
-    text = " ".join(text.split())
+    paras = [" ".join(p.split()) for p in text.split("\n") if p.strip()]
+    text, extra = (paras[0] if paras else ""), paras[1:]
+    if extra:
+        lines, _ = _render_event(typ, text)  # the first line is the headline (split by length if it must)
+        if not lines[0].endswith(" …"):
+            lines[0] += " …"  # a headline with a body says so — the entry shows headlines only
+        body = [ln[4:] for ln in lines[1:]]
+        for para in extra:
+            while len(para) > BODY_WRAP:
+                cut = para.rfind(" ", 0, BODY_WRAP)
+                cut = cut if cut > 0 else BODY_WRAP
+                body.append(para[:cut])
+                para = para[cut:].strip()
+            body.append(para)
+        if len(body) > grammar.EVENT_BODY_LINES:
+            raise StoreError(f"event text is too long even for a headline plus {grammar.EVENT_BODY_LINES} body lines (F7) — "
+                             f"put the story into the phase file and log a short line with a path", 3)
+        return [lines[0]] + [f"    {b}" for b in body], True
     if len(f"{typ} · {text}") <= grammar.EVENT_CHARS:
         return [f"  {typ} · {text}"], False
     # split under the SOFT threshold, so a split line never triggers "close to the limit" later
@@ -321,7 +341,9 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None) -> Outcome
     if typ not in grammar.JOURNAL_TYPES:
         raise StoreError(f"unknown type `{typ}` — allowed: PHASE · DECISION · PROBLEM · RESULT (F8)", 2)
     event_lines, split = _render_event(typ, text)
-    if split:
+    if split and "\n" in text.strip():
+        out.warn(f"event written as a headline + {len(event_lines) - 1} body line(s): your line breaks are kept (F7)")
+    elif split:
         out.warn(f"event longer than {grammar.EVENT_CHARS} chars — split into headline + {len(event_lines) - 1} body line(s) (F7)")
     todo = _todo(case, out)
     phase = _resolve_phase(todo, phase) if phase else _phase_of(todo)
@@ -385,7 +407,7 @@ def _trim_suggestion(text: str, limit: int) -> str:
 
 
 # ---- todo ---------------------------------------------------------------------------------------
-EVIDENCE_KINDS_HELP = ("file:<path in the case> (a photo, pdf, receipt, letter, screenshot, transcript) · "
+EVIDENCE_KINDS_HELP = ("file:<path in the case or the project> (a photo, pdf, receipt, letter, screenshot, transcript, a source file) · "
                        "ref:<trace outside the case> (a request number, a URL, a letter in the mailbox) · "
                        "run:\"<command → outcome>\" (a machine check) · owner (the owner's word — the only word that counts)")
 
@@ -418,17 +440,46 @@ def _parse_evidence(case: Path, ref: str, token: str):
         if m:
             value = m.group(1)
         if value.startswith(("/", "~")) or ".." in Path(value).parts:
-            raise StoreError(f"file: takes a path inside the case, e.g. file:evidence/receipt.pdf — not `{value}`", 2)
-        if not (case / value).is_file():
-            raise StoreError(f"file:{value} — no such file in the case; put it there (evidence/, docs/ …) "
-                             f"or name what you have: ref:<trace> · owner", 3)
-        return kind, f"[{Path(value).name}]({value})"
+            raise StoreError(f"file: takes a path inside the case or the project, e.g. file:evidence/receipt.pdf or "
+                             f"file:src/app/parser.ts — not `{value}`", 2)
+        target = _evidence_file(case, value)
+        if target is None:
+            raise StoreError(f"file:{value} — no such file in the case or the project (paths are read from the case folder, "
+                             f"then from the project root); put it there or name what you have: ref:<trace> · owner", 3)
+        return kind, f"[{target.name}]({os.path.relpath(target, case)})"
     if kind == "run":
         value = value.replace("->", "→")
         if "→" not in value:
             raise StoreError(f"run: needs the command and what came out, joined by →: el todo done {ref} run:\"python3 -m unittest → 12 OK\" \"…\"", 2)
         return kind, value
     return kind, value
+
+
+def _project_root(case: Path) -> Path:
+    """The folder that holds `.cases/` — the project the case works on. In root mode the case IS the
+    project; a nested case walks up to the `.cases/` above it."""
+    if (case / store.CASES_DIR).is_dir():
+        return case
+    for d in case.parents:
+        if d.name == store.CASES_DIR:
+            return d.parent
+    return case
+
+
+def _evidence_file(case: Path, value: str) -> Optional[Path]:
+    """`file:` evidence resolves in the case first, then in the project (feedback 2026-09-14: for
+    software work the proof IS the source file, `frontend/app/utils/x.ts` — forcing it into `ref`
+    made ref mean «a path we could not check»). Outside the project → None."""
+    for base in (case, _project_root(case)):
+        target = (base / value)
+        if target.is_file():
+            resolved = target.resolve()
+            try:
+                resolved.relative_to(_project_root(case).resolve())
+            except ValueError:
+                return None
+            return resolved
+    return None
 
 
 def todo_done(case: Path, ref: str, evidence: str = "", outcome: str = "") -> Outcome:
@@ -444,6 +495,9 @@ def todo_done(case: Path, ref: str, evidence: str = "", outcome: str = "") -> Ou
         raise StoreError("use `el todo done N.M <kind> \"what came out\"` (or a range N.A-N.B, a list N.A, N.B) for items, "
                          "`el phase close N` for a phase", 2)
     kind, proof = _parse_evidence(case, ref, evidence)
+    if kind == "ref" and not re.match(r"^[a-z][a-z0-9+.-]*:", proof) and _evidence_file(case, proof.split(" ")[0]) is not None:
+        out.warn(f"ref:{proof} is a file in reach — file:{proof.split(' ')[0]} would be checked (it exists) and linked; "
+                 f"ref is for a trace outside the case a person checks elsewhere")
     outcome = " ".join(outcome.split())
     if not outcome:
         raise StoreError(f"done needs what came out (F20): el todo done {ref} {evidence.strip()} \"what came out\" — "
@@ -1563,8 +1617,9 @@ def project_new(root: Path, name: str, goal: str) -> Outcome:
     for fname in store.FILES:
         f = store.file_path(project, fname)
         if f.exists():
-            raise StoreError(f"{f.name} already exists in {project} — it may be your public readme or docs; "
-                             f"move its content aside first, el will not overwrite it", 4)
+            raise StoreError(f"{f.name} already exists in {project} — it may be your public readme or docs, and el will not "
+                             f"overwrite it. Keep it and run the ordinary form instead: el case new \"{name}\" --goal \"…\" "
+                             f"(the case lives in .cases/); root mode only after you move that file aside", 4)
     title = name.strip()
     goal = " ".join(goal.split())
     d, t = _now()
@@ -1577,6 +1632,8 @@ def project_new(root: Path, name: str, goal: str) -> Outcome:
     store_write_fresh(project, "JOURNAL.md", "\n".join([f"# JOURNAL — {title}", "", f"- {d} {t} · p0", *event_lines]) + "\n")
     out.say(f"root mode on: {project.name} is now the top case (README/TODO/JOURNAL in the project root); "
             f"feature cases live in .cases/ — `el case new \"…\" --goal \"…\"`")
+    out.say("note: README.md, TODO.md and JOURNAL.md now lie in the project root, outside .cases/ — a .gitignore rule "
+            "for .cases/ does not cover them: ignore them there too, or commit them on purpose")
     return out
 
 

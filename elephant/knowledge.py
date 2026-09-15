@@ -142,6 +142,8 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
 - No open phase? The entry lands in p0 — the case-level lane (gathering info, talking it over).
 - `--phase p1`, `--phase 1` or a unique phase name select the phase explicitly.
 - Long text is split automatically into a headline + body lines; keep headlines meaningful.
+  Your own line breaks are kept: each line after the first becomes a body line (up to 5) — fields
+  written one per line stay one per line.
 - An event is not editable afterwards — so a text with a trace of a shell substitution (`$150`
   eaten inside double quotes leaves a double space) is refused: write sums in single quotes.
 - A link in an event points at a file; the file moved without `el mv` → `el relink old new`
@@ -187,13 +189,16 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
     "evidence": """evidence — what `done` stands on (F20; the owner's word, 2026-09-14)
 A tick is not a proof. `el todo done N.M <kind> "what came out"` — the kind of evidence comes first,
 then the words; the tick, the kind and the RESULT are one write. Four kinds, and who can check each:
-- file:<path in the case>    a thing anyone can open — photo, pdf, receipt, letter, screenshot,
-                             transcript, export. The tool checks the file is there (later: that it did
-                             not change). The strongest kind: put the thing into evidence/ or docs/ and
-                             point at it.                → tail `— file: [receipt.pdf](evidence/receipt.pdf)`
+- file:<path>                a thing anyone can open — photo, pdf, receipt, letter, screenshot,
+                             transcript, export, or the source file itself when the case drives code.
+                             The path is read from the case folder first, then from the project root
+                             (`file:src/app/parser.ts`); the tool checks the file is there (later: that
+                             it did not change) and writes the link from the case. The strongest kind.
+                                                          → tail `— file: [receipt.pdf](evidence/receipt.pdf)`
 - ref:<trace outside>        a request number, a case number on a portal, a URL, a letter in the
                              mailbox — a person can check it outside the case; the tool checks only
-                             that a trace is named. A screenshot or pdf turns a ref into a file.
+                             that a trace is named. A screenshot or pdf turns a ref into a file; a ref
+                             that names a file in reach gets a warning: that is a file, say file:.
                                                           → tail `— ref: D005532-091426`
 - run:"<command → outcome>"  a machine check — tests, a build, a measurement; the tool checks the
                              arrow, a repeat is the proof.  → tail `— run: python3 -m unittest → 219 OK`
@@ -264,7 +269,9 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   next; closed ones as a count plus the latest few) — never typed by hand (F18); a child whose
   README el cannot parse shows as BROKEN and holds the parent open.
 - Root mode: `el case new --root "my app" --goal "…"` makes the PROJECT FOLDER itself the top
-  case (README/TODO/JOURNAL in the project root; refused if a README.md already exists there).
+  case (README/TODO/JOURNAL in the project root; refused if a README.md, TODO.md or JOURNAL.md already
+  exists there — keep it and use the ordinary form). Those three files lie outside .cases/: a
+  .gitignore rule for .cases/ does not cover them — ignore them too, or commit them on purpose.
   Feature cases live in .cases/ as usual and report their outcome back to the project on `done`.""",
 
     "where": """what goes where

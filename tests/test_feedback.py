@@ -164,13 +164,13 @@ class ErrorUX(unittest.TestCase):
         os.chdir(self.old)
         self.tmp.cleanup()
 
-    def test_entry_error_is_structured_and_mirrored_to_stdout(self):
+    def test_entry_error_is_structured_and_on_stdout_once(self):
         code, out, err = run()
         self.assertEqual(code, 4)
-        for stream in (out, err):
-            self.assertIn("ERROR [exit 4]", stream)
-            self.assertIn("recovery: ", stream)
-            self.assertIn("el help errors", stream)
+        self.assertIn("ERROR [exit 4]", out)
+        self.assertIn("recovery: ", out)
+        self.assertIn("el help errors", out)
+        self.assertEqual(err, "", "one voice: printed to both streams it read as two failures (feedback 2026-09-14)")
 
     def test_non_entry_error_stays_on_stderr(self):
         code, out, err = run("case", "list")

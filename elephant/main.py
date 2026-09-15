@@ -317,11 +317,14 @@ def run(argv=None) -> int:
         if e.recovery:
             lines.append(f"  recovery: {e.recovery}")
         lines.append(f"  exit {e.code} = {store.EXIT_MEANING.get(e.code, '?')} — `el help errors`")
-        print("\n".join(lines), file=sys.stderr)
-        if args.cmd in (None, "status"):  # the entry command must explain itself on stdout too (feedback #4)
+        if args.cmd in (None, "status"):
+            # the entry explains itself on stdout (feedback #4) — and only there: printed to both streams,
+            # a terminal with 2>&1 showed the same refusal twice, as two failures (feedback 2026-09-14)
             print("\n".join(lines))
             if e.code == 4 and "no `.cases/`" in str(e):
                 print(knowledge.ONBOARDING)
+        else:
+            print("\n".join(lines), file=sys.stderr)
         return e.code
 
 

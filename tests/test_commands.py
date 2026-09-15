@@ -170,7 +170,8 @@ class Flow(unittest.TestCase):
             os.chdir(other)
             code, out, err = run()
             self.assertEqual(code, 4)
-            self.assertIn("no `.cases/`", err)
+            self.assertIn("no `.cases/`", out, "the entry explains itself on stdout")
+            self.assertEqual((out + err).count("no `.cases/` directory found"), 1, "once, not on both streams (feedback 2026-09-14)")
             os.chdir(self.tmp.name)
 
     def test_unknown_command_is_a_hard_failure(self):
