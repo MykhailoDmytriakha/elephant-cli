@@ -300,11 +300,25 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
 - If a *.recover.md exists: re-enter its lines through el commands, then `rm` the file (the
   warning prints the exact command). Data is never lost silently.""",
 
-    "feedback": """reporting an Elephant problem or wish
-`el feedback "short title" --actual "what happened" --expected "what should happen"`
-optional: --repro "commands" --why "…" --acceptance "…"
-The artifact lands in the elephant-cli clone's feedback/ pool (travels with git) and the path is
-printed. Title + --actual + --expected are required; nothing from your environment is included.""",
+    "feedback": """feedback — telling Elephant it is wrong (the door when the tool does not let you through honestly)
+el refused what the work needs, a printed line has no honest fix, a kind or a form is missing? Do not
+forge the record (no `done` on a cancelled item, no path written as text) — report it and go on by a workaround.
+  el feedback "short title" --actual "…" --expected "…" [--repro "…"] [--why "…"] [--acceptance "…"]
+  title          what el did wrong, in a few words — it becomes the file name
+  --actual       what el printed or wrote, verbatim, with the exit code — what happened, not what you feared
+  --expected     what should have happened instead
+  --repro        the commands in order, from a clean case, so the reader can replay it
+  --why          which principle it breaks: the record lies · a line with no honest fix · a wall with no honest way through
+  --acceptance   how to see it is fixed — a check someone can run; it becomes the test
+Title, --actual and --expected are required; the other three are what makes the report fixable in one pass.
+Valuable to the reader: the exact output and exit code · the source line you read (`commands.py:NN`) · what you
+did instead · Actual checked against the live case (a fear written as a fact is the first thing that fails).
+A report is not a spec: it is weighed against the principles (`el help model`) and may get an honest alternative.
+Where it lands: `<elephant-cli clone>/feedback/<date-time-title>.md`, its header carrying the date, the el
+version and the name of the case in hand — nothing else from your environment. It travels with git: commit and
+push in that clone (or the owner pulls from this machine); until then it lies there and nobody has read it.
+In your own case: `el log PROBLEM "el: <title> — workaround: …"` so the next agent does not hit the same wall
+twice; after `git pull` raised the el version, try the wall again.""",
     "limits": """the numbers (all enforced at write time)
 README: 200 lines / 8 KB of YOUR text → warning · 300 lines / 12 KB → refusal; pointer line ≤ 150 chars
   (warning). The nested Links lines el renders from the files are reported, not counted — you
@@ -340,7 +354,8 @@ matters with `el log`.
 After apply: `el` (Order shows what to rewrite), `el readme set next "…"`, `el check`.""",
 
     "errors": """exit codes and what to do
-0 — done. 1 — internal error. 2 — wrong usage (the message shows the correct form).
+0 — done. 1 — internal error. 2 — wrong usage: the message names what is missing, prints the command's
+    examples (for `feedback` its whole dose) and `el help <topic>`; the library's bare `usage:` line is never the answer.
 3 — rule violation: the write was REFUSED, no file was touched; fix the input as the message says.
     "outside Elephant's grammar and was never stamped" = a legacy file → `el migrate` (see `el help migrate`).
 4 — precondition not met: no .cases/ from here upwards · every case closed · a case file missing ·
@@ -348,7 +363,7 @@ After apply: `el` (Order shows what to rewrite), `el readme set next "…"`, `el
 Diagnostics without any writes: `el doctor`. Facts that save an investigation:
 - el never reads or writes AGENTS.md / CLAUDE.md — they only point at el;
 - el never changes your shell's cwd (a child process cannot);
-- errors go to stderr; the bare `el` entry also mirrors them to stdout.""",
+- errors go to stderr; the bare `el` entry prints its refusal on stdout instead, once — it explains itself where it is read.""",
 }
 
 

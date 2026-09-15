@@ -45,7 +45,7 @@ EXAMPLES = """examples
   el case use connect-database         switch the hand (like `cf target` / `oc project`)
   el spawn "db unreachable from server" --goal "server cannot reach the database, cause unknown"
   el done "database connected and validated"
-  el feedback "log rejects names" --actual "..." --expected "..."   report an Elephant problem
+  el feedback "done refuses run: with spaces" --actual "exit 2: …" --expected "…" --repro "el todo done 3.1 run:'make → OK' ok"   el is wrong or in the way? report it, never forge the record (el help feedback)
   el order                             what is out of order in the case in hand + the fix for each line
   el order --adopt                     move file descriptions from README Links into the files as `summary:`
   el migrate                           legacy case (files el never stamped): dry run — what maps where, nothing changes
@@ -60,9 +60,61 @@ options: --case <name or suffix> (or EL_CASE) picks the case; exit codes 0 ok ·
 """
 
 
+HELP_TOPIC = {"log": "journal", "todo": "todo", "phase": "phases", "readme": "readme", "case": "cases", "spawn": "cases",
+              "done": "cases", "feedback": "feedback", "migrate": "migrate", "mv": "order", "relink": "order",
+              "order": "order", "check": "errors", "status": "start"}
+# The form of every other command carries its meaning in its placeholders (N.M, TYPE, old new); feedback's
+# three free texts do not — the agent must know what is valuable to the reader before writing a word, so
+# a wrong call prints the whole dose, not one example line.
+INLINE_DOSE = {"feedback"}
+
+
+def _cmd_of(prog: str) -> Optional[str]:
+    parts = prog.split()
+    return parts[1] if len(parts) > 1 else None
+
+
+def examples_for(cmd: str) -> list:
+    """The lines of `el --help` examples that show `el <cmd>` (C2: examples first, the library's usage line never)."""
+    rx = re.compile(rf"(^|\s)el {re.escape(cmd)}(\s|$)")
+    return [line.strip() for line in EXAMPLES.splitlines() if rx.search(line.strip()) and line.startswith("  ")]
+
+
+def usage_error(prog: str, message: str) -> str:
+    """What a wrong call prints (the owner's word, 2026-09-15): what is missing, then the command's examples or —
+    for feedback — its whole dose. One voice for every command; argparse's bare `usage:` line is never shown."""
+    cmd = _cmd_of(prog)
+    lines = [f"{prog}: {message}"]
+    if cmd in INLINE_DOSE:
+        lines += [f"  {ln}" if ln else "" for ln in knowledge.TOPICS[cmd].splitlines()]
+    elif cmd:
+        shown = examples_for(cmd)
+        if shown:
+            lines.append("  examples:")
+            lines += [f"    {ln}" for ln in shown]
+    else:
+        lines.append("  the bare `el` prints where the case stands; a day with el: el help start")
+    return "\n".join(lines)
+
+
+def usage_recovery(prog: str) -> str:
+    cmd = _cmd_of(prog)
+    topic = HELP_TOPIC.get(cmd) if cmd else None
+    return f"el help {topic} · el {cmd} -h" if topic else "el --help · el help start"
+
+
+class Parser(argparse.ArgumentParser):
+    """argparse with el's voice. A wrong call is a StoreError (exit 2, C4/C5) — what is missing, the
+    examples, the recovery — never the library's bare `usage:` line: for the agent who typed `el feedback`
+    to learn the form, that line was the moment of need and it answered with nothing (2026-09-15)."""
+
+    def error(self, message: str):
+        raise StoreError(usage_error(self.prog, message), 2, recovery=usage_recovery(self.prog))
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="el", description="the write door for .cases/ — rules: el help files · order · limits",
-                                epilog=EXAMPLES, formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False)
+    p = Parser(prog="el", description="the write door for .cases/ — rules: el help files · order · limits",
+               epilog=EXAMPLES, formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False)
     p.add_argument("--case", help="case name or unique suffix (default: EL_CASE or the freshest open case)")
     p.add_argument("--version", action="version", version=f"elephant {__version__}")
     sub = p.add_subparsers(dest="cmd")
@@ -167,8 +219,9 @@ def shell_trace(args) -> Optional[str]:
 
 def run(argv=None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = None
     try:
+        args = parser.parse_args(argv)  # a wrong call raises StoreError(2) in el's voice — see Parser.error
         trace = shell_trace(args)
         if trace:
             raise StoreError(trace, 2)
@@ -176,8 +229,7 @@ def run(argv=None) -> int:
             if args.topic:
                 dose = knowledge.TOPICS.get(args.topic.lower())
                 if dose is None:
-                    print(f"el: no topic `{args.topic}` — topics: {knowledge.topic_list()}", file=sys.stderr)
-                    return 2
+                    raise StoreError(f"no topic `{args.topic}` — topics: {knowledge.topic_list()}", 2, recovery="el help <topic>")
                 print(dose)
                 return 0
             parser.print_help()
@@ -317,7 +369,7 @@ def run(argv=None) -> int:
         if e.recovery:
             lines.append(f"  recovery: {e.recovery}")
         lines.append(f"  exit {e.code} = {store.EXIT_MEANING.get(e.code, '?')} — `el help errors`")
-        if args.cmd in (None, "status"):
+        if args is not None and args.cmd in (None, "status"):
             # the entry explains itself on stdout (feedback #4) — and only there: printed to both streams,
             # a terminal with 2>&1 showed the same refusal twice, as two failures (feedback 2026-09-14)
             print("\n".join(lines))

@@ -174,10 +174,15 @@ class Flow(unittest.TestCase):
             self.assertEqual((out + err).count("no `.cases/` directory found"), 1, "once, not on both streams (feedback 2026-09-14)")
             os.chdir(self.tmp.name)
 
-    def test_unknown_command_is_a_hard_failure(self):
-        with self.assertRaises(SystemExit) as ctx:
-            run("lgo", "RESULT", "x")
-        self.assertEqual(ctx.exception.code, 2)
+    def test_unknown_command_is_a_usage_error_in_els_voice(self):
+        # argparse used to exit by itself with its bare `usage:` line; since 1.8.0 a wrong call is a
+        # StoreError(2) like every other refusal (the owner's word, 2026-09-15)
+        code, out, err = run("lgo", "RESULT", "x")
+        self.assertEqual(code, 2)
+        self.assertIn("ERROR [exit 2]", err)
+        self.assertIn("invalid choice: 'lgo'", err)
+        self.assertIn("el help start", err)
+        self.assertEqual(out, "")
 
 
 if __name__ == "__main__":
