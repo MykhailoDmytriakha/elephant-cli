@@ -216,7 +216,7 @@ class CaseContext(unittest.TestCase):
         second = next(l for l in out.splitlines() if "second-case" in l)
         self.assertTrue(first.startswith("*"), first)
         self.assertTrue(second.startswith(" "), second)
-        self.assertIn("phases 0/0", first)
+        self.assertIn("next:", first, "the line is the one the case shows at its parent: progress · next (2026-09-14)")
         self.assertFalse((self.root / ".current").exists(), "no state file anywhere")
 
     def test_use_closed_case_refused(self):

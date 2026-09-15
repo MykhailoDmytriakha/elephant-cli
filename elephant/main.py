@@ -41,7 +41,7 @@ EXAMPLES = """examples
   el readme --file README.md           validate and write a README (progress line kept in sync)
   el case new "connect database" --goal "app talks to the prod database"
   el case new --root "my app" --goal "…"   root mode: the project folder itself is the top case
-  el case list                         all cases, current marked *
+  el case list                         open cases first (progress · next · due), closed as a count + latest few; --all shows every closed one
   el case use connect-database         switch the hand (like `cf target` / `oc project`)
   el spawn "db unreachable from server" --goal "server cannot reach the database, cause unknown"
   el done "database connected and validated"
@@ -96,6 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("name", nargs="?")
     s.add_argument("--goal")
     s.add_argument("--root", action="store_true", help="root mode: the project folder itself becomes the top case")
+    s.add_argument("--all", action="store_true", help="list only: every closed case, not just the latest few")
 
     s = sub.add_parser("mv", help="move/rename a file inside the case; every link to it is rewritten", allow_abbrev=False)
     s.add_argument("old", help="current path, relative to the case (docs/x.md)")
@@ -204,7 +205,7 @@ def run(argv=None) -> int:
         root = store.find_root()
         if args.cmd == "case":
             if args.action == "list":
-                out = commands.case_list(root)
+                out = commands.case_list(root, everything=args.all)
             elif args.action == "cancel":
                 out = commands.case_cancel(root, store.hand(root, args.case), args.name or "")
             else:

@@ -172,7 +172,7 @@ def phases_folder(case: Path) -> Optional[Folder]:
 
 # ---- nested cases: the parent's line is rendered from the child's own header (F18) ---------------
 CASES_DIR = ".cases"
-CASE_STATE_RE = re.compile(r"^- (progress|next|closed): (.*)$")
+CASE_STATE_RE = re.compile(r"^- (progress|next|closed|due): (.*)$")
 CASE_LINE_RE = re.compile(r"^- (?:closed: )?\[[^\]]+\]\(([^)]+)/README\.md\)")
 CASES_SHOWN_CLOSED = 5
 
@@ -185,26 +185,40 @@ def child_cases(case: Path, root_mode: bool) -> List[Path]:
     return sorted(d for d in base.iterdir() if _is_case_dir(d))
 
 
-def child_status(child: Path) -> Tuple[str, str, str, str]:
-    """('open' | 'closed' | 'broken', progress, next, closed) read from the child's own README —
+def child_status(child: Path) -> Tuple[str, str, str, str, str]:
+    """('open' | 'closed' | 'broken', progress, next, closed, due) read from the child's own README —
     the child describes itself; a README el cannot parse makes the child BROKEN, and a broken
-    child holds its parent open (F18)."""
+    child holds its parent open (F18). `due` is the case deadline (`- due: YYYY-MM-DD · what`)."""
     from . import store, stamp  # local: store imports order for the README render
     try:
         body, _ = stamp.split(store.read(child, "README.md"))
     except Exception:  # noqa: BLE001 — missing or unreadable README = broken, never silent
-        return ("broken", "", "", "")
+        return ("broken", "", "", "", "")
     parsed = grammar.parse_readme(body)
     if parsed.errors:
-        return ("broken", "", "", "")
+        return ("broken", "", "", "", "")
     state: Dict[str, str] = {}
     for ln in parsed.sections.get("State", []):
         m = CASE_STATE_RE.match(ln)
         if m:
             state[m.group(1)] = m.group(2).strip()
     if state.get("closed"):
-        return ("closed", state.get("progress", ""), "", state["closed"])
-    return ("open", state.get("progress", ""), state.get("next", ""), "")
+        return ("closed", state.get("progress", ""), "", state["closed"], "")
+    due = (state.get("due", "").split(" · ", 1)[0] or "").strip()
+    return ("open", state.get("progress", ""), state.get("next", ""), "", due if grammar.DATE_RE.fullmatch(due) else "")
+
+
+def case_desc(status) -> str:
+    """The one line a case shows wherever it is seen from outside — at its parent (the cases block of
+    Links) and in `el case list` — rendered from its own README, never typed (F18): open →
+    `progress · next: … · due YYYY-MM-DD`, closed → the `closed:` line, broken → the fix."""
+    kind, progress, nxt, closed, due = status
+    if kind == "broken":
+        return "BROKEN: README unparsable"
+    if kind == "closed":
+        return _short(closed, SUMMARY_CHARS)
+    desc = progress + (f" · next: {nxt}" if nxt else "") + (f" · due {due}" if due else "")
+    return _short(desc or "(no State yet)", SUMMARY_CHARS)
 
 
 def _render_cases(case: Path, root_mode: bool) -> List[str]:
@@ -221,12 +235,11 @@ def _render_cases(case: Path, root_mode: bool) -> List[str]:
     for k, s in live:
         link = f"[{k.name}]({prefix}{k.name}/README.md)"
         if s[0] == "broken":
-            out.append(f"  - {link} — BROKEN: README unparsable, holds this case open → el --case {k.name} check")
+            out.append(f"  - {link} — {case_desc(s)}, holds this case open → el --case {k.name} check")
         else:
-            desc = s[1] + (f" · next: {s[2]}" if s[2] else "")
-            out.append(f"  - {link} — {_short(desc or '(no State yet)', SUMMARY_CHARS)}")
+            out.append(f"  - {link} — {case_desc(s)}")
     for k, s in closed[:CASES_SHOWN_CLOSED]:
-        out.append(f"  - closed: [{k.name}]({prefix}{k.name}/README.md) — {_short(s[3], SUMMARY_CHARS)}")
+        out.append(f"  - closed: [{k.name}]({prefix}{k.name}/README.md) — {case_desc(s)}")
     if len(closed) > CASES_SHOWN_CLOSED:
         out.append(f"  - … +{len(closed) - CASES_SHOWN_CLOSED} closed earlier — el case list")
     return out

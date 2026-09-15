@@ -1487,7 +1487,12 @@ def store_write_fresh(case: Path, name: str, body: str):
     (case / name).write_text(stamp.apply(body), encoding="utf-8")
 
 
-def case_list(root: Path) -> Outcome:
+def case_list(root: Path, everything: bool = False) -> Outcome:
+    """Where every case stands (the owner's question of 2026-09-14: which cases are still open?).
+    Open cases first, each on the same line it shows at its parent — rendered from its own README
+    (progress · next · due) plus the live days to its deadline and what it waits for; closed ones
+    as a count plus the latest few (`--all` for every one), so thirty finished matters never drown
+    the two live ones. One rule for the node line wherever it is seen from outside (F18)."""
     out = Outcome()
     cases = store.all_cases(root)  # the project case first in root mode
     rejected0 = store.scan(root)[1]
@@ -1502,19 +1507,39 @@ def case_list(root: Path) -> Outcome:
         current = None
     for path, reason in store.scan(root)[1]:
         out.warn(f"not a case, ignored: {path.relative_to(root)} — {reason}")
+    today = dt.date.today()
+    rows = []
     for case in cases:
         depth = max(len(store.chain(case, root)) - 1, 0)
-        todo = grammar.parse_todo(store.read(case, "TODO.md"))
-        done_n, total = sum(p.done for p in todo.phases), len(todo.phases)
-        cur = todo.current()
-        waits = [w for p in todo.phases for w in p.waits]
-        state = "closed" if not store.is_open(case) else (f"phase {cur.n} {cur.name}" if cur else "no open phase")
+        status = order.child_status(case)
+        waits: List[str] = []
+        try:
+            todo = grammar.parse_todo(store.read(case, "TODO.md"))
+            waits = [w for p in todo.phases for w in p.waits]
+        except StoreError:
+            pass
+        rows.append((case, depth, status, waits))
+    live = [r for r in rows if r[2][0] != "closed"]
+    closed = sorted((r for r in rows if r[2][0] == "closed"), key=lambda r: r[2][3], reverse=True)
+    for case, depth, status, waits in live:
         mark = "*" if case == current else " "
-        bits = [f"phases {done_n}/{total}", state]
+        line = f"{mark} {'  ' * depth}{case.name} — {order.case_desc(status)}"
+        if status[0] == "broken":
+            line += f" → el --case {case.name} check"
+        elif status[4]:
+            try:
+                line += f" ({_when((dt.date.fromisoformat(status[4]) - today).days)})"
+            except ValueError:
+                pass
         if waits:
-            bits.append("waits: " + ", ".join(waits))
-        out.say(f"{mark} {'  ' * depth}{case.name} — {' · '.join(bits)}")
-    out.say("", "current is marked *; switch: `el case use <name>`")
+            line += " · waits: " + ", ".join(waits)
+        out.say(line)
+    shown = closed if everything else closed[:order.CASES_SHOWN_CLOSED]
+    for case, depth, status, _ in shown:
+        out.say(f"  {'  ' * depth}closed: {case.name} — {order.case_desc(status)}")
+    if len(closed) > len(shown):
+        out.say(f"  … +{len(closed) - len(shown)} closed earlier — el case list --all")
+    out.say("", f"cases: {len(rows)} · {len(live)} open · {len(closed)} closed · current is marked *; switch: `el case use <name>`")
     return out
 
 
@@ -1598,6 +1623,7 @@ def done(root: Path, case: Path, summary: str) -> Outcome:
     summary = " ".join(summary.split())
     date, _ = _now()
     text = _set_state_line(_readme_text(case, out), "closed: ", f"{date} · {summary}")
+    text = _set_state_line(text, "next: ", None)  # a closed case has no next step — the line would be a lie (2026-09-14)
     _write_readme(case, text, out, anchor=True)
     out.lines = log(case, "PHASE", f"дело закрыто → {summary}").lines + out.lines
     parent = store.parent_case(case, root)
@@ -1609,7 +1635,10 @@ def done(root: Path, case: Path, summary: str) -> Outcome:
                 awaited = True
                 p.waits.remove(case.name)
                 m = _next_number(parent, ptodo, p)
-                p.items.append(grammar.Item(p.n, m, True, f"{summary} · {case.name}/", 0))
+                # the child's outcome lands at the parent as a done item whose evidence is the child itself
+                # (F20: the tool does not write a tick without a kind): file → the child's README
+                p.items.append(grammar.Item(p.n, m, True, f"{summary} · {case.name}/", 0,
+                                            kind="file", proof=_child_readme_link(parent, case)))
         out.absorb(_write_todo(parent, ptodo))
         _write_readme(parent, _set_state_line(_readme_text(parent, out), "ждёт: ", None), out)
         # the child always reports to its parent, however it was created (F18): an awaited child
@@ -1640,6 +1669,7 @@ def case_cancel(root: Path, case: Path, why: str) -> Outcome:
     out.absorb(_write_todo(case, todo))
     date, _ = _now()
     text = _set_state_line(_readme_text(case, out), "closed: ", f"{date} · снято: {why}")
+    text = _set_state_line(text, "next: ", None)  # nothing is next for a cancelled case
     _write_readme(case, text, out, anchor=True)
     out.lines = log(case, "DECISION", f"дело снято → {why}").lines + out.lines
     parent = store.parent_case(case, root)
@@ -1649,7 +1679,8 @@ def case_cancel(root: Path, case: Path, why: str) -> Outcome:
             if case.name in p.waits:
                 p.waits.remove(case.name)
                 m = _next_number(parent, ptodo, p)
-                p.items.append(grammar.Item(p.n, m, True, f"снято: {why} · {case.name}/", 0))
+                p.items.append(grammar.Item(p.n, m, True, f"снято: {why} · {case.name}/", 0,
+                                            kind="file", proof=_child_readme_link(parent, case)))
         out.absorb(_write_todo(parent, ptodo))
         _write_readme(parent, _set_state_line(_readme_text(parent, out), "ждёт: ", None), out)
         out.lines += log(parent, "DECISION", f"снято → {why} · {case.name}/").lines
@@ -1925,6 +1956,21 @@ def _follow_links(case: Path, src: Path, dst: Optional[Path], out: Outcome, skip
 STATE_DUE_RE = re.compile(r"^- due: (\d{4}-\d{2}-\d{2})(?:\s*[·—–-]?\s*(.*))?$", re.M)
 
 
+def _child_readme_link(parent: Path, child: Path) -> str:
+    """`[child-name](child-name/README.md)` — from a normal parent; `.cases/…` from the project case."""
+    prefix = f"{order.CASES_DIR}/" if _is_project(parent) else ""
+    return f"[{child.name}]({prefix}{child.name}/README.md)"
+
+
+def _when(days: int) -> str:
+    """`today` · `in 3 days` · `2 days ago` — how the tool says a distance in days."""
+    if days == 0:
+        return "today"
+    if days > 0:
+        return f"in {days} day{'s' if days != 1 else ''}"
+    return f"{-days} day{'s' if days != -1 else ''} ago"
+
+
 def _dated(todo: grammar.Todo, readme_body: str, today: dt.date):
     """(overdue, due today, next 7 days, deadline) — from `— due:` items of open phases and the
     State line `- due: YYYY-MM-DD · what` (the case deadline). Held and done items do not count."""
@@ -1979,9 +2025,7 @@ def _dates_line(todo: grammar.Todo, readme_body: str) -> Optional[str]:
         parts.append(f"overdue: {len(overdue)} — see Order")
     if deadline:
         d, what = deadline
-        days = (d - today).days
-        when = "today" if days == 0 else (f"in {days} day{'s' if days != 1 else ''}" if days > 0 else f"{-days} day{'s' if days != -1 else ''} ago")
-        parts.append(f"deadline {d.isoformat()}{f' «{what}»' if what else ''} {when}")
+        parts.append(f"deadline {d.isoformat()}{f' «{what}»' if what else ''} {_when((d - today).days)}")
     return "dates: " + " · ".join(parts)
 
 

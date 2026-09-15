@@ -93,7 +93,9 @@ class Discovery(unittest.TestCase):
         self.assertEqual(stamp.verify((case / "journal.md").read_text()), (True, "ok"))
         code, out, err = run("case", "list")
         self.assertEqual(code, 0, err)
-        self.assertIn("phases 1/3", out)
+        line = next(l for l in out.splitlines() if "legacy-case" in l)
+        self.assertNotIn("BROKEN", line)
+        self.assertNotIn("closed:", line, "an open legacy case lists as open, rendered from its README (2026-09-14)")
 
     def test_legacy_recover_file_named_after_actual_file(self):
         case = self._make_legacy()

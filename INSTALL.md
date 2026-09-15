@@ -9,7 +9,7 @@
 ```sh
 git clone https://github.com/MykhailoDmytriakha/elephant-cli.git ~/MyProjects/elephant-cli   # клон может лежать где угодно
 ~/MyProjects/elephant-cli/install.sh        # ставит команду `el` и печатает, что делать дальше
-el --version        # → elephant 1.5.0
+el --version        # → elephant 1.6.0
 ```
 
 Обновление на любой машине — `git pull` в клоне: команда, правила и тесты приезжают одним движением, symlink переустанавливать не нужно.
