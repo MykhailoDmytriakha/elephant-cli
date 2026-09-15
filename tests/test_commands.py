@@ -59,10 +59,10 @@ class Flow(unittest.TestCase):
         # items
         self.assertEqual(run("todo", "add", "1", "install the driver")[0], 0)
         self.assertEqual(run("todo", "add", "1", "run the smoke test")[0], 0)
-        self.assertEqual(run("todo", "done", "1.1", "ok")[0], 0)
-        code, out, _ = run("todo", "done", "1.1", "ok")
+        self.assertEqual(run("todo", "done", "1.1", "owner", "ok")[0], 0)
+        code, out, _ = run("todo", "done", "1.1", "owner", "ok")
         self.assertIn("already done", out)
-        self.assertEqual(run("todo", "done", "9.9", "ok")[0], 4)
+        self.assertEqual(run("todo", "done", "9.9", "owner", "ok")[0], 4)
 
         # journal
         code, out, err = run("log", "DECISION", "psycopg over asyncpg because the app is sync")

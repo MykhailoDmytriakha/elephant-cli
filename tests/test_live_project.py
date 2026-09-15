@@ -56,9 +56,9 @@ class Dates(Base):
         self.assertIn(f"next 7 days: 1.3 ({in3.isoformat()[5:]})", out)
         self.assertIn("overdue: 1 — see Order", out)
         self.assertIn(f"deadline {in10} «decision meeting» in 10 days", out)
-        self.assertIn(f"overdue: 1.2 «call back» was due {yesterday} → el todo done 1.2 · el todo due 1.2 <date> · "
+        self.assertIn(f"overdue: 1.2 «call back» was due {yesterday} → el todo done 1.2 <kind> \"…\" · el todo due 1.2 <date> · "
                       f"el todo cancel 1.2 \"why\"", out)
-        run("todo", "done", "1.2", "ok")
+        run("todo", "done", "1.2", "owner", "ok")
         self.assertNotIn("overdue", run()[1], "a done item stops counting")
         run("todo", "due", "1.1", "none")
         self.assertIn("  - [ ] 1.1 send the material\n", self.read("TODO.md"))
@@ -228,7 +228,7 @@ class ItemsLinkRule(Base):
         self.assertNotIn("no link", err)
         code, out, err = run("todo", "edit", "1.1", "call the customer — [contacts](docs/contacts.md)")
         self.assertNotIn("no link", err)
-        run("todo", "done", "1.3", "ok")
+        run("todo", "done", "1.3", "owner", "ok")
         code, out, err = run()
         self.assertNotIn("without a link", out, "linked and done items do not count")
 

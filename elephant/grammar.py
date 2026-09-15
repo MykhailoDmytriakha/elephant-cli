@@ -29,6 +29,12 @@ EVENT_BODY_LINES = 5
 README_SECTIONS = ["Context", "State", "Decisions", "Problems", "Links"]
 STATE_OWNED = ("progress", "last", "as of")  # State lines el derives on every write (F3)
 JOURNAL_TYPES = {"PHASE", "DECISION", "PROBLEM", "RESULT"}
+# F20 (2026-09-14, the owner's word): a done item carries the KIND of its evidence — a closed list, on
+# purpose. file = a thing in the case anyone can open · ref = a trace outside the case a person can
+# check · run = a command and what came out, a machine can repeat · owner = the owner's word, the
+# only word that counts (the agent writes the record, so its own word is not evidence — it leaves
+# a file). A kind that is missing arrives through `el feedback`, not through a fifth spelling.
+EVIDENCE_KINDS = ("file", "ref", "run", "owner")
 
 TITLE_RE = re.compile(r"^# \S.*$")
 ENTRY_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) · (p\d+(?:\.\d+)?)$")
@@ -39,6 +45,16 @@ PHASE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*(?: [A-Za-z0-9-]+){0,2}$")  #
 ITEM_RE = re.compile(r"^  - \[( |x|~)\] (\d+)\.(\d+) (.+)$")  # `~` = on hold
 AFTER_REF_RE = re.compile(r"\d+\.\d+|[A-Za-z0-9][\w-]*")  # F19: an item N.M or a nested case name
 LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+EVIDENCE_RE = re.compile(r"^(.*) — (file|ref|run|owner)(?:: (.+))?$")  # the evidence suffix of a done item
+
+
+def split_evidence(text: str):
+    """`text — file: [x](evidence/x.jpg)` → (text, "file", "[x](evidence/x.jpg)"); `text — owner` → (text, "owner", "");
+    no suffix → (text, "", ""). The suffix is written by `el todo done` and read here — never typed."""
+    m = EVIDENCE_RE.match(text)
+    if not m:
+        return text, "", ""
+    return m.group(1).rstrip(), m.group(2), (m.group(3) or "").strip()
 
 
 def visible_len(text: str) -> int:
@@ -190,6 +206,8 @@ class Item:
     hold_reason: str = ""
     due: str = ""        # YYYY-MM-DD from the `— due: …` suffix; the tool counts dates it can parse
     after: List[str] = field(default_factory=list)  # F19: `— after: N.M, case` — what must end first
+    kind: str = ""       # F20: the kind of evidence of a done item — file · ref · run · owner ("" = done before 1.5.0)
+    proof: str = ""      # what the kind points at: `[name](path)` · the reference · `command → outcome`; owner has none
 
 
 @dataclass
@@ -258,6 +276,9 @@ def parse_todo(text: str) -> Todo:
             held, reason, due = mark == "~", "", ""
             if held and " — hold: " in txt:
                 txt, reason = txt.rsplit(" — hold: ", 1)
+            kind, proof = "", ""
+            if mark == "x":  # only a done item carries evidence; the suffix is outside the F13 limit
+                txt, kind, proof = split_evidence(txt)
             if " — due: " in txt:
                 txt, due = txt.rsplit(" — due: ", 1)
                 due = due.strip()
@@ -276,7 +297,7 @@ def parse_todo(text: str) -> Todo:
                 r.error("F13", i, f"item {n}.{k} text is {visible_len(txt)} visible chars, limit {TODO_ITEM_CHARS}")
             if phase.done:
                 r.error("F5", i, f"closed phase {phase.n} still lists items — they belong in the phase file")
-            phase.items.append(Item(n, k, mark == "x", txt, i, held, reason, due, after))
+            phase.items.append(Item(n, k, mark == "x", txt, i, held, reason, due, after, kind, proof))
             continue
         m = WAITS_RE.match(raw)
         if m:

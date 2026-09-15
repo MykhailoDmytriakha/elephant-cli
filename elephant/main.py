@@ -12,8 +12,10 @@ EXAMPLES = """examples
   el  ·  el status                   where the case in hand stands + next step (read this first)
   el log DECISION "chose X over Y because Z"
   el log RESULT "p95 dropped 120 → 48 ms"
-  el todo add 3 "write the parser"      el todo done 3.1 "parser passes 12 tests"   done = what came out (→ RESULT)
-  el todo done 3.1-3.5 "pre-flight verified" · el todo reopen 3.1-3.6 "drift" · el todo cancel 3.2, 3.4 "why"   a range or list: one journal line
+  el todo add 3 "write the parser"      el todo done 3.1 run:"python3 -m unittest → 12 OK" "parser passes"   done = KIND of evidence + what came out (→ RESULT)
+  el todo done 2.4 file:evidence/receipt.pdf "fee paid" · el todo done 2.5 ref:D005532-091426 "request filed" · el todo done 2.6 owner "agreed with the clerk"
+  el todo done 3.1-3.5 run:"make check → OK" "pre-flight verified" · el todo reopen 3.1-3.6 "drift" · el todo cancel 3.2, 3.4 "why"   a range or list: one journal line
+  el help evidence                      the four kinds — file · ref · run · owner — who can check each, what the tool checks
   el todo edit 3.1 "new text" · el todo move 3.7 3.2 (before 3.2; or `last`) · el todo drop 3.4   numbers never change
   el todo add 3 "send the material — due: 2026-09-09" · el todo due 3.2 2026-09-12 · el todo cancel 3.5 "no longer needed"
   el todo add 3 "text" --before 3.4         in place instead of the end (the number is for life, the position is not)
@@ -73,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("todo", help="add · done · edit · move · drop · hold · resume items — N.M is an item's number for life: drop and move never renumber", allow_abbrev=False)
     s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after"])
     s.add_argument("ref", help="phase number for add (N), item for the rest (N.M); done/reopen/cancel also take a range N.A-N.B or a list \"N.A, N.B\"")
-    s.add_argument("text", nargs="?", default="", help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: what came out; for cancel/reopen: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
+    s.add_argument("text", nargs="*", default=[], help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: the KIND of evidence, then what came out — file:<path> · ref:<trace> · run:\"<command → outcome>\" · owner (el help evidence); for cancel/reopen: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
     s.add_argument("--before", help="add only: put the new item before N.K instead of at the end (numbers never change, positions do)")
 
     s = sub.add_parser("phase", help="plan · open · close a phase (plan = name the next one without opening it, repeat it to sharpen the goal; close needs RESULT, reflect:, align:)", allow_abbrev=False)
@@ -146,12 +148,15 @@ TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expecte
 def shell_trace(args) -> Optional[str]:
     """The refusal text when a text argument carries a trace of a shell substitution, else None."""
     for key in TEXT_ARGS:
-        val = getattr(args, key, None)
-        if not isinstance(val, str) or not val:
-            continue
-        for rx, what in SHELL_TRACES:
-            m = rx.search(val)
-            if m:
+        raw = getattr(args, key, None)
+        vals = raw if isinstance(raw, list) else [raw]  # `todo` text is a list since 1.5.0 (the kind of evidence, then the words)
+        for val in vals:
+            if not isinstance(val, str) or not val:
+                continue
+            for rx, what in SHELL_TRACES:
+                m = rx.search(val)
+                if not m:
+                    continue
                 where = val[max(0, m.start() - 15):m.end() + 15].replace("\n", " ")
                 return (f"text not written: {what} at «…{where}…» — a `$…` swallowed by the shell? inside double quotes "
                         f"`$150` is a variable and vanishes; write the text in SINGLE quotes: el {args.cmd} … '…' "
@@ -224,30 +229,32 @@ def run(argv=None) -> int:
             elif args.cmd == "log":
                 out = commands.log(case, args.type, args.text, args.phase)
             elif args.cmd == "todo":
+                parts = list(args.text or [])
+                text = " ".join(parts)
                 if args.action == "add":
-                    out = commands.todo_add(case, args.ref, args.text, args.before)
-                elif args.action == "done":
-                    out = commands.todo_done(case, args.ref, args.text)
+                    out = commands.todo_add(case, args.ref, text, args.before)
+                elif args.action == "done":  # the kind of evidence first, then what came out (F20)
+                    out = commands.todo_done(case, args.ref, parts[0] if parts else "", " ".join(parts[1:]))
                 elif args.action == "edit":
-                    if not args.text:
+                    if not text:
                         raise StoreError("usage: el todo edit N.M \"new text\"", 2)
-                    out = commands.todo_edit(case, args.ref, args.text)
+                    out = commands.todo_edit(case, args.ref, text)
                 elif args.action == "move":
-                    if not args.text:
+                    if not text:
                         raise StoreError("usage: el todo move N.M N.K", 2)
-                    out = commands.todo_move(case, args.ref, args.text)
+                    out = commands.todo_move(case, args.ref, text)
                 elif args.action == "hold":
-                    out = commands.todo_hold(case, args.ref, args.text)
+                    out = commands.todo_hold(case, args.ref, text)
                 elif args.action == "resume":
                     out = commands.todo_resume(case, args.ref)
                 elif args.action == "reopen":
-                    out = commands.todo_reopen(case, args.ref, args.text)
+                    out = commands.todo_reopen(case, args.ref, text)
                 elif args.action == "cancel":
-                    out = commands.todo_cancel(case, args.ref, args.text)
+                    out = commands.todo_cancel(case, args.ref, text)
                 elif args.action == "due":
-                    out = commands.todo_due(case, args.ref, args.text)
+                    out = commands.todo_due(case, args.ref, text)
                 elif args.action == "after":
-                    out = commands.todo_after(case, args.ref, args.text)
+                    out = commands.todo_after(case, args.ref, text)
                 else:
                     out = commands.todo_drop(case, args.ref)
             elif args.cmd == "phase":

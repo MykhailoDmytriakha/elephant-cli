@@ -117,9 +117,9 @@ class Dependencies(Base):
         code, out, err = run()
         self.assertEqual(code, 0, err)
         self.assertIn("unblocked: 1.1 «write the parser» · blocked: 1.2 (after 1.1), 1.3 (after 1.1, 1.2)", out)
-        code, out, err = run("todo", "done", "1.1", "parser passes 12 tests")
+        code, out, err = run("todo", "done", "1.1", "owner", "parser passes 12 tests")
         self.assertEqual(code, 0, err)
-        self.assertIn("RESULT · 1.1: parser passes 12 tests", self.read("JOURNAL.md"))
+        self.assertIn("RESULT · 1.1: owner — parser passes 12 tests", self.read("JOURNAL.md"))
         self.assertIn("unblocked: 1.2 «write the tests» · blocked: 1.3 (after 1.2)", run()[1])
         self.assertEqual(run("todo", "after", "1.2", "9.9")[0], 4, "unknown target")
         self.assertEqual(run("todo", "after", "1.2", "1.2")[0], 2, "after itself")
@@ -136,10 +136,13 @@ class Dependencies(Base):
         run("todo", "add", "1", "a")
         run("todo", "add", "1", "b — after: 1.1")
         code, out, err = run("todo", "done", "1.1")
-        self.assertEqual(code, 2)
+        self.assertEqual(code, 2, "the kind of evidence comes first (F20, 2026-09-14)")
         self.assertIn("what came out", err)
+        self.assertIn("file:<path in the case>", err)
+        code, out, err = run("todo", "done", "1.1", "owner")
+        self.assertEqual(code, 2, "a kind without an outcome is not done")
         self.assertIn("el todo cancel 1.1", err)
-        code, out, err = run("todo", "done", "1.2", "did it anyway")
+        code, out, err = run("todo", "done", "1.2", "owner", "did it anyway")
         self.assertEqual(code, 0, err)
         self.assertIn("1.2 was after 1.1, still open", err)
 
@@ -179,7 +182,7 @@ class TwoEnds(Base):
         code, out, err = run("phase", "close", "1", "done")
         self.assertEqual(code, 4)
         self.assertIn("open items 1.1, 1.2", err)
-        run("todo", "done", "1.1", "ok")
+        run("todo", "done", "1.1", "owner", "ok")
         run("todo", "cancel", "1.2", "dropped scope")
         code, out, err = run("phase", "close", "1", "done")
         self.assertEqual(code, 0, err)
@@ -300,7 +303,7 @@ class PhaseLinks(Base):
         run("log", "DECISION", "align: y")
 
     def test_phase_close_rebases_item_links_into_the_phase_file(self):
-        run("todo", "done", "1.1", "yes")
+        run("todo", "done", "1.1", "owner", "yes")
         code, out, err = run("phase", "close", "1", "window confirmed")
         self.assertEqual(code, 0, err)
         pf = self.read("phases/1-calls.md")
@@ -319,7 +322,7 @@ class PhaseLinks(Base):
         self.assertNotIn("broken link", err + out)
 
     def test_closed_phase_line_links_its_file(self):
-        run("todo", "done", "1.1", "yes")
+        run("todo", "done", "1.1", "owner", "yes")
         run("phase", "close", "1", "window confirmed")
         self.assertRegex(self.read("TODO.md"),
                          r"- \[x\] 1 Calls — window confirmed · \d{4}-\d{2}-\d{2} · \[phases/1-calls\.md\]\(phases/1-calls\.md\)\n")
@@ -327,7 +330,7 @@ class PhaseLinks(Base):
         self.assertEqual(code, 0, err + out)
 
     def test_a_bare_phase_path_from_an_older_el_becomes_a_link_on_the_next_write(self):
-        run("todo", "done", "1.1", "yes")
+        run("todo", "done", "1.1", "owner", "yes")
         run("phase", "close", "1", "window confirmed")
         older = self.read("TODO.md").replace("[phases/1-calls.md](phases/1-calls.md)", "phases/1-calls.md")
         store.write(self.case, "TODO.md", older)  # the form every el before 0.18 wrote

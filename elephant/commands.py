@@ -64,6 +64,14 @@ def _link_phase_paths(summary: str) -> str:
     return BARE_PHASE_PATH_RE.sub(lambda m: f"[{m.group(1)}]({m.group(1)})", summary)
 
 
+def _evidence_suffix(it: grammar.Item) -> str:
+    """The tail el writes on a done item (F20): `— file: [x](evidence/x.jpg)` · `— ref: …` · `— run: … → …` ·
+    `— owner`. Outside the F13 limit — the owner reads it and clicks it, the agent never types it."""
+    if not it.kind:
+        return ""
+    return f" — {it.kind}: {it.proof}" if it.proof else f" — {it.kind}"
+
+
 def render_todo(todo: grammar.Todo) -> str:
     out = [f"# {todo.title}", ""]
     for p in sorted(todo.phases, key=lambda x: x.n):
@@ -75,6 +83,7 @@ def render_todo(todo: grammar.Todo) -> str:
         for it in [i for i in p.items if not i.held] + [i for i in p.items if i.held]:
             mark = "x" if it.done else ("~" if it.held else " ")
             suffix = ((f" — after: {', '.join(it.after)}" if it.after else "") + (f" — due: {it.due}" if it.due else "")
+                      + _evidence_suffix(it)
                       + (f" — hold: {it.hold_reason}" if it.held and it.hold_reason else ""))
             out.append(f"  - [{mark}] {it.n}.{it.m} {it.text}{suffix}")
         for w in p.waits:
@@ -376,40 +385,96 @@ def _trim_suggestion(text: str, limit: int) -> str:
 
 
 # ---- todo ---------------------------------------------------------------------------------------
-def todo_done(case: Path, ref: str, outcome: str = "") -> Outcome:
-    """Done with evidence (F20): `el todo done N.M "what came out"` — the outcome goes to the journal
-    as `RESULT · N.M: …`. Nothing to say? Then it was not done: `el todo cancel N.M "why"`."""
+EVIDENCE_KINDS_HELP = ("file:<path in the case> (a photo, pdf, receipt, letter, screenshot, transcript) · "
+                       "ref:<trace outside the case> (a request number, a URL, a letter in the mailbox) · "
+                       "run:\"<command → outcome>\" (a machine check) · owner (the owner's word — the only word that counts)")
+
+
+def _parse_evidence(case: Path, ref: str, token: str):
+    """`file:evidence/x.jpg` → ("file", "[x.jpg](evidence/x.jpg)") · `ref:D005532` → ("ref", "D005532") ·
+    `run:"cmd → out"` → ("run", "cmd → out") · `owner` → ("owner", ""). Anything else is refused with
+    the four kinds: the list is closed on purpose (the owner's word, 2026-09-14) — a kind that is
+    missing arrives through `el feedback`, not through a fifth spelling. The tool checks what it can:
+    a file exists in the case, a run has its arrow, owner carries no value; the truth is the owner's."""
+    token = token.strip()
+    if not token:
+        raise StoreError(f"done takes the kind of evidence first (F20): el todo done {ref} <kind> \"what came out\" — "
+                         f"four kinds: {EVIDENCE_KINDS_HELP}; a kind that is missing: el feedback \"…\" · el help evidence", 2)
+    kind, _, value = token.partition(":")
+    kind, value = kind.strip().lower(), value.strip()
+    if kind not in grammar.EVIDENCE_KINDS:
+        raise StoreError(f"`{token}` is not a kind of evidence — done takes the kind first: el todo done {ref} <kind> \"what came out\"; "
+                         f"four kinds, closed on purpose: {EVIDENCE_KINDS_HELP}; need another: el feedback \"…\" · el help evidence", 2)
+    if kind == "owner":
+        if value:
+            raise StoreError(f"owner takes no value — the outcome IS the owner's word: el todo done {ref} owner \"what the owner confirmed\"", 2)
+        return kind, ""
+    if not value:
+        example = {"file": "file:evidence/receipt.pdf", "ref": "ref:D005532-091426",
+                   "run": "run:\"python3 -m unittest → 12 OK\""}[kind]
+        raise StoreError(f"{kind}: needs a value — e.g. el todo done {ref} {example} \"what came out\"", 2)
+    if kind == "file":
+        m = re.fullmatch(r"\[[^\]]*\]\(([^)]+)\)", value)  # a link pasted whole is accepted; the path is what counts
+        if m:
+            value = m.group(1)
+        if value.startswith(("/", "~")) or ".." in Path(value).parts:
+            raise StoreError(f"file: takes a path inside the case, e.g. file:evidence/receipt.pdf — not `{value}`", 2)
+        if not (case / value).is_file():
+            raise StoreError(f"file:{value} — no such file in the case; put it there (evidence/, docs/ …) "
+                             f"or name what you have: ref:<trace> · owner", 3)
+        return kind, f"[{Path(value).name}]({value})"
+    if kind == "run":
+        value = value.replace("->", "→")
+        if "→" not in value:
+            raise StoreError(f"run: needs the command and what came out, joined by →: el todo done {ref} run:\"python3 -m unittest → 12 OK\" \"…\"", 2)
+        return kind, value
+    return kind, value
+
+
+def todo_done(case: Path, ref: str, evidence: str = "", outcome: str = "") -> Outcome:
+    """Done with evidence (F20): `el todo done N.M <kind> "what came out"` — the kind comes first
+    (file:<path> · ref:<trace> · run:"<command → outcome>" · owner), the outcome goes to the journal
+    as `RESULT · N.M: <kind> <proof> — …`, and the TODO line gets the tail `— <kind>: <proof>`. The
+    tick, the kind and the RESULT are one write. Nothing to say? Then it was not done:
+    `el todo cancel N.M "why"`. A second `done` on a done item attaches (or replaces) its evidence —
+    the door for items ticked before 1.5.0, which carry no kind and are never nagged: the rule lives
+    at the write, not at the read (the owner's word, 2026-09-14)."""
     out = Outcome()
     if not re.fullmatch(r"[\d.,\s–-]+", ref) or "." not in ref:
-        raise StoreError("use `el todo done N.M \"what came out\"` (or a range N.A-N.B, a list N.A, N.B) for items, "
+        raise StoreError("use `el todo done N.M <kind> \"what came out\"` (or a range N.A-N.B, a list N.A, N.B) for items, "
                          "`el phase close N` for a phase", 2)
+    kind, proof = _parse_evidence(case, ref, evidence)
     outcome = " ".join(outcome.split())
     if not outcome:
-        raise StoreError(f"done needs what came out (F20): el todo done {ref} \"what came out\" — "
+        raise StoreError(f"done needs what came out (F20): el todo done {ref} {evidence.strip()} \"what came out\" — "
                          f"nothing came out? then it was not done: el todo cancel {ref} \"why\"", 2)
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)
     already = [it for it in items if it.done]
-    items = [it for it in items if not it.done]
-    if already:
-        out.say(f"already done, nothing changed: {_refs(phase, already)}")
-    if not items:
-        return out
+    fresh = [it for it in items if not it.done]
     blocking = _blocking(case, todo)
-    done_now = {f"{phase.n}.{it.m}" for it in items}
-    for it in items:
+    done_now = {f"{phase.n}.{it.m}" for it in fresh}
+    was = {f"{phase.n}.{it.m}": (it.kind, it.proof) for it in already}
+    for it in fresh:
         it.done, it.held, it.hold_reason = True, False, ""
+    for it in items:
+        it.kind, it.proof = kind, proof
     out.absorb(_write_todo(case, todo))
     refs = _refs(phase, items)
-    out.lines += log(case, "RESULT", f"{refs}: {outcome}", f"p{phase.n}").lines
-    for it in items:
+    shown = f"{kind} {proof}" if proof else kind
+    out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome}", f"p{phase.n}").lines
+    for it in fresh:
         left = [r for r, _ in blocking.get(f"{phase.n}.{it.m}", []) if r not in done_now]
         if left:
             out.warn(f"{phase.n}.{it.m} was after {', '.join(left)}, still open — was the dependency wrong, or the order?")
-    if len(items) == 1:
-        out.say(f"done: {refs} {items[0].text} → TODO.md · RESULT in the journal")
-    else:
-        out.say(f"done: {refs} ({len(items)} items) → TODO.md · one RESULT in the journal")
+    if len(fresh) == 1:
+        out.say(f"done: {_refs(phase, fresh)} {fresh[0].text} → TODO.md · RESULT in the journal · evidence: {shown}")
+    elif fresh:
+        out.say(f"done: {_refs(phase, fresh)} ({len(fresh)} items) → TODO.md · one RESULT in the journal · evidence: {shown}")
+    for it in already:
+        k, pr = was[f"{phase.n}.{it.m}"]
+        before = (f"{k} {pr}".strip() if k else "untyped")
+        out.say(f"{phase.n}.{it.m} was already done — evidence attached: {shown} (was: {before}) · RESULT in the journal")
     return out
 
 
@@ -810,7 +875,7 @@ def todo_reopen(case: Path, ref: str, why: str) -> Outcome:
     if not items:
         return out
     for it in items:
-        it.done = False
+        it.done, it.kind, it.proof = False, "", ""  # the evidence tail goes with the tick; the RESULT stays in the journal
     out.absorb(_write_todo(case, todo))
     refs = _refs(phase, items)
     verb = "возвращён" if len(items) == 1 else "возвращены"
@@ -1006,6 +1071,7 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
             m = re.fullmatch(rf"- {n}\.(\d+) [✓✗] (.*)", ln)
             if section == "Items at cancel" and m:
                 text, _ = _rewrite_links(m.group(2), pf.parent, new_base=case)  # links come back up to the case root
+                text, _, _ = grammar.split_evidence(text)  # an item comes back open: its evidence, if any, stays in the journal
                 items.append(grammar.Item(n, int(m.group(1)), False, text, 0))
             else:
                 extra.append(ln)
@@ -1108,7 +1174,7 @@ def phase_close(case: Path, n: int, summary: str) -> Outcome:
             what = f"open items {', '.join(open_items)}" if open_items else "no items"
             raise StoreError(f"phase {n} {phase.name} is planned and out of turn (phase {prev.n} {prev.name} is still {state}) — "
                              f"it closes from the plan once every item ended, and it has {what}: "
-                             f"el todo done N.M \"what came out\" · el todo cancel N.M \"why\" · not needed at all: "
+                             f"el todo done N.M <kind> \"what came out\" · el todo cancel N.M \"why\" · not needed at all: "
                              f"el phase cancel {n} \"why\"\n  {ALONGSIDE_HINT}", 4)
         cur = todo.current()  # the phase in flight, if any — that is what this one ran alongside
         running = cur if cur is not None and cur.n != n and _phase_file(case, cur.n, cur.name).exists() else None
@@ -1118,7 +1184,7 @@ def phase_close(case: Path, n: int, summary: str) -> Outcome:
                if "result:" not in m and not (alongside and "is missing (F12)" in m)]
     if open_items:  # F20: a phase closes only when every item ended — done with evidence, or cancelled with a reason
         missing.append(f"phase {n}: open items {', '.join(open_items)} — each must end one of two ways: "
-                       f"el todo done N.M \"what came out\" · el todo cancel N.M \"why\" (or cancel the phase: el phase cancel {n} \"why\")")
+                       f"el todo done N.M <kind> \"what came out\" · el todo cancel N.M \"why\" (or cancel the phase: el phase cancel {n} \"why\")")
     if missing:
         raise StoreError("cannot close phase %d:\n  " % n + "\n  ".join(missing), 4)
     summary = " ".join(summary.split())
@@ -1155,7 +1221,7 @@ def _item_line_for_phase_file(case: Path, pf: Path, it: grammar.Item) -> str:
     """An item copied from TODO into the phase file keeps pointing at the same files: TODO lives in the
     case root, the phase file in phases/, so every relative link is re-based (`docs/x.md` → `../docs/x.md`).
     Feedback 2026-09-08: verbatim copies left `el check` with broken links after every `phase close`."""
-    text, _ = _rewrite_links(it.text, case, new_base=pf.parent)
+    text, _ = _rewrite_links(it.text + _evidence_suffix(it), case, new_base=pf.parent)
     return f"- {it.n}.{it.m} {'✓' if it.done else '✗'} {text}"
 
 
@@ -1885,6 +1951,20 @@ def _dated(todo: grammar.Todo, readme_body: str, today: dt.date):
     return overdue, due_today, week, deadline
 
 
+def _evidence_line(todo: grammar.Todo) -> Optional[str]:
+    """`evidence: 11 done · file 3 · owner 7 · untyped 1` — the done items of the open phases by the kind
+    of their evidence (F20). A count, not an Order line: an item ticked before 1.5.0 has no kind and
+    is read, never nagged — the rule lives at the write door (the owner's word, 2026-09-14)."""
+    done = [it for p in todo.phases if not p.done for it in p.items if it.done]
+    if not done:
+        return None
+    parts = [f"{k} {n}" for k in grammar.EVIDENCE_KINDS if (n := sum(1 for it in done if it.kind == k))]
+    untyped = sum(1 for it in done if not it.kind)
+    if untyped:
+        parts.append(f"untyped {untyped}")
+    return f"evidence: {len(done)} done · " + " · ".join(parts)
+
+
 def _dates_line(todo: grammar.Todo, readme_body: str) -> Optional[str]:
     today = dt.date.today()
     overdue, due_today, week, deadline = _dated(todo, readme_body, today)
@@ -1929,7 +2009,7 @@ def _blind_items(todo: grammar.Todo, readme_body: str) -> List[str]:
 
 def _overdue_lines(todo: grammar.Todo, readme_body: str) -> List[str]:
     overdue = _dated(todo, readme_body, dt.date.today())[0]
-    return [f"overdue: {it.n}.{it.m} «{it.text}» was due {d.isoformat()} → el todo done {it.n}.{it.m} · "
+    return [f"overdue: {it.n}.{it.m} «{it.text}» was due {d.isoformat()} → el todo done {it.n}.{it.m} <kind> \"…\" · "
             f"el todo due {it.n}.{it.m} <date> · el todo cancel {it.n}.{it.m} \"why\"" for it, d in overdue]
 
 
@@ -2043,6 +2123,9 @@ def entry(root: Path, case: Path) -> Outcome:
     unblocked = _unblocked_line(case, todo) if not todo.errors else None
     if unblocked:
         out.say(unblocked, "")  # candidates by the dependency graph (F19) — the owner's `next:` stays the direction
+    evidence = _evidence_line(todo) if not todo.errors else None
+    if evidence:
+        out.say(evidence, "")  # what the done items stand on (F20): file · ref · run · owner — counted, never nagged
     out.say(readme_body.rstrip("\n"), "")
     out.say(todo_body.rstrip("\n"), "")
     journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))

@@ -31,7 +31,7 @@ class Reopen(Base):
     def test_a_tick_is_taken_back_with_a_reason(self):
         run("todo", "add", "1", "migrate UAT")
         run("todo", "add", "1", "smoke UAT — after: 1.1")
-        run("todo", "done", "1.1", "migrated, 12 tables")
+        run("todo", "done", "1.1", "owner", "migrated, 12 tables")
         self.assertIn("- [x] 1.1 migrate UAT", self.read("TODO.md"))
         code, out, err = run("todo", "reopen", "1.1")
         self.assertEqual(code, 2)
@@ -42,7 +42,7 @@ class Reopen(Base):
         self.assertIn("- [ ] 1.1 migrate UAT", self.read("TODO.md"))
         j = self.read("JOURNAL.md")
         self.assertIn("DECISION · 1.1 возвращён в работу — the databases drifted", j)
-        self.assertIn("RESULT · 1.1: migrated, 12 tables", j, "history stays")
+        self.assertIn("RESULT · 1.1: owner — migrated, 12 tables", j, "history stays")
         self.assertIn("nothing changed", run("todo", "reopen", "1.1", "again")[1])
         code, out, err = run()
         self.assertIn("blocked", out, "1.2 waits for 1.1 again")
@@ -104,7 +104,7 @@ class ClosePlanned(Base):
         run("phase", "close", "1", "done")
         run("phase", "plan", "2", "UAT", "--goal", "rollout")
         run("todo", "add", "2", "UAT: [DB] migrate -> expect 12 tables")
-        run("todo", "done", "2.1", "12 tables")
+        run("todo", "done", "2.1", "owner", "12 tables")
         code, out, err = run("phase", "close", "2", "rolled out")
         self.assertEqual(code, 4)
         self.assertIn("phase 2 UAT was planned and never opened", err)
@@ -140,13 +140,13 @@ class Ranges(Base):
             run("todo", "add", "1", f"UAT: [Pre-flight] check {k}")
 
     def test_done_reopen_cancel_take_a_range_or_a_list(self):
-        code, out, err = run("todo", "done", "1.1-1.5", "pre-flight verified")
+        code, out, err = run("todo", "done", "1.1-1.5", "owner", "pre-flight verified")
         self.assertEqual(code, 0, err)
         self.assertIn("done: 1.1, 1.2, 1.3, 1.4, 1.5 (5 items)", out)
         t = self.read("TODO.md")
         self.assertEqual(t.count("- [x] 1."), 5)
         self.assertIn("- [ ] 1.6", t)
-        self.assertEqual(self.read("JOURNAL.md").count("RESULT · 1.1, 1.2, 1.3, 1.4, 1.5: pre-flight verified"), 1)
+        self.assertEqual(self.read("JOURNAL.md").count("RESULT · 1.1, 1.2, 1.3, 1.4, 1.5: owner — pre-flight verified"), 1)
         code, out, err = run("todo", "reopen", "1.1-1.6", "database drift detected")
         self.assertEqual(code, 0, err)
         self.assertIn("open already, nothing changed: 1.6", out)
@@ -160,8 +160,8 @@ class Ranges(Base):
         self.assertIn("DECISION · снято 1.2 «UAT: [Pre-flight] check 2», 1.4 «UAT: [Pre-flight] check 4» — not on this env", self.read("JOURNAL.md"))
         code, out, err = run("todo", "add", "1", "another")
         self.assertIn("added: 1.7", out, "cancelled numbers stay reserved by the journal line")
-        self.assertEqual(run("todo", "done", "1.1-2.3", "x")[0], 2, "a range stays in one phase")
-        self.assertEqual(run("todo", "done", "1.40-1.50", "x")[0], 4)
+        self.assertEqual(run("todo", "done", "1.1-2.3", "owner", "x")[0], 2, "a range stays in one phase")
+        self.assertEqual(run("todo", "done", "1.40-1.50", "owner", "x")[0], 4)
         self.assertEqual(run("check")[0], 0)
 
 

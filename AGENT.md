@@ -9,6 +9,6 @@
 ## Elephant — память работы в `.cases/`
 
 - Дело этого проекта ведётся командой `el`. **Начинай сессию с `el`**: она печатает, где дело стоит, что дальше и блок `Order` — что не на месте и какой командой поправить. Устройство целиком — `el help start`, дальше `el help <topic>`.
-- **Пиши только через `el`**, README / TODO / JOURNAL руками не трогай — правка ловится отпечатком. Решение → `el log DECISION "что · вместо чего · почему"`; результат → `el log RESULT "…"`; сделанный пункт → `el todo done N.M "что вышло"`.
+- **Пиши только через `el`**, README / TODO / JOURNAL руками не трогай — правка ловится отпечатком. Решение → `el log DECISION "что · вместо чего · почему"`; результат → `el log RESULT "…"`; сделанный пункт → `el todo done N.M <вид> "что вышло"` — вид свидетельства первым: `file:путь` · `ref:след` · `run:"команда → исход"` · `owner` (`el help evidence`).
 - **Заканчивая — снова `el`**: если `Order` говорит «State is behind», обнови строку State (`el readme set next "…"`). Проверить дело против правил — `el check`.
 - Нет команды `el` → `git clone https://github.com/MykhailoDmytriakha/elephant-cli`, затем `./elephant-cli/install.sh`.

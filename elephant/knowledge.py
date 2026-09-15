@@ -18,7 +18,8 @@ TOPICS = {
   (plus the path to its file), a nested case's line from its README (progress · next · closed).
   Links, `progress:`, `last:`, `as of:` and the `cases:` block are Elephant's: edit the source, not the line.
 - edges: uses = `[name](path)` in an item, phase file or decision (a bare `docs/x.md` counts too) ·
-  after = `— after: N.M, case` (F19) · child = nested case, phase file · evidence = `done` → RESULT.
+  after = `— after: N.M, case` (F19) · child = nested case, phase file · evidence = `done` → RESULT
+  with a KIND: file · ref · run · owner (`el help evidence`) — the tick, the kind and the RESULT are one write.
 - two ends for every node (F20): done with what came out, or cancelled with a reason —
   `el todo cancel` · `el phase cancel` · `el case cancel`. A parent closes only when every
   child ended: an open item holds its phase, an open phase holds its case, a BROKEN child its parent.
@@ -29,9 +30,9 @@ TOPICS = {
   blockers are done), and the Order block — what is out of place plus the command that fixes it.
   Nothing in the work points at a file → it is named (F21): link it, park it in archive/, delete it.
 - refused (exit 3/4): grammar and stamps, dead links in README/TODO, dependency cycles, dropping
-  what others wait for, closing over open children, done without an outcome. Shown, never
-  refused: summaries, duplicates, budgets, unreferenced files, blind items. The tool checks
-  structure; the owner checks truth.""",
+  what others wait for, closing over open children, done without a kind or an outcome. Shown, never
+  refused: summaries, duplicates, budgets, unreferenced files, blind items, items ticked before the
+  kinds existed (`untyped` in the `evidence:` count). The tool checks structure; the owner checks truth.""",
 
     "start": """a day with el
 1. `el` (or `el status`) — prints the case in hand: README (the "now"), TODO (phases), journal
@@ -45,7 +46,8 @@ TOPICS = {
 4. Stuck? First search the knowledge base: grep -ril "<error words>" .howto/ — maybe it is solved.
    Solved a problem yourself → `el log PROBLEM "problem → root cause → fix"` AND write a recipe
    file into .howto/ (first line `when: <error words>`).
-5. Finished a piece → `el todo done N.M "what came out"`; not needed after all → `el todo cancel N.M "why"`;
+5. Finished a piece → `el todo done N.M <kind> "what came out"` — the kind of evidence first:
+   file:<path> · ref:<trace> · run:"<command → outcome>" · owner (`el help evidence`); not needed after all → `el todo cancel N.M "why"`;
    a phase → `el help phases`; the case → `el done "…"`.
 6. Before you stop: `el` again — if Order says "State is behind", read State: something changed →
    `el readme set next "…"`; still true as it stands → `el readme touch`. The next session
@@ -147,11 +149,13 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   was an example → `el relink old none` makes it literal text. Examples: write them in backticks.""",
 
     "todo": """todo items — `el todo <action> N.M …`
-- `el todo add N "text"` (`--before N.K` puts it in place, not at the end) · `el todo done N.M "what came out"` · `el todo edit N.M "text"` ·
+- `el todo add N "text"` (`--before N.K` puts it in place, not at the end) · `el todo done N.M <kind> "what came out"` · `el todo edit N.M "text"` ·
   `el todo drop N.M` · `el todo hold N.M "why"` / `el todo resume N.M` · `el todo cancel N.M "why"` ·
   `el todo due N.M YYYY-MM-DD` · `el todo after N.M "N.K, case"` · `el todo move N.M N.K|last|K`.
-- done needs what came out (F20): it lands in the journal as `RESULT · N.M: …` — a link to the
-  artifact is the norm. Nothing came out? Then it was not done: `cancel N.M "why"`.
+- done needs the KIND of its evidence and what came out (F20): `el todo done 2.4 file:evidence/receipt.pdf "fee paid"`
+  — kinds: file:<path> · ref:<trace> · run:"<command → outcome>" · owner; the journal gets `RESULT · N.M: file [receipt.pdf](…) — fee paid`
+  and the TODO line the tail `— file: [receipt.pdf](evidence/receipt.pdf)`. Who can check each kind: `el help evidence`.
+  Nothing came out? Then it was not done: `cancel N.M "why"`.
 - a tick taken back: `el todo reopen N.M "why the result no longer holds"` — the item is open
   again (the phase cannot close over it, its dependents are blocked again), the journal gets a
   DECISION and the old RESULT stays as history. `resume` only lifts a hold.
@@ -179,6 +183,34 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   documents): `el readme add context "rule: items link their material"`. Then `todo add`/`edit`
   warn when the text has no `[name](docs/file.md)`, and Order names the open items without one.
   Opt-in: a coding case rarely needs a document per item.""",
+
+    "evidence": """evidence — what `done` stands on (F20; the owner's word, 2026-09-14)
+A tick is not a proof. `el todo done N.M <kind> "what came out"` — the kind of evidence comes first,
+then the words; the tick, the kind and the RESULT are one write. Four kinds, and who can check each:
+- file:<path in the case>    a thing anyone can open — photo, pdf, receipt, letter, screenshot,
+                             transcript, export. The tool checks the file is there (later: that it did
+                             not change). The strongest kind: put the thing into evidence/ or docs/ and
+                             point at it.                → tail `— file: [receipt.pdf](evidence/receipt.pdf)`
+- ref:<trace outside>        a request number, a case number on a portal, a URL, a letter in the
+                             mailbox — a person can check it outside the case; the tool checks only
+                             that a trace is named. A screenshot or pdf turns a ref into a file.
+                                                          → tail `— ref: D005532-091426`
+- run:"<command → outcome>"  a machine check — tests, a build, a measurement; the tool checks the
+                             arrow, a repeat is the proof.  → tail `— run: python3 -m unittest → 219 OK`
+- owner                      the owner's word — talked and agreed, a meeting without a recording,
+                             a rule the owner confirmed. Nothing to check, and it says so honestly.
+                             The agent's own word is not a kind: the agent writes the record, so it
+                             leaves a file instead.        → tail `— owner`
+The list is closed on purpose: a fifth spelling is refused (exit 2) with this list; a kind that is
+really missing comes through `el feedback` and, if it is needed, becomes one.
+Where it shows: the TODO line of a done item carries the tail el writes — outside the 100-char limit,
+a click away for the owner; at `phase close` the tail travels into the phase file with the item, links
+re-based. On entry `evidence: 11 done · file 3 · owner 8` counts the done items of the open phases.
+Old records: an item ticked before 1.5.0 has no kind and counts as `untyped` — read, never nagged: the
+rule lives at the write door, not at the read. Attach evidence later through the same door —
+`el todo done 2.9 file:evidence/abstract.pdf "abstract saved"` on a done item attaches (or replaces)
+its evidence and logs a RESULT. `reopen N.M "why"` clears the tail: the result no longer holds.
+Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "why"` (refuted).""",
 
     "phases": """phases — `el phase plan|open|close N "Name"`
 - plan: `el phase plan 3 "Rollout" --goal "one line"` — names the NEXT phase while the current one
