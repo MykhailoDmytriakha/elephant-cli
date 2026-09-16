@@ -200,7 +200,12 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
 A tick is not a proof. `el todo done N.M <kind> "what came out"` — the kind of evidence comes first,
 then the words; the tick, the kind and the RESULT are one write. Four kinds, and who can check each:
 - file:<path>                a thing anyone can open — photo, pdf, receipt, letter, screenshot,
-                             transcript, export, or the source file itself when the case drives code.
+                             transcript, export, saved response, or the source file itself when the case
+                             drives code. NOT a markdown you wrote in the case about the work: that is your
+                             own text with a link on it — el warns, and names the thing behind it (a run,
+                             the source or spec file, the saved response). One file proving every item of a
+                             phase is a report, not four proofs — el warns at `done` and the Digest counts
+                             distinct proofs.
                              The path is read from the case folder first, then from the project root
                              (`file:src/app/parser.ts`); the tool checks the file is there (later: that
                              it did not change) and writes the link from the case. The strongest kind.
@@ -269,7 +274,8 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   service to call, a problem seen one stage earlier. Under a planned phase it waits in TODO (`parked:` on
   entry counts items, notes and journal events logged with `--phase N`); `phase open` writes the parked
   journal events into the file as `## Before opening`; `phase close` moves the notes into the file.
-- the closed phase file opens with `## Digest`, rendered at close — items, notes, results, problems,
+- the closed phase file opens with `## Digest`, rendered at close — items (and how many distinct proofs
+  stand behind them), notes, phase-level results (item results live under their items below), problems,
   decisions, reflect, align, all from the journal events of that phase; then `## Notes` (yours) and
   `## Items at close` with every item and its pockets, links re-based. Poor journal, poor digest.
 """,

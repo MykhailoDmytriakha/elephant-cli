@@ -472,6 +472,50 @@ def _parse_evidence(case: Path, ref: str, token: str):
     return kind, value
 
 
+def _link_path(proof: str) -> str:
+    m = re.fullmatch(r"\[[^\]]*\]\(([^)]+)\)", proof)
+    return m.group(1) if m else proof
+
+
+def _proof_warnings(phase: grammar.Phase, items: List[grammar.Item], proofs: List[Tuple[str, str]], out: Outcome):
+    """What the tool can see about a proof without judging its truth (the owner's eye, 2026-09-16: a closed
+    phase whose four items all pointed at one markdown the agent had written — the link resolved, the proof was
+    hollow). Shown at the moment of writing, never refused: sometimes a case document IS the deliverable, and
+    two items may honestly share one receipt."""
+    named = ", ".join(f"{phase.n}.{it.m}" for it in items)
+    for kind, proof in proofs:
+        if kind != "file":
+            continue
+        path = _link_path(proof)
+        if path.endswith(".md") and not path.startswith("../"):
+            out.warn(f"file:{path} is a markdown inside the case — your own text, not the thing it describes. The proof is "
+                     f"what stands behind it: run:\"<command → outcome>\" for a call or a test, file:<source or spec in the "
+                     f"project> for code, file:<saved response, log, screenshot> for a result; keep the document as material")
+        others = [f"{phase.n}.{it.m}" for it in phase.items if it.done and it not in items
+                  and any(k == "file" and _link_path(pr) == path for k, pr in it.evidence)]
+        if others:
+            out.warn(f"file:{path} already proves {', '.join(others)} — one file for {len(others) + len(items)} items: "
+                     f"is it the artifact of each, or one report about all of them? name what each item left behind")
+    for it in items:
+        for k, note in enumerate(it.notes, start=1):
+            if _note_repeats_proof(note, proofs + list(it.evidence)):
+                out.warn(f"{phase.n}.{it.m} note {k} only points at the proof file — a note carries a constraint or context, the proof "
+                         f"line carries the file: el todo note {phase.n}.{it.m} --drop {k}")
+    if not named:
+        return
+
+
+def _note_repeats_proof(note: str, proofs: List[Tuple[str, str]]) -> bool:
+    """A note that is nothing but a link to a file already standing as the item's proof (2026-09-16: «Documented
+    in [x](…)» above `- file: [x](…)`)."""
+    links = re.findall(r"\]\(([^)]+)\)", note)
+    if not links:
+        return False
+    paths = {_link_path(pr) for k, pr in proofs if k == "file"}
+    stripped = re.sub(r"\[[^\]]*\]\([^)]+\)", "", note)
+    return all(ln in paths for ln in links) and len(stripped.split()) <= 3
+
+
 def _project_root(case: Path) -> Path:
     """The folder that holds `.cases/` — the project the case works on. In root mode the case IS the
     project; a nested case walks up to the `.cases/` above it."""
@@ -536,6 +580,7 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "") -> Out
                          f"  suggestion: \"{_trim_suggestion(outcome, grammar.POCKET_CHARS)}\"", 3)
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)
+    _proof_warnings(phase, items, proofs, out)
     already = [it for it in items if it.done]
     fresh = [it for it in items if not it.done]
     blocking = _blocking(case, todo)
@@ -853,6 +898,9 @@ def todo_note(case: Path, ref: str, text: str, edit: Optional[int] = None, drop:
     text = _pocket_text("note", text, ref)
     for it in items:
         it.notes.append(text)
+        if it.done and _note_repeats_proof(text, it.evidence):
+            out.warn(f"{phase.n}.{it.m}: this note only points at the item's proof file — a note carries a constraint or context; "
+                     f"the proof line already carries the file: el todo note {phase.n}.{it.m} --drop {len(it.notes)}")
     out.absorb(_write_todo(case, todo))
     refs = _refs(phase, items)
     out.say(f"note added under {refs}: «{text}» → TODO.md" + (f" (note {len(items[0].notes)} of {ref})" if len(items) == 1 else ""))
@@ -1473,6 +1521,9 @@ def _item_block_for_phase_file(case: Path, pf: Path, it: grammar.Item) -> List[s
     return [_rewrite_links(ln, case, new_base=pf.parent)[0] for ln in lines]
 
 
+ITEM_RESULT_RE = re.compile(r"^\d+\.\d+(?:[,\s–-]+\d+\.\d+)*:")  # `RESULT · 2.1: …` · `2.1, 2.3: …` · `2.1-2.4: …`
+
+
 def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]) -> List[str]:
     """The `## Digest` of a closed phase — rendered, never typed (the owner's word, 2026-09-15: «клацаешь на
     ссылку, а там список; хочется выжимку»): what the phase held (items, notes), what came out (RESULT),
@@ -1485,9 +1536,16 @@ def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]
         return [f"- {label} ({len(texts)}):", *(f"  - {t}" for t in texts)] if texts else []
 
     done_n = sum(1 for it in phase.items if it.done)
-    lines = [f"- items: {done_n} done" + (f" · {len(phase.items) - done_n} open" if len(phase.items) > done_n else "")]
+    head = f"- items: {done_n} done" + (f" · {len(phase.items) - done_n} open" if len(phase.items) > done_n else "")
+    proofs = [pr for it in phase.items if it.done for _, pr in it.evidence]
+    distinct = len(set(proofs))
+    if proofs and distinct < done_n:  # the owner's eye, 2026-09-16: four items, one self-written file eight times
+        shared = max(set(proofs), key=proofs.count)
+        head += f" · proofs: {distinct} distinct for {done_n} items ({rel(shared)} ×{proofs.count(shared)})"
+    lines = [head]
     lines += bucket("notes", [rel(n) for n in phase.notes])
-    lines += bucket("results", [rel(ev.text) for ev in evs if ev.type == "RESULT"])
+    # item results (`RESULT · N.M: …`) live under their items below; the digest keeps the phase-level ones
+    lines += bucket("results", [rel(ev.text) for ev in evs if ev.type == "RESULT" and not ITEM_RESULT_RE.match(ev.text)])
     lines += bucket("problems", [rel(ev.text) for ev in evs if ev.type == "PROBLEM"])
     lines += bucket("decisions", [rel(ev.text) for ev in evs if ev.type == "DECISION"
                                   and not ev.text.startswith(("reflect:", "align:"))])

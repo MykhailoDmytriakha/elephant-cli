@@ -251,9 +251,9 @@ class DigestAtClose(Base):
         self.assertEqual(code, 0, err)
         pf = self.read("phases/1-court.md")
         self.assertIn("result: подано, заседание 24.09\n\n## Digest\n- items: 2 done\n- notes (1):\n  - секретарь принимает по вторникам\n"
-                      "- results (3):\n", pf)
-        self.assertIn("  - 1.1: file [receipt.pdf](../evidence/receipt.pdf) — оплачено\n", pf)
-        self.assertIn("  - ходатайство подано 18.09\n", pf)
+                      "- results (1):\n  - ходатайство подано 18.09\n", pf)
+        self.assertNotIn("  - 1.1: file", pf, "item results live under their items, not twice (the owner's eye, 2026-09-16)")
+        self.assertNotIn("proofs:", pf, "two items, two distinct proofs — nothing to count")
         self.assertIn("- problems (1):\n  - секретарь не отвечает по телефону → ходить лично\n", pf)
         self.assertIn("- decisions (1):\n  - ходатайство подаём до заседания, не после\n", pf)
         self.assertIn("- reflect: спрашивать «зачем» до похода\n- align: к заседанию подготовить копии\n", pf)
@@ -264,6 +264,63 @@ class DigestAtClose(Base):
         self.assertNotIn("- note:", self.read("TODO.md"), "the phase notes travelled into the file")
         code, out, err = run("check")
         self.assertEqual(code, 0, out + err)
+
+
+class HollowProofs(Base):
+    """The owner's eye over a closed phase of a live case (2026-09-16): four items, eight links to one
+    markdown the agent had written itself — the link resolved, the proof was hollow. Shown, never refused."""
+
+    def setUp(self):
+        super().setUp()
+        (self.case / "testing").mkdir()
+        (self.case / "testing" / "evidence.md").write_text("# E\nsummary: what I did\n", encoding="utf-8")
+        for t in ("analyze the query", "find the live pair", "run the live calls", "validate the response"):
+            run("todo", "add", "1", t)
+
+    def test_a_case_markdown_as_proof_gets_a_warning_not_a_refusal(self):
+        code, out, err = run("todo", "done", "1.1", "file:testing/evidence.md", "analyzed")
+        self.assertEqual(code, 0, err)
+        self.assertIn("is a markdown inside the case — your own text", err)
+        self.assertIn('run:"<command → outcome>"', err)
+        self.assertIn("      - file: [evidence.md](testing/evidence.md)", self.read("TODO.md"), "written all the same")
+        code, out, err = run("todo", "done", "1.2", "file:evidence/receipt.pdf", "paid")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("your own text", err, "a pdf is a thing")
+        (Path(self.tmp.name) / "src").mkdir()
+        (Path(self.tmp.name) / "src" / "query.sql").write_text("select 1\n", encoding="utf-8")
+        code, out, err = run("todo", "done", "1.3", "file:src/query.sql", "the query")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("your own text", err, "a source file in the project is a thing")
+
+    def test_one_file_for_several_items_is_named_at_done_and_counted_in_the_digest(self):
+        run("todo", "done", "1.1", "file:testing/evidence.md", "analyzed")
+        code, out, err = run("todo", "done", "1.2", "file:testing/evidence.md", "found")
+        self.assertEqual(code, 0, err)
+        self.assertIn("file:testing/evidence.md already proves 1.1 — one file for 2 items", err)
+        run("todo", "done", "1.3", "file:testing/evidence.md", "called")
+        code, out, err = run("todo", "done", "1.4", "file:testing/evidence.md", "validated")
+        self.assertIn("already proves 1.1, 1.2, 1.3 — one file for 4 items", err)
+        run("log", "RESULT", "r")
+        run("log", "DECISION", "reflect: r")
+        run("log", "DECISION", "align: a")
+        code, out, err = run("phase", "close", "1", "done")
+        self.assertEqual(code, 0, err)
+        pf = self.read("phases/1-court.md")
+        self.assertIn("- items: 4 done · proofs: 1 distinct for 4 items ([evidence.md](../testing/evidence.md) ×4)\n", pf)
+        self.assertEqual(pf.count("- results"), 1)
+        self.assertIn("- results (1):\n  - r\n", pf, "the phase-level RESULT stays, the four item results are under the items")
+
+    def test_a_note_that_only_points_at_the_proof_is_named(self):
+        run("todo", "note", "1.1", "Documented in [evidence.md](testing/evidence.md)")
+        code, out, err = run("todo", "done", "1.1", "file:testing/evidence.md", "analyzed")
+        self.assertEqual(code, 0, err)
+        self.assertIn("1.1 note 1 only points at the proof file", err)
+        self.assertIn("el todo note 1.1 --drop 1", err)
+        code, out, err = run("todo", "note", "1.1", "see [evidence.md](testing/evidence.md)")
+        self.assertIn("this note only points at the item's proof file", err)
+        self.assertIn("--drop 2", err)
+        code, out, err = run("todo", "note", "1.1", "the query lives in [evidence.md](testing/evidence.md), section 3, run it before 9:00")
+        self.assertEqual(err, "", "a note with content of its own is a note")
 
 
 class WorkaroundUntil(Base):
