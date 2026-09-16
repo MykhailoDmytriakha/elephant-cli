@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from . import __version__, commands, knowledge, store
+from . import __version__, commands, hints, knowledge, store
 from .store import StoreError
 
 EXAMPLES = """examples
@@ -24,6 +24,8 @@ EXAMPLES = """examples
   el todo why 6.1 "…" · el todo note 6.1 "bring the permit: [permit](docs/gas-permit.pdf)" · el todo note 6.1 --edit 2 "…" · --drop 2   the item's pockets (F22)
   el todo note 4.3, 5.3, 6.3 "in SIT this step failed until the old PVC was removed — check PVC first"   one note under the same step of the next environments
   el todo done 2.3 file:evidence/receipt.pdf ref:4471-09 "paid, receipt in the folder"   several proofs: one `result:` line, one proof line each
+  el todo expect 3.2 "chosen DB with its case [file: docs/db-choice.md] · load [run: k6 → p95] · budget [owner]"   the proof, promised before the work; done holds you to it
+  el help practice                      how strong agents lead a case — weak against strong, by moment; every `hint:` points here
   el phase note 6 "the permit runs out in March" · el log --phase 6 DECISION "lamps under the eaves — idea of 15.09"   parked for a planned phase; surfaces when it opens
   el readme add problems "open · Redis fails after the chart deploy · workaround: restart by hand · until: 2026-12-01 (chart 2.3)"   a crutch with a return date, counted on entry
   el todo move 3.6 4                    to another phase (joins its end under the next free number)
@@ -39,7 +41,7 @@ EXAMPLES = """examples
   el phase open 3 "CLI core" --goal "single write door with tests"
   el phase plan 4 "Rollout" --goal "first users on the new build"   name the NEXT phase now, park items under it (todo add 4), open it later
   el log DECISION "reflect: …"  ·  el log DECISION "align: …"   (both before closing)
-  el phase close 3 "parsers, stamp and commands work, 55 tests"
+  el phase close 3 "parsers, stamp and commands work, 55 tests" --reflect "ask why before going" --align "phase 4 loses the 2024 items"   one command: the two DECISIONs and the close
   el phase close 4 "…"                 a planned phase out of turn whose every item ended closes from the plan; own clock next time: el spawn
   el readme add decisions "2026-09-05 · X over Y — why" · el readme drop decisions 2 · el readme drop state пауза
   el readme edit decisions 3 "2026-09-05 · X over Y — why"   line 3 in place, order kept (context · decisions · problems · links)
@@ -131,12 +133,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--phase", help="p1, 1 or a unique phase name (default: the open phase); e.g. `el log --phase p1 DECISION \"…\"`")
 
     s = sub.add_parser("todo", help="add · done · edit · move · drop · hold · resume items — N.M is an item's number for life: drop and move never renumber", allow_abbrev=False)
-    s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note"])
+    s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note", "expect"])
     s.add_argument("ref", help="phase number for add (N), item for the rest (N.M); done/reopen/cancel also take a range N.A-N.B or a list \"N.A, N.B\"")
     s.add_argument("text", nargs="*", default=[], help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: the KIND of evidence, then what came out — file:<path> · ref:<trace> · run:\"<command → outcome>\" · owner (el help evidence); for cancel/reopen: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
     s.add_argument("--before", help="add only: put the new item before N.K instead of at the end (numbers never change, positions do)")
     s.add_argument("--why", help="add only: what the item is for, one line (F22) — later: el todo why N.M \"…\"")
     s.add_argument("--note", action="append", help="add only, repeatable: a constraint, who to call, what to bring, a link (F22) — later: el todo note N.M \"…\"")
+    s.add_argument("--expect", help="add only: what done will look like, proofs in brackets [file: …] [run: …] [owner] (F22) — later: el todo expect N.M \"…\"")
     s.add_argument("--edit", type=int, metavar="K", help="note only: rewrite note K in place")
     s.add_argument("--drop", type=int, metavar="K", help="note only: remove note K")
 
@@ -145,6 +148,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("n", type=int)
     s.add_argument("text", nargs="?", default="", help="name for plan/open (open takes it from the plan when omitted), summary for close, why for cancel, the note for note")
     s.add_argument("--goal", help="one line; required for a new phase unless it was planned with one")
+    s.add_argument("--reflect", help="close only: the lesson about how you worked — logged as `DECISION · reflect: …` in the same command (P8)")
+    s.add_argument("--align", help="close only: what changes in the next plan — logged as `DECISION · align: …` in the same command (P8)")
     s.add_argument("--edit", type=int, metavar="K", help="note only: rewrite note K in place")
     s.add_argument("--drop", type=int, metavar="K", help="note only: remove note K")
 
@@ -207,7 +212,7 @@ SHELL_TRACES = (
     (re.compile(r"(?:^|\s)\.\d"), "an orphan decimal like `.72`"),
     (re.compile(r"^\s"), "a leading space"),  # a trailing one is too often innocent (`"x " * n`) to refuse
 )
-TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note")
+TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align")
 
 
 def shell_trace(args) -> Optional[str]:
@@ -239,13 +244,13 @@ def run(argv=None) -> int:
             raise StoreError(trace, 2)
         if args.cmd == "help":
             if args.topic:
-                dose = knowledge.TOPICS.get(args.topic.lower())
+                dose = knowledge.resolve(args.topic)
                 if dose is None:
                     raise StoreError(f"no topic `{args.topic}` — topics: {knowledge.topic_list()}", 2, recovery="el help <topic>")
                 print(dose)
                 return 0
             parser.print_help()
-            print(f"\ntopics (open at the moment of need): el help <{knowledge.topic_list()}>")
+            print(f"\ntopics (open at the moment of need): el help <{knowledge.topic_list()}> — singular forms and common words work too (phase, item, proof, hint)")
             return 0
         if args.cmd == "feedback":
             out = commands.feedback(args.title, args.expected, args.actual, args.why, args.acceptance, args.repro)
@@ -265,6 +270,11 @@ def run(argv=None) -> int:
                 return 0
             case = commands.case_new(root, args.name, args.goal)
             print(f"created: {case.relative_to(root.parent)} — now `el phase open 1 <Name> --goal \"…\"`")
+            if hints.enabled():  # something to imitate: a model imitates the form it sees (2026-09-16)
+                print("", knowledge.EXEMPLAR, sep="\n")
+                tip = hints.pick("case_new")
+                if tip:
+                    print(f"hint: {tip}")
             return 0
         root = store.find_root()
         if args.cmd == "case":
@@ -303,7 +313,8 @@ def run(argv=None) -> int:
                 args.ref = ref
                 text = " ".join(parts)
                 if args.action == "add":
-                    out = commands.todo_add(case, args.ref, text, args.before, why=args.why or "", notes=args.note or [])
+                    out = commands.todo_add(case, args.ref, text, args.before, why=args.why or "", notes=args.note or [],
+                                            expect=args.expect or "")
                 elif args.action == "done":  # the kinds of evidence first (one or several), then what came out (F20)
                     kinds = []
                     while parts and commands._is_kind_token(parts[0]):
@@ -313,6 +324,8 @@ def run(argv=None) -> int:
                     out = commands.todo_done(case, args.ref, kinds, " ".join(parts))
                 elif args.action == "why":
                     out = commands.todo_why(case, args.ref, text)
+                elif args.action == "expect":
+                    out = commands.todo_expect(case, args.ref, text)
                 elif args.action == "note":
                     out = commands.todo_note(case, args.ref, text, edit=args.edit, drop=args.drop)
                 elif args.action == "edit":
@@ -351,7 +364,7 @@ def run(argv=None) -> int:
                 else:
                     if not args.text:
                         raise StoreError("phase close needs a summary: `el phase close 3 \"what it delivered\"`", 2)
-                    out = commands.phase_close(case, args.n, args.text)
+                    out = commands.phase_close(case, args.n, args.text, reflect=args.reflect, align=args.align)
             elif args.cmd == "readme":
                 if args.action == "set":
                     if not args.a or args.b is None:

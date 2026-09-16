@@ -134,9 +134,12 @@ class SeveralProofs(Base):
         self.assertEqual(run("check")[0], 0)
 
     def test_outcome_is_one_line_and_reopen_keeps_the_pockets(self):
-        code, _, err = run("todo", "done", "1.1", "owner", "о" * 151)
-        self.assertEqual(code, 3)
-        self.assertIn("the outcome is 151 visible chars, limit 150 (F22)", err)
+        # 1.12.0 (feedback 2026-09-16): the `result:` line is el's — shortened like `closed:`, never refused; the journal keeps the words
+        code, out, err = run("todo", "done", "1.1", "owner", "о" * 151)
+        self.assertEqual(code, 0, err)
+        self.assertIn("result: line shortened to 150 chars in TODO", out)
+        self.assertIn("    - result: " + "о" * 149 + "…\n", self.read("TODO.md"))
+        run("todo", "reopen", "1.1", "again")
         run("todo", "note", "1.1", "чек в синей папке")
         run("todo", "done", "1.1", "owner", "оплачено")
         code, out, err = run("todo", "reopen", "1.1", "платёж вернулся")

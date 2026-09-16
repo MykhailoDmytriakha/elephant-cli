@@ -69,9 +69,18 @@ def visible_len(text: str) -> int:
 DEEP_ITEM_RE = re.compile(r"^\s+- \[( |x)\] \d+\.\d+\.\d+")
 WAITS_RE = re.compile(r"^  - waits: (\S+)$")
 PHASE_NOTE_RE = re.compile(r"^  - note: (.+)$")                      # F22: a note under a phase line
-POCKET_RE = re.compile(r"^    - (why|note|result):(?: (.+))?$")       # F22: an item's pockets
+POCKET_RE = re.compile(r"^    - (why|note|expect|result):(?: (.+))?$")  # F22: an item's pockets
 EVIDENCE_LINE_RE = re.compile(r"^(?:    |      )- (file|ref|run|owner)(?:: (.+))?$")  # F20: one line per proof
-POCKET_KINDS = ("why", "note", "result")
+POCKET_KINDS = ("why", "note", "expect", "result")
+# F22 `expect:` — what done will look like, written BEFORE the work; the proofs it names stand in brackets,
+# `[file: docs/x.md] [run: k6 → p95] [owner]`, so `done` can hold the record to its own promise.
+EXPECT_SLOT_RE = re.compile(r"\[(file|ref|run|owner)(?::\s*([^\]]*))?\]")
+ANY_SLOT_RE = re.compile(r"\[([a-z][a-z-]*)(?::[^\]]*)?\]")
+
+
+def expected_kinds(expect: str):
+    """The proof placeholders of an `expect:` line: [(kind, what), …]."""
+    return [(m.group(1), (m.group(2) or "").strip()) for m in EXPECT_SLOT_RE.finditer(expect)]
 SECTION_RE = re.compile(r"^## (.+)$")
 PHASE_TITLE_RE = re.compile(r"^# Phase (\d+) — (.+)$")
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -219,6 +228,7 @@ class Item:
     # F22 — the pockets under the item, one line each, rendered in this order: why · note… · result
     why: str = ""                       # what the item is for — the owner's words, one line
     notes: List[str] = field(default_factory=list)   # constraints, who to call, what to bring, a link to a document
+    expect: str = ""                    # what done will look like, with proof placeholders `[kind: what]` — before the work
     result: str = ""                    # what came out — written by `done` only
     # F20 — the evidence of a done item: (kind, proof) per line, kinds file · ref · run · owner; several allowed.
     # An item ticked before 1.5.0 has none ("untyped"); an item done before 1.10.0 carried one as a tail.
@@ -379,6 +389,14 @@ def parse_todo(text: str) -> Todo:
                 if item.why:
                     r.error("F22", i, f"item {item.n}.{item.m} has two `why:` lines — one why per item; the rest are notes")
                 item.why = val
+            elif pocket == "expect":
+                if item.expect:
+                    r.error("F22", i, f"item {item.n}.{item.m} has two `expect:` lines — one expectation per item, several proofs inside it")
+                for m2 in ANY_SLOT_RE.finditer(val):
+                    if m2.group(1) not in EVIDENCE_KINDS:
+                        r.error("F22", i, f"item {item.n}.{item.m}: `[{m2.group(1)}…]` is not a kind of proof — "
+                                          f"placeholders are [file: …] [ref: …] [run: …] [owner]")
+                item.expect = val
             else:
                 item.notes.append(val)
             continue
@@ -406,7 +424,7 @@ def parse_todo(text: str) -> Todo:
             item, in_result = None, False
             continue
         r.error("F4", i, "unparsable line: expected `- [ ] N Name`, `  - [ ] N.M text`, `  - note: …` (phase), "
-                         "`    - why: | note: | result: …` (item, F22), `      - <kind>: <proof>` (evidence, F20) or `  - waits: <case>`")
+                         "`    - why: | note: | expect: | result: …` (item, F22), `      - <kind>: <proof>` (evidence, F20) or `  - waits: <case>`")
     finish(item)
     return r
 

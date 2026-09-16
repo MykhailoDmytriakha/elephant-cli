@@ -4,6 +4,12 @@ Each topic is one screen the agent opens at the moment of need, instead of readi
 up front. Sourced from .cases/RULES.md of the elephant-cli repo; keep both in sync when rules change.
 """
 
+EXEMPLAR = """a well-led item looks like this — pockets in the owner's words, the proof promised before the work (el help practice):
+  - [ ] 1.2 choose the database
+    - why: the data model, the migrations and the cost for years depend on it
+    - note: find out the volumes, the cost, the migration path, how many environments we keep
+    - expect: the chosen DB with its case [file: docs/db-choice.md] · load on a prototype [run: k6 → p95] · budget and horizon [owner]"""
+
 ONBOARDING = """start here — no `.cases/` from this folder upwards
   el case new "name" --goal "goal in the owner's words"        a case folder under .cases/
   el case new --root "name" --goal "…"                          or: this folder IS the project (root mode)
@@ -41,7 +47,8 @@ TOPICS = {
    headlines, `dates:` and `unblocked:` when the case has dates or dependencies, and the `## Order`
    block: what is out of order and the command that fixes each line. Read this, nothing else; first
    say in your own words where the case stands and what the next step is — then go. How the whole
-   thing fits together: `el help model`.
+   thing fits together: `el help model`. The last line may be a `hint:` — el saw something in the case you
+   can do better; do it, or say why not. How strong agents lead a case: `el help practice`.
 2. Work as usual. When something is worth remembering — `el log <TYPE> "…"`.
 3. Every new file in docs/ research/ … starts with `summary: <one line>` right under its title —
    README Links is rendered from those lines, so the map never rots (F14).
@@ -192,8 +199,11 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   `why:` what it is for (one; `el todo why N.M "…"`, "" removes) · `note:` a constraint, who to call, what to
   bring, a link to the document (several; `el todo note N.M "…"`, `--edit k "…"`, `--drop k`; a list
   `N.M, N.K` puts one note under several items — a problem met in one environment is expected at the
-  same step of the next) · `result:` + proof lines, written by `done` only. `todo add … --why "…" --note "…"`
-  sets them at once. why/note are yours and count in the 200 lines; result and proof lines are el's and do not.
+  same step of the next) · `expect:` what done will look like, written BEFORE the work, with the proofs it
+  will take in brackets — `[file: docs/x.md] [run: k6 → p95] [owner]` (one; `el todo expect N.M "…"`); at
+  `done` el holds the record to it: `expect: 2 of 3 filled — missing [run: …]` · `result:` + proof lines,
+  written by `done` only. `todo add … --why "…" --note "…" --expect "…"` sets them at once. why/note/expect
+  are yours and count in the 200 lines; result and proof lines are el's and do not.
 """,
 
     "evidence": """evidence — what `done` stands on (F20; the owner's word, 2026-09-14)
@@ -270,6 +280,8 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   still applies, logged under that phase: `el log --phase N RESULT|DECISION "…"`. Next time, work
   that runs on its own clock is a nested case, not a phase: `el spawn "name" --goal "…"` (P11) —
   its own phases, its own agent, one rendered line at the parent when it closes.
+- `el phase close N "what it delivered" --reflect "the lesson" --align "what changes next"` — the two DECISIONs
+  P8 asks for and the close in one command; the gates are the same, nothing is logged if another gate refuses.
 - `el phase note N "…"` (`--edit k` · `--drop k`) — what the phase has to know: a permit that expires, a
   service to call, a problem seen one stage earlier. Under a planned phase it waits in TODO (`parked:` on
   entry counts items, notes and journal events logged with `--phase N`); `phase open` writes the parked
@@ -351,6 +363,54 @@ version and the name of the case in hand — nothing else from your environment.
 push in that clone (or the owner pulls from this machine); until then it lies there and nobody has read it.
 In your own case: `el log PROBLEM "el: <title> — workaround: …"` so the next agent does not hit the same wall
 twice; after `git pull` raised the el version, try the wall again.""",
+    "practice": """how strong agents lead a case — weak against strong, by moment (the owner's word, 2026-09-16)
+The agent woke up with no memory, a good notebook (.cases/) and good search. What separates a case that
+merely gets ticked from one the next agent can continue is below; each `hint:` line el prints points here.
+
+ENTRY
+  weak    reads README, TODO, ten journal entries and starts working
+  strong  reads them and says in its own words where the case stands and what the next step is — the hand-over
+          is accepted, not just read; then works item by item, recording as it goes, not at the end
+
+AN ITEM
+  weak    el todo add 3 "database"
+  strong  el todo add 3 "choose the database" --why "data model, migrations and cost depend on it" \
+            --note "find out volumes, cost, migration path, environments" \
+            --expect "chosen DB with its case [file: docs/db-choice.md] · load on a prototype [run: k6 → p95] · budget [owner]"
+          one action with a checkable outcome; why and note in the owner's words; the proof promised before the work
+
+DONE
+  weak    el todo done 3.2 owner "done"                                  — the agent's word dressed as the owner's
+  weak    el todo done 3.2 file:testing/what-i-did.md "see the write-up"  — the agent's own text with a link on it
+  strong  el todo done 3.2 file:docs/db-choice.md run:"k6 run load.js -> p95 48ms" owner "Postgres; budget 200$/mo confirmed"
+          a thing anyone opens, a run anyone repeats, the owner's word for what only the owner can confirm; el then
+          holds the record to the promise: `expect: 3 of 3 filled` — or names what is short
+
+A PROBLEM
+  weak    fixes it and moves on — the next agent hits the same wall
+  strong  el log PROBLEM "error text → root cause → fix" and a recipe .howto/<verb>.md whose first line is
+          `when: <the error words>` — found by grep by an agent who does not know it exists
+
+PARKING AN IDEA
+  weak    a backlog item, a TODO in the code, a note to self — forgotten
+  strong  el phase plan 5 "Roof" --goal "…" · el phase note 5 "lamps under the eaves" · el todo add 5 "…" ·
+          el log --phase 5 DECISION "…" — parked where it will be needed; `parked:` counts it on entry, it
+          surfaces in the phase file when the phase opens. Decompose only what you work on.
+
+A WORKAROUND
+  weak    the crutch stays for months and becomes the architecture
+  strong  el readme add problems "open · <root problem> · workaround: <what we do> · until: 2026-12-01 (<what fixes it>)"
+          — counted on entry; past the date, Order asks: fixed, or move the date?
+
+CLOSING A PHASE
+  weak    reflect: "tests passed on DEV and UAT"           — that is a result
+  weak    align: "curl ready to hand to the stakeholder"    — that is a deliverable
+  strong  reflect: "ask WHY before going, not after"        — a lesson about how you worked
+  strong  align: "phase 3 loses the 2024 items; hearing needs copies prepared" — what changes in the next plan
+          the Digest is rendered from what you logged: poor journal, poor digest — that is the honest mirror
+
+""" + EXEMPLAR + """
+""",
     "limits": """the numbers (all enforced at write time)
 README: 200 lines / 8 KB of YOUR text → warning · 300 lines / 12 KB → refusal; pointer line ≤ 150 chars
   (warning). The nested Links lines el renders from the files are reported, not counted — you
@@ -361,7 +421,8 @@ TODO: ≤ 200 lines (100 before 0.20: a rollout through five environments × 17 
   else is exempt: an item over 100 is rephrased, not recounted (the owner's word 2026-09-15 — verb first, the
   path stays, the filler goes); a refusal prints a trimmed suggestion and says to rephrase;
   pockets (F22): `why:` / `note:` ≤ 150 visible chars each and they count in the 200 lines; `result:` and the
-  proof lines under it are el's — reported, not counted;
+  proof lines under it are el's — reported, not counted; the words of `done` longer than 150 are shortened with
+  «…» on the `result:` line, the journal RESULT keeps them whole;
   phase name — English, 1–3 words; no items deeper than N.M.
 JOURNAL: event headline ≤ 200 chars (soft 180); long text splits automatically into headline +
   up to 5 body lines of ≤ 160 chars; body beyond that → put the story in the phase file.
@@ -400,6 +461,33 @@ Diagnostics without any writes: `el doctor`. Facts that save an investigation:
 - el never changes your shell's cwd (a child process cannot);
 - errors go to stderr; the bare `el` entry prints its refusal on stdout instead, once — it explains itself where it is read.""",
 }
+
+
+# What an agent types for a topic, in the words it has in its head — singular forms and the common nouns of the
+# craft (feedback 2026-09-16: `el help phase` was a wall). The list of doses stays closed; the door is wider.
+ALIASES = {
+    "phase": "phases", "plan": "phases", "digest": "phases", "close": "phases", "open": "phases",
+    "case": "cases", "spawn": "cases", "nested": "cases", "list": "cases",
+    "file": "files", "folder": "files", "folders": "files", "summary": "files",
+    "limit": "limits", "numbers": "limits", "error": "errors", "exit": "errors", "codes": "errors",
+    "item": "todo", "items": "todo", "pocket": "todo", "pockets": "todo", "note": "todo", "notes": "todo", "why": "todo",
+    "due": "todo", "after": "todo", "dates": "todo", "done": "evidence", "proof": "evidence", "proofs": "evidence",
+    "kind": "evidence", "kinds": "evidence", "expect": "practice", "hint": "practice", "hints": "practice",
+    "best": "practice", "practices": "practice", "craft": "practice", "log": "journal", "event": "journal",
+    "events": "journal", "problem": "journal", "decision": "journal", "result": "journal", "stamps": "stamp",
+    "recover": "stamp", "rule": "model", "rules": "model", "graph": "model", "howto": "where", "recipe": "where",
+    "recipes": "where", "legacy": "migrate", "migration": "migrate", "problems": "order", "until": "order",
+    "workaround": "order", "report": "feedback", "bug": "feedback",
+}
+
+
+def resolve(topic: str):
+    """The dose for what the agent typed: the topic, its alias, or its singular/plural form; None when nothing fits."""
+    key = topic.strip().lower()
+    for cand in (key, ALIASES.get(key), key.rstrip("s"), key + "s"):
+        if cand and cand in TOPICS:
+            return TOPICS[cand]
+    return None
 
 
 def topic_list() -> str:

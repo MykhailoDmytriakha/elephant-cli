@@ -1,3 +1,3 @@
 """Elephant (`el`) — the single write door for `.cases/` (see .cases/RULES.md)."""
 
-__version__ = "1.10.1"
+__version__ = "1.12.0"

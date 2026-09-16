@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from . import grammar, migrate, order, stamp, store
+from . import grammar, hints, migrate, order, stamp, store
 from .store import StoreError
 
 MAX_SCREEN = 24_000  # chars: Claude Code truncates tool output around 30K (owner's measurement 2026-08-22)
@@ -79,6 +79,8 @@ def _item_block(it: grammar.Item) -> List[str]:
     if it.why:
         lines.append(f"    - why: {it.why}")
     lines += [f"    - note: {n}" for n in it.notes]
+    if it.expect:
+        lines.append(f"    - expect: {it.expect}")
     if it.done and (it.result or it.evidence):
         deeper = "      " if it.result else "    "
         if it.result:
@@ -393,6 +395,8 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None) -> Outcome
             _write_readme(case, _readme_text(case), out)
         except StoreError as e:
             out.warn(f"README `last:` not refreshed — {e}")
+    if typ == "PROBLEM":
+        hints.attach(out, "log", typ=typ, project=_project_root(case))
     return out
 
 
@@ -470,6 +474,30 @@ def _parse_evidence(case: Path, ref: str, token: str):
                              f"el todo done {ref} run:\"python3 -m unittest -> 12 OK\" \"…\"{trace}", 2)
         return kind, value
     return kind, value
+
+
+def _expect_check(phase: grammar.Phase, items: List[grammar.Item]):
+    """Hold `done` to the item's own `expect:` (F22): which promised proofs arrived, which did not. Shown, never
+    refused — the expectation may have been wrong, and the honest move is to say so, not to forge a proof.
+    Returns (the note the RESULT carries when something is short — "" when every promise is kept, the lines to say)."""
+    notes, lines = [], []
+    out = Outcome()
+    for it in items:
+        slots = grammar.expected_kinds(it.expect)
+        if not slots:
+            continue
+        have = {k for k, _ in it.evidence}
+        filled = [(k, w) for k, w in slots if k in have]
+        missing = [(k, w) for k, w in slots if k not in have]
+        ref = f"{phase.n}.{it.m}"
+        if missing:
+            gap = " ".join(f"[{k}: {w}]" if w else f"[{k}]" for k, w in missing)
+            out.say(f"expect {ref}: {len(filled)} of {len(slots)} filled — missing {gap}: the proof is short, or the expectation "
+                    f"was wrong — say which: el todo done {ref} <kind> \"…\" adds a proof · el todo expect {ref} \"…\" corrects the promise")
+            notes.append(f"{ref} expected {' · '.join(k for k, _ in slots)}, got {' · '.join(sorted(have)) or 'nothing'}")
+        else:
+            out.say(f"expect {ref}: {len(slots)} of {len(slots)} filled — {' · '.join(k for k, _ in slots)}")
+    return "; ".join(notes), out.lines
 
 
 def _link_path(proof: str) -> str:
@@ -574,10 +602,9 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "") -> Out
     if not outcome:
         raise StoreError(f"done needs what came out (F20): el todo done {ref} {' '.join(tokens)} \"what came out\" — "
                          f"nothing came out? then it was not done: el todo cancel {ref} \"why\"", 2)
-    if grammar.visible_len(outcome) > grammar.POCKET_CHARS:
-        raise StoreError(f"the outcome is {grammar.visible_len(outcome)} visible chars, limit {grammar.POCKET_CHARS} (F22) — "
-                         f"one line under the item; the story goes to the phase file or a document\n"
-                         f"  suggestion: \"{_trim_suggestion(outcome, grammar.POCKET_CHARS)}\"", 3)
+    # the `result:` line is el's (rendered from done): it obeys el's own pointer limit by shaping, like `closed:`
+    # and `last:` — the journal RESULT keeps the whole outcome (feedback 2026-09-16: a 151-char outcome aborted a chain)
+    shown_outcome = order._short(outcome, grammar.POCKET_CHARS)
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)
     _proof_warnings(phase, items, proofs, out)
@@ -592,11 +619,12 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "") -> Out
     for it in already:
         it.evidence += [pr for pr in proofs if pr not in it.evidence]
     for it in items:
-        it.result = outcome
+        it.result = shown_outcome
     out.absorb(_write_todo(case, todo))
     refs = _refs(phase, items)
     shown = " · ".join(f"{k} {pr}".strip() for k, pr in proofs)
-    out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome}", f"p{phase.n}").lines
+    short, expect_lines = _expect_check(phase, items)
+    out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome}" + (f" ({short})" if short else ""), f"p{phase.n}").lines
     for it in fresh:
         left = [r for r, _ in blocking.get(f"{phase.n}.{it.m}", []) if r not in done_now]
         if left:
@@ -605,6 +633,10 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "") -> Out
         out.say(f"done: {_refs(phase, fresh)} {fresh[0].text} → TODO.md (result + {len(proofs)} proof line(s)) · RESULT in the journal · evidence: {shown}")
     elif fresh:
         out.say(f"done: {_refs(phase, fresh)} ({len(fresh)} items) → TODO.md · one RESULT in the journal · evidence: {shown}")
+    if shown_outcome != outcome:
+        out.say(f"result: line shortened to {grammar.POCKET_CHARS} chars in TODO (F22, el's line) — the whole outcome is in the journal RESULT")
+    out.say(*expect_lines)  # after `done:` — the promise, then what arrived
+    hints.attach(out, "todo_done", items=items, proofs=proofs)
     for it in already:
         ev0, words0 = was[f"{phase.n}.{it.m}"]
         before = " · ".join(f"{k} {pr}".strip() for k, pr in ev0) or "untyped"
@@ -806,10 +838,43 @@ REPHRASE_HINT = ("  rephrase, do not truncate: verb first, the path or flag stay
 
 
 def _item_context(it: grammar.Item) -> str:
-    return " ".join([it.text, it.why, *it.notes])
+    return " ".join([it.text, it.why, *it.notes, it.expect])
 
 
-def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why: str = "", notes: Optional[List[str]] = None) -> Outcome:
+def _expect_text(text: str, ref: str) -> str:
+    """`expect:` at the write door (F22): a pocket line whose bracketed placeholders name proofs from the
+    closed list — `[file: docs/x.md] [run: k6 → p95] [owner]`; a fifth word in brackets is refused with the
+    four, like a fifth kind at `done`."""
+    text = _pocket_text("expect", text, ref)
+    for m in grammar.ANY_SLOT_RE.finditer(text):
+        if m.group(1) not in grammar.EVIDENCE_KINDS:
+            raise StoreError(f"`[{m.group(1)}…]` is not a kind of proof — placeholders in expect are [file: what] · [ref: what] · "
+                             f"[run: what] · [owner]; a kind that is missing: el feedback \"…\" · el help evidence", 2)
+    return text
+
+
+def todo_expect(case: Path, ref: str, text: str) -> Outcome:
+    """`el todo expect N.M "…"` — what done will look like, written BEFORE the work (the owner's word, 2026-09-16:
+    «пиши placeholder, куда потом заполнишь»): the proofs it will take stand in brackets, and `done` holds the
+    record to them — pre-registration, or Lean's type of a theorem. One per item; "" removes it."""
+    out = Outcome()
+    todo = _todo(case, out)
+    phase, item = _find_item(todo, ref)
+    text = " ".join(text.split())
+    old = item.expect
+    item.expect = _expect_text(text, ref) if text else ""
+    out.absorb(_write_todo(case, todo))
+    slots = grammar.expected_kinds(item.expect)
+    if item.expect:
+        named = " · ".join(k for k, _ in slots) or "no proof placeholders — add [file: …] [run: …] [owner] so done can check"
+        out.say(f"expect {ref}: «{item.expect}»" + (f" (was: «{old}»)" if old else "") + f" → TODO.md · proofs promised: {named}")
+    else:
+        out.say(f"expect {ref} removed" + (f" (was: «{old}»)" if old else " — there was none") + " → TODO.md")
+    return out
+
+
+def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why: str = "", notes: Optional[List[str]] = None,
+             expect: str = "") -> Outcome:
     """Add item N.M (M = next free) to an open or planned phase N; `ref` is the phase number.
     The text may end with `— due: YYYY-MM-DD`. `before` = N.K puts it in place instead of at the
     end (feedback 2026-09-08: an item refused for length and re-added later landed last, and a
@@ -841,14 +906,17 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why:
     if why:
         item.why = _pocket_text("why", why, f"{phase.n}.{m}")
     item.notes = [_pocket_text("note", n, f"{phase.n}.{m}") for n in (notes or [])]
+    if expect:
+        item.expect = _expect_text(expect, f"{phase.n}.{m}")
     phase.items.insert(at, item)
     if after:
         _set_after(case, todo, item, after)
     out.absorb(_write_todo(case, todo))
-    pockets = (" · why" if item.why else "") + (f" · {len(item.notes)} note(s)" if item.notes else "")
+    pockets = (" · why" if item.why else "") + (f" · {len(item.notes)} note(s)" if item.notes else "") + (" · expect" if item.expect else "")
     out.say(f"added: {phase.n}.{m} {text}{f' — after: {chr(44).join(item.after)}' if item.after else ''}{f' — due: {due}' if due else ''}"
             f"{f' (before {before})' if before else ''}{pockets} → TODO.md")
     _remind_link(case, f"{phase.n}.{m}", _item_context(item), out)
+    hints.attach(out, "todo_add", item=item)
     return out
 
 
@@ -1198,9 +1266,11 @@ def _closing_checks(case: Path, prev: grammar.Phase, journal: grammar.Journal) -
     if not any(ev.type == "RESULT" for ev in evs):
         missing.append(f"phase {prev.n}: no RESULT in the journal (F9) → el log --phase {prev.n} RESULT \"what came out\"")
     if not any(ev.text.startswith("reflect:") for ev in evs):
-        missing.append(f"phase {prev.n}: no `DECISION · reflect: …` (P8) → el log --phase {prev.n} DECISION \"reflect: …\"")
+        missing.append(f"phase {prev.n}: no `DECISION · reflect: …` (P8) → el log --phase {prev.n} DECISION \"reflect: …\" "
+                       f"· or close with it: el phase close {prev.n} \"…\" --reflect \"the lesson\" --align \"what changes next\"")
     if not any(ev.text.startswith("align:") for ev in evs):
-        missing.append(f"phase {prev.n}: no `DECISION · align: …` (P8) → el log --phase {prev.n} DECISION \"align: …\"")
+        missing.append(f"phase {prev.n}: no `DECISION · align: …` (P8) → el log --phase {prev.n} DECISION \"align: …\" "
+                       f"· or: el phase close {prev.n} \"…\" --align \"what changes in the next plan\"")
     pf = _phase_file(case, prev.n, prev.name)
     if not pf.exists():
         missing.append(f"phase {prev.n}: {pf.relative_to(case)} is missing (F12)")
@@ -1286,7 +1356,7 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
             if not ln.strip():
                 continue
             m = re.fullmatch(rf"- {n}\.(\d+) [✓✗] (.*)", ln)
-            pocket = re.fullmatch(r"  - (why|note): (.+)", ln)
+            pocket = re.fullmatch(r"  - (why|note|expect): (.+)", ln)
             if section == "Items at cancel" and m:
                 text, _ = _rewrite_links(m.group(2), pf.parent, new_base=case)  # links come back up to the case root
                 text, _, _ = grammar.split_evidence(text)  # an item comes back open: its evidence, if any, stays in the journal
@@ -1295,6 +1365,8 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
                 val, _ = _rewrite_links(pocket.group(2), pf.parent, new_base=case)
                 if pocket.group(1) == "why":
                     items[-1].why = val
+                elif pocket.group(1) == "expect":
+                    items[-1].expect = val
                 else:
                     items[-1].notes.append(val)
             elif section == "Items at cancel" and items and re.fullmatch(r"\s+- (file|ref|run|owner)\b.*", ln):
@@ -1431,10 +1503,14 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     opened = f"{name} открыта" + (f" (запланирована была как «{renamed}»)" if renamed else "")
     out.lines = log(case, "PHASE", opened, f"p{n}").lines + out.lines
     out.say(f"phase {n} {name} is open → TODO.md, README.md State")
+    hints.attach(out, "phase_open", rel=f"phases/{pf.name}")
     return out
 
 
-def phase_close(case: Path, n: int, summary: str) -> Outcome:
+def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None, align: Optional[str] = None) -> Outcome:
+    """Close a phase. `--reflect "…"` and `--align "…"` log the two DECISION events P8 asks for in the same
+    command (feedback 2026-09-16: three shell round trips for one close added friction, not rigour) — the
+    record is identical, the gates are the same, and nothing is logged if another gate refuses the close."""
     out = Outcome()
     todo = _todo(case, out)
     phase = todo.phase(n)
@@ -1470,22 +1546,47 @@ def phase_close(case: Path, n: int, summary: str) -> Outcome:
         running = cur if cur is not None and cur.n != n and _phase_file(case, cur.n, cur.name).exists() else None
         alongside = (prev, state, running)
     journal = _journal(case, out)
-    missing = [m for m in _closing_checks(case, phase, journal)
-               if "result:" not in m and not (alongside and "is missing (F12)" in m)]
+    reflect = " ".join((reflect or "").split())
+    align = " ".join((align or "").split())
+    for tag, val in (("reflect", reflect), ("align", align)):
+        if val.lower().startswith(f"{tag}:"):
+            raise StoreError(f"--{tag} takes the words only, el writes the `{tag}:` prefix: --{tag} \"{val[len(tag) + 1:].strip()}\"", 2)
+    def gates(j: grammar.Journal) -> List[str]:
+        found = [m for m in _closing_checks(case, phase, j) if "result:" not in m and not (alongside and "is missing (F12)" in m)]
+        # a flag stands in for the event it is about to log — everything else must already hold
+        return [m for m in found if not (reflect and "reflect:" in m) and not (align and "align:" in m)]
+    missing = gates(journal)
     if open_items:  # F20: a phase closes only when every item ended — done with evidence, or cancelled with a reason
         missing.append(f"phase {n}: open items {', '.join(open_items)} — each must end one of two ways: "
                        f"el todo done N.M <kind> \"what came out\" · el todo cancel N.M \"why\" (or cancel the phase: el phase cancel {n} \"why\")")
     if missing:
         raise StoreError("cannot close phase %d:\n  " % n + "\n  ".join(missing), 4)
+    for tag, val in (("reflect", reflect), ("align", align)):
+        if val:  # every other gate held: the two events are written now, then the close proceeds on them
+            out.lines += log(case, "DECISION", f"{tag}: {val}", f"p{n}").lines
+    if reflect or align:
+        journal = _journal(case, out)
     summary = " ".join(summary.split())
     date, _ = _now()
+    evs_here = _events_for_phase(journal, f"p{n}")
+    for tag in ("reflect", "align"):  # a result dressed as a lesson (the owner's eye, 2026-09-16)
+        for ev in evs_here:
+            if ev.type != "DECISION" or not ev.text.startswith(f"{tag}:"):
+                continue
+            for res in (r for r in evs_here if r.type == "RESULT"):
+                share = _verbatim_share(ev.text[len(tag) + 1:], res.text)
+                if share >= order.DUP_SHARE:
+                    out.warn(f"{tag}: repeats RESULT · {order._short(res.text, 60)} ({int(share * 100)} % verbatim) — "
+                             f"{'reflect is a lesson about how you worked' if tag == 'reflect' else 'align is what changes in the next plan'}, "
+                             f"not the result again (el help practice)")
+                    break
     if alongside:  # every gate passed — only now is the file born (a refused close writes nothing)
         pf.parent.mkdir(exist_ok=True)
         pf.write_text(f"# Phase {n} — {phase.name}\ngoal: {phase.summary or '—'}\nresult:\n\n## Notes\n", encoding="utf-8")
         out.say(f"created: {pf.relative_to(case)} (from the plan)")
     text = pf.read_text(encoding="utf-8").split("\n")
     text[2] = f"result: {summary}"
-    text = text[:3] + ["", "## Digest", *_digest(case, pf, phase, _events_for_phase(journal, f"p{n}"))] + text[3:]
+    text = text[:3] + ["", "## Digest", *_digest(case, pf, phase, evs_here)] + text[3:]
     if phase.items:
         text.append("")
         text.append("## Items at close")
@@ -1503,6 +1604,7 @@ def phase_close(case: Path, n: int, summary: str) -> Outcome:
                else " (закрыта до своей очереди, без открытия)")
     out.lines = log(case, "PHASE", f"{phase.name} закрыта{ran} → {summary}", f"p{n}").lines + out.lines
     out.say(f"closed: phase {n} {phase.name} → TODO.md (collapsed), {rel} (result), README.md State")
+    hints.attach(out, "phase_close", n=n, events=evs_here)
     if alongside:
         out.say(f"closed from the plan, out of turn — phase {alongside[0].n} {alongside[0].name} is still {alongside[1]}, "
                 f"the pipeline stays in order. {ALONGSIDE_HINT}")
@@ -1524,6 +1626,17 @@ def _item_block_for_phase_file(case: Path, pf: Path, it: grammar.Item) -> List[s
 ITEM_RESULT_RE = re.compile(r"^\d+\.\d+(?:[,\s–-]+\d+\.\d+)*:")  # `RESULT · 2.1: …` · `2.1, 2.3: …` · `2.1-2.4: …`
 
 
+def _verbatim_share(a: str, b: str) -> float:
+    """Share of a's word 3-grams found verbatim in b (the duplicate detector of F15, on two texts)."""
+    def sh(t: str) -> set:
+        toks = [w.lower() for w in order.TOKEN_RE.findall(t)]
+        return set(tuple(toks[i:i + order.SHINGLE_WORDS]) for i in range(len(toks) - order.SHINGLE_WORDS + 1))
+    sa, sb = sh(a), sh(b)
+    if len(sa) < 4 or len(sb) < 4:
+        return 0.0
+    return len(sa & sb) / len(sa)
+
+
 def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]) -> List[str]:
     """The `## Digest` of a closed phase — rendered, never typed (the owner's word, 2026-09-15: «клацаешь на
     ссылку, а там список; хочется выжимку»): what the phase held (items, notes), what came out (RESULT),
@@ -1543,6 +1656,16 @@ def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]
         shared = max(set(proofs), key=proofs.count)
         head += f" · proofs: {distinct} distinct for {done_n} items ({rel(shared)} ×{proofs.count(shared)})"
     lines = [head]
+    promised = [it for it in phase.items if grammar.expected_kinds(it.expect)]
+    if promised:  # F22: the record held to its own promises — met, or short and said so
+        met = [it for it in promised if {k for k, _ in grammar.expected_kinds(it.expect)} <= {k for k, _ in it.evidence}]
+        short = [it for it in promised if it not in met]
+        line = f"- expectations: {len(met)} met"
+        if short:
+            line += f" · {len(short)} short (" + "; ".join(
+                f"{it.n}.{it.m} expected {' · '.join(k for k, _ in grammar.expected_kinds(it.expect))}, "
+                f"got {' · '.join(sorted({k for k, _ in it.evidence})) or 'nothing'}" for it in short) + ")"
+        lines.append(line)
     lines += bucket("notes", [rel(n) for n in phase.notes])
     # item results (`RESULT · N.M: …`) live under their items below; the digest keeps the phase-level ones
     lines += bucket("results", [rel(ev.text) for ev in evs if ev.type == "RESULT" and not ITEM_RESULT_RE.match(ev.text)])
@@ -2162,15 +2285,43 @@ def _rewrite_links(text: str, base: Path, src: Optional[Path] = None, dst: Optio
     return text, count
 
 
+def _case_path(case: Path, given: str) -> str:
+    """A path as the agent typed it — case-relative (`docs/x.md`), repo-relative from tab completion
+    (`.cases/<case>/docs/x.md`), or absolute — normalised to the case (feedback 2026-09-16: tab completion
+    from the repo root expands `.cases/<case>/…`, and `mv` refused a valid file). Outside the case the text
+    comes back as given, so the refusal that follows names it."""
+    raw = given.strip()
+    if not raw:
+        return raw
+    trailing = raw.endswith("/")
+    cand = Path(raw).expanduser()
+    if not cand.is_absolute():
+        cand = Path.cwd() / cand
+    try:
+        rel = cand.resolve().relative_to(case.resolve()).as_posix()
+        if rel == ".":
+            return raw
+        return rel + ("/" if trailing else "")
+    except ValueError:
+        pass
+    try:  # from the project root with the case folder spelled out
+        rel = cand.resolve().relative_to((_project_root(case) / store.CASES_DIR / case.name).resolve()).as_posix()
+        return rel + ("/" if trailing and rel != "." else "")
+    except ValueError:
+        return raw
+
+
 def mv(case: Path, old: str, new: str) -> Outcome:
     """Move or rename a file inside the case and rewrite every markdown link to it — in the three
     owned files (through the stamp door) and in the case's own documents — so the map stays true
     (feedback 2026-09-03: one folder split broke 33 links, found only by a hand-written checker).
     An action, not an event: git keeps the history."""
     out = Outcome()
+    old, new = _case_path(case, old), _case_path(case, new)
     src = (case / old)
     if not src.is_file():
-        raise StoreError(f"{old} is not a file in the case (paths are relative to the case: docs/x.md)", 4)
+        raise StoreError(f"{old} is not a file in the case (paths are relative to the case: docs/x.md; "
+                         f".cases/<case>/… and absolute paths inside the case are accepted too)", 4)
     if src.name in store.FILES and src.parent == case:
         raise StoreError(f"{src.name} is one of the three case files — it does not move (L3)", 2)
     dst = case / new
@@ -2218,6 +2369,9 @@ def relink(case: Path, old: str, new: str) -> Outcome:
     nothing claims a file any more. Without it a dead journal link would be a line in Order that
     nothing can close — caught on this tool's own journal within a minute of adding the check."""
     out = Outcome()
+    old = _case_path(case, old)
+    if new.strip().lower() != "none":
+        new = _case_path(case, new)
     src = case / old
     if case.resolve() not in src.resolve().parents:
         raise StoreError("relink works inside the case folder only", 2)
@@ -2494,9 +2648,11 @@ def _ended_phase_lines(case: Path, todo: grammar.Todo, journal: Optional[grammar
             for m in _closing_checks(case, p, journal):
                 if "result:" in m or "is missing (F12)" in m:
                     continue
-                needs.append(m.split(" → ", 1)[1] if " → " in m else m.split(": ", 1)[-1])
+                needs.append((m.split(" → ", 1)[1] if " → " in m else m.split(": ", 1)[-1]).split(" · or")[0].strip())
+        one = (f" · or in one command: el phase close {p.n} \"…\" --reflect \"…\" --align \"…\""
+               if any("reflect:" in n or "align:" in n for n in needs) else "")
         lines.append(f"phase {p.n} {p.name}: every item ended ({len(p.items)} done) → close it: el phase close {p.n} \"what came out\""
-                     + (f" — first: {' · '.join(needs)}" if needs else "")
+                     + (f" — first: {' · '.join(needs)}{one}" if needs else "")
                      + f" · or add what is missing: el todo add {p.n} \"…\"")
     return lines
 
@@ -2577,6 +2733,9 @@ def entry(root: Path, case: Path) -> Outcome:
     else:
         out.say("## Order", "- ✓ everything in place: files carry summaries, Links follow the files, State is current", "")
     out.say(f"how to work: el help start · what goes where: el help where · rules: {_rules_pointer(root)} · full check: el check")
+    if not todo.errors:  # one hint, derived from the case, last (a model weighs the last line most)
+        hints.attach(out, "entry", case=case, todo=todo, journal=journal if not journal.errors else None,
+                     phase_file_exists=lambda p: _phase_file(case, p.n, p.name).exists())
     total = "\n".join(out.lines)
     if len(total) > MAX_SCREEN:
         out.lines = [total[:MAX_SCREEN], "", f"[truncated at {MAX_SCREEN} chars — README/TODO/JOURNAL are on disk]"]
