@@ -12,7 +12,9 @@ then: `el` shows where the case stands · `el help start` — how a day goes · 
 TOPICS = {
     "model": """the model — work is a graph the tool can check (F18–F21; concept of 2026-09-04)
 - one node shape at three sizes: case · phase · item. Each has a statement (Context / `goal:` /
-  the item text), a status the tool computes, evidence when done, and edges to other nodes.
+  the item text), a status the tool computes, evidence when done, and edges to other nodes. An item
+  carries its pockets under it (F22): `why:` — what it is for, `note:`… — what to know, `result:` +
+  proof lines — what came out (Prove2Me: statement, description, proof — separate lines, one node).
 - the collapsed line: what a node looks like at its parent is RENDERED from the node's own
   header, never typed — a file's line from `summary:`, a phase line from `goal:` or `result:`
   (plus the path to its file), a nested case's line from its README (progress · next · closed).
@@ -155,8 +157,9 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   `el todo drop N.M` · `el todo hold N.M "why"` / `el todo resume N.M` · `el todo cancel N.M "why"` ·
   `el todo due N.M YYYY-MM-DD` · `el todo after N.M "N.K, case"` · `el todo move N.M N.K|last|K`.
 - done needs the KIND of its evidence and what came out (F20): `el todo done 2.4 file:evidence/receipt.pdf "fee paid"`
-  — kinds: file:<path> · ref:<trace> · run:"<command → outcome>" · owner; the journal gets `RESULT · N.M: file [receipt.pdf](…) — fee paid`
-  and the TODO line the tail `— file: [receipt.pdf](evidence/receipt.pdf)`. Who can check each kind: `el help evidence`.
+  — kinds: file:<path> · ref:<trace> · run:"<command → outcome>" · owner, several at once when the proof is several
+  things; the journal gets `RESULT · N.M: file [receipt.pdf](…) — fee paid` and under the TODO line el writes
+  `result: fee paid` with one proof line per kind. A second done on a done item ADDS a proof. Who checks each kind: `el help evidence`.
   Nothing came out? Then it was not done: `cancel N.M "why"`.
 - a tick taken back: `el todo reopen N.M "why the result no longer holds"` — the item is open
   again (the phase cannot close over it, its dependents are blocked again), the journal gets a
@@ -184,7 +187,14 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
 - case rule «items link their material» (the owner reads only README and TODO, the work lives in
   documents): `el readme add context "rule: items link their material"`. Then `todo add`/`edit`
   warn when the text has no `[name](docs/file.md)`, and Order names the open items without one.
-  Opt-in: a coding case rarely needs a document per item.""",
+  Opt-in: a coding case rarely needs a document per item.
+- the item's pockets (F22) — lines under the item, in one order, each ≤ 150 visible chars:
+  `why:` what it is for (one; `el todo why N.M "…"`, "" removes) · `note:` a constraint, who to call, what to
+  bring, a link to the document (several; `el todo note N.M "…"`, `--edit k "…"`, `--drop k`; a list
+  `N.M, N.K` puts one note under several items — a problem met in one environment is expected at the
+  same step of the next) · `result:` + proof lines, written by `done` only. `todo add … --why "…" --note "…"`
+  sets them at once. why/note are yours and count in the 200 lines; result and proof lines are el's and do not.
+""",
 
     "evidence": """evidence — what `done` stands on (F20; the owner's word, 2026-09-14)
 A tick is not a proof. `el todo done N.M <kind> "what came out"` — the kind of evidence comes first,
@@ -201,20 +211,25 @@ then the words; the tick, the kind and the RESULT are one write. Four kinds, and
                              that names a file in reach gets a warning: that is a file, say file:.
                                                           → tail `— ref: D005532-091426`
 - run:"<command → outcome>"  a machine check — tests, a build, a measurement; the tool checks the
-                             arrow, a repeat is the proof.  → tail `— run: python3 -m unittest → 219 OK`
+                             arrow (`->` is fine, el writes →), a repeat is the proof. QUOTE the value:
+                             unquoted, the shell reads `>` as a redirection and the outcome lands in a file.
+                                                          → tail `— run: python3 -m unittest → 219 OK`
 - owner                      the owner's word — talked and agreed, a meeting without a recording,
                              a rule the owner confirmed. Nothing to check, and it says so honestly.
                              The agent's own word is not a kind: the agent writes the record, so it
                              leaves a file instead.        → tail `— owner`
 The list is closed on purpose: a fifth spelling is refused (exit 2) with this list; a kind that is
 really missing comes through `el feedback` and, if it is needed, becomes one.
-Where it shows: the TODO line of a done item carries the tail el writes — outside the 100-char limit,
-a click away for the owner; at `phase close` the tail travels into the phase file with the item, links
+Where it shows (F22, since 1.10.0): under the TODO line of a done item el writes `result: <what came out>`
+and one proof line per kind (`- file: [receipt.pdf](evidence/receipt.pdf)` · `- ref: …` · `- run: …` ·
+`- owner`) — the tick, the words and the proofs are separate lines, a click away for the owner and outside
+the 100-char count; several kinds in one `done` when the proof is several things; a second `done` on a done
+item adds a proof and renews the words. At `phase close` the block travels into the phase file, links
 re-based. On entry `evidence: 11 done · file 3 · owner 8` counts the done items of the open phases.
 Old records: an item ticked before 1.5.0 has no kind and counts as `untyped` — read, never nagged: the
 rule lives at the write door, not at the read. Attach evidence later through the same door —
 `el todo done 2.9 file:evidence/abstract.pdf "abstract saved"` on a done item attaches (or replaces)
-its evidence and logs a RESULT. `reopen N.M "why"` clears the tail: the result no longer holds.
+its evidence and logs a RESULT. `reopen N.M "why"` clears the result and its proofs (why and notes stay): the result no longer holds.
 Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "why"` (refuted).""",
 
     "phases": """phases — `el phase plan|open|close N "Name"`
@@ -249,15 +264,25 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   at close, the journal says it ran alongside, progress shows ✓; `open` stays refused. Every gate
   still applies, logged under that phase: `el log --phase N RESULT|DECISION "…"`. Next time, work
   that runs on its own clock is a nested case, not a phase: `el spawn "name" --goal "…"` (P11) —
-  its own phases, its own agent, one rendered line at the parent when it closes.""",
+  its own phases, its own agent, one rendered line at the parent when it closes.
+- `el phase note N "…"` (`--edit k` · `--drop k`) — what the phase has to know: a permit that expires, a
+  service to call, a problem seen one stage earlier. Under a planned phase it waits in TODO (`parked:` on
+  entry counts items, notes and journal events logged with `--phase N`); `phase open` writes the parked
+  journal events into the file as `## Before opening`; `phase close` moves the notes into the file.
+- the closed phase file opens with `## Digest`, rendered at close — items, notes, results, problems,
+  decisions, reflect, align, all from the journal events of that phase; then `## Notes` (yours) and
+  `## Items at close` with every item and its pockets, links re-based. Poor journal, poor digest.
+""",
 
     "cases": """cases — units of work longer than a session
 - `el case new "name" --goal "…"` — new case folder .cases/YYYY-MM-DD-name/ with the three files.
   Name it in the owner's own words, any language: Cyrillic is transliterated into the folder name
   and the name itself stays as the README title.
 - `el case list` — where every case stands: open ones first, each on the line it shows at its parent
-  (progress · next · due, rendered from its own README), closed ones as a count plus the latest few
-  (`--all` for every one); current marked *; `el case use <name>` — switch the hand.
+  (progress · next · due, rendered from its own README), closed ones as a count plus the latest few,
+  cases from before el (README never stamped, outside the grammar) as one count line — `--all` names
+  every closed and legacy one, `el --case <name> migrate` reads a legacy case; current marked *;
+  `el case use <name>` — switch the hand.
 - The hand follows the freshest journal; one agent works one case at a time.
 - Rule of nesting: know what to do → an item N.M; do NOT know the cause / needs its own research /
   longer than a session → `el spawn "name" --goal "…"` — a nested case of the same shape inside
@@ -266,8 +291,9 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
 - `el done "outcome"` closes the case (all phases and nested cases must be closed first);
   `el case cancel "why"` ends it the other honest way — open phases collapse with the reason.
 - the parent's Links carries a `cases:` block rendered from each child's own README (progress ·
-  next; closed ones as a count plus the latest few) — never typed by hand (F18); a child whose
-  README el cannot parse shows as BROKEN and holds the parent open.
+  next; closed ones as a count plus the latest few) — never typed by hand (F18); a child from before
+  el shows as legacy → migrate, a child whose stamped README el cannot parse any more as BROKEN →
+  check; both hold the parent open.
 - Root mode: `el case new --root "my app" --goal "…"` makes the PROJECT FOLDER itself the top
   case (README/TODO/JOURNAL in the project root; refused if a README.md, TODO.md or JOURNAL.md already
   exists there — keep it and use the ordinary form). Those three files lie outside .cases/: a
@@ -325,8 +351,11 @@ README: 200 lines / 8 KB of YOUR text → warning · 300 lines / 12 KB → refus
   cannot shorten them in README, and the file index must not squeeze out what the owner writes.
 TODO: ≤ 200 lines (100 before 0.20: a rollout through five environments × 17 steps is structure,
   not water); item text ≤ 100 VISIBLE chars (80 before 0.21: `<Env>: [<Block>] <Action> -> expect
-  <Result>` is one action with its checkable outcome) — markdown links [name](path) count as `name`
-  (a refusal prints a ready trimmed suggestion);
+  <Result>` is one action with its checkable outcome) — markdown links [name](path) count as `name`, nothing
+  else is exempt: an item over 100 is rephrased, not recounted (the owner's word 2026-09-15 — verb first, the
+  path stays, the filler goes); a refusal prints a trimmed suggestion and says to rephrase;
+  pockets (F22): `why:` / `note:` ≤ 150 visible chars each and they count in the 200 lines; `result:` and the
+  proof lines under it are el's — reported, not counted;
   phase name — English, 1–3 words; no items deeper than N.M.
 JOURNAL: event headline ≤ 200 chars (soft 180); long text splits automatically into headline +
   up to 5 body lines of ≤ 160 chars; body beyond that → put the story in the phase file.

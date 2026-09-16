@@ -114,7 +114,7 @@ class FileInTheProject(Base):
     def test_a_source_file_under_the_project_root_is_file_evidence(self):
         code, out, err = run("todo", "done", "1.1", "file:src/app/parser.ts", "reused the existing parser")
         self.assertEqual(code, 0, err)
-        self.assertIn("  - [x] 1.1 reuse the parser — file: [parser.ts](../../src/app/parser.ts)\n", self.read("TODO.md"))
+        self.assertIn("  - [x] 1.1 reuse the parser\n    - result: reused the existing parser\n      - file: [parser.ts](../../src/app/parser.ts)\n", self.read("TODO.md"))
         self.assertIn("RESULT · 1.1: file [parser.ts](../../src/app/parser.ts) — reused", self.read("JOURNAL.md"))
         self.assertEqual(run("check")[0], 0, "the link resolves from the case folder")
 
@@ -123,7 +123,7 @@ class FileInTheProject(Base):
         (self.case() / "src" / "note.md").write_text("summary: x\n", encoding="utf-8")
         code, out, err = run("todo", "done", "1.1", "file:src/note.md", "case first")
         self.assertEqual(code, 0, err)
-        self.assertIn("— file: [note.md](src/note.md)", self.read("TODO.md"))
+        self.assertIn("      - file: [note.md](src/note.md)", self.read("TODO.md"))
         self.assertEqual(run("todo", "done", "1.2", "file:../outside.ts", "x")[0], 2)
         self.assertEqual(run("todo", "done", "1.2", "file:src/app/missing.ts", "x")[0], 3)
 

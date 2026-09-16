@@ -20,6 +20,12 @@ EXAMPLES = """examples
   el todo add 3 "send the material — due: 2026-09-09" · el todo due 3.2 2026-09-12 · el todo cancel 3.5 "no longer needed"
   el todo add 3 "text" --before 3.4         in place instead of the end (the number is for life, the position is not)
   el todo add 3 'pay $150 for the permit'   SINGLE quotes when the text has `$`: the shell eats $150 inside double quotes
+  el todo add 6 "weld the first gas pipe" --why "no meter, no acceptance" --note "call the gas service before welding — they install the meter"
+  el todo why 6.1 "…" · el todo note 6.1 "bring the permit: [permit](docs/gas-permit.pdf)" · el todo note 6.1 --edit 2 "…" · --drop 2   the item's pockets (F22)
+  el todo note 4.3, 5.3, 6.3 "in SIT this step failed until the old PVC was removed — check PVC first"   one note under the same step of the next environments
+  el todo done 2.3 file:evidence/receipt.pdf ref:4471-09 "paid, receipt in the folder"   several proofs: one `result:` line, one proof line each
+  el phase note 6 "the permit runs out in March" · el log --phase 6 DECISION "lamps under the eaves — idea of 15.09"   parked for a planned phase; surfaces when it opens
+  el readme add problems "open · Redis fails after the chart deploy · workaround: restart by hand · until: 2026-12-01 (chart 2.3)"   a crutch with a return date, counted on entry
   el todo move 3.6 4                    to another phase (joins its end under the next free number)
   el todo add 3 "ship it — after: 3.1, 3.2" · el todo after 3.4 "3.1, 3.2" · el todo after 3.4 none   dependencies (→ unblocked: on entry)
   el phase cancel 4 "the venue fell through" · el case cancel "merged into the other case"   the second honest end of a branch
@@ -41,7 +47,7 @@ EXAMPLES = """examples
   el readme --file README.md           validate and write a README (progress line kept in sync)
   el case new "connect database" --goal "app talks to the prod database"
   el case new --root "my app" --goal "…"   root mode: the project folder itself is the top case
-  el case list                         open cases first (progress · next · due), closed as a count + latest few; --all shows every closed one
+  el case list                         open cases first (progress · next · due), closed as a count + latest few, pre-el cases as a count; --all names every one
   el case use connect-database         switch the hand (like `cf target` / `oc project`)
   el spawn "db unreachable from server" --goal "server cannot reach the database, cause unknown"
   el done "database connected and validated"
@@ -125,16 +131,22 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--phase", help="p1, 1 or a unique phase name (default: the open phase); e.g. `el log --phase p1 DECISION \"…\"`")
 
     s = sub.add_parser("todo", help="add · done · edit · move · drop · hold · resume items — N.M is an item's number for life: drop and move never renumber", allow_abbrev=False)
-    s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after"])
+    s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note"])
     s.add_argument("ref", help="phase number for add (N), item for the rest (N.M); done/reopen/cancel also take a range N.A-N.B or a list \"N.A, N.B\"")
     s.add_argument("text", nargs="*", default=[], help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: the KIND of evidence, then what came out — file:<path> · ref:<trace> · run:\"<command → outcome>\" · owner (el help evidence); for cancel/reopen: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
     s.add_argument("--before", help="add only: put the new item before N.K instead of at the end (numbers never change, positions do)")
+    s.add_argument("--why", help="add only: what the item is for, one line (F22) — later: el todo why N.M \"…\"")
+    s.add_argument("--note", action="append", help="add only, repeatable: a constraint, who to call, what to bring, a link (F22) — later: el todo note N.M \"…\"")
+    s.add_argument("--edit", type=int, metavar="K", help="note only: rewrite note K in place")
+    s.add_argument("--drop", type=int, metavar="K", help="note only: remove note K")
 
     s = sub.add_parser("phase", help="plan · open · close a phase (plan = name the next one without opening it, repeat it to sharpen the goal; close needs RESULT, reflect:, align:)", allow_abbrev=False)
-    s.add_argument("action", choices=["plan", "open", "close", "cancel"])
+    s.add_argument("action", choices=["plan", "open", "close", "cancel", "note"])
     s.add_argument("n", type=int)
-    s.add_argument("text", nargs="?", default="", help="name for plan/open (open takes it from the plan when omitted), summary for close, why for cancel")
+    s.add_argument("text", nargs="?", default="", help="name for plan/open (open takes it from the plan when omitted), summary for close, why for cancel, the note for note")
     s.add_argument("--goal", help="one line; required for a new phase unless it was planned with one")
+    s.add_argument("--edit", type=int, metavar="K", help="note only: rewrite note K in place")
+    s.add_argument("--drop", type=int, metavar="K", help="note only: remove note K")
 
     s = sub.add_parser("readme", help="write from --file/stdin · set <prefix> \"…\" (\"\" removes; State only) · add <section> \"…\" · edit <section> <k> \"…\" · drop <section> <k> | drop state <prefix> · touch (State read and still true: moves `as of`)", allow_abbrev=False)
     s.add_argument("action", nargs="?", choices=["set", "add", "edit", "drop", "touch"])
@@ -195,7 +207,7 @@ SHELL_TRACES = (
     (re.compile(r"(?:^|\s)\.\d"), "an orphan decimal like `.72`"),
     (re.compile(r"^\s"), "a leading space"),  # a trailing one is too often innocent (`"x " * n`) to refuse
 )
-TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro")
+TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note")
 
 
 def shell_trace(args) -> Optional[str]:
@@ -283,11 +295,26 @@ def run(argv=None) -> int:
                 out = commands.log(case, args.type, args.text, args.phase)
             elif args.cmd == "todo":
                 parts = list(args.text or [])
+                ref = args.ref
+                # a list typed with spaces — `el todo done 3.2, 3.4 "why"` — reaches argparse as ref `3.2,` plus
+                # text `3.4`: the numbers are gathered back into the ref (done · reopen · cancel · note take lists)
+                while ref.endswith(",") and parts and re.fullmatch(r"\d+\.\d+,?", parts[0]):
+                    ref += " " + parts.pop(0)
+                args.ref = ref
                 text = " ".join(parts)
                 if args.action == "add":
-                    out = commands.todo_add(case, args.ref, text, args.before)
-                elif args.action == "done":  # the kind of evidence first, then what came out (F20)
-                    out = commands.todo_done(case, args.ref, parts[0] if parts else "", " ".join(parts[1:]))
+                    out = commands.todo_add(case, args.ref, text, args.before, why=args.why or "", notes=args.note or [])
+                elif args.action == "done":  # the kinds of evidence first (one or several), then what came out (F20)
+                    kinds = []
+                    while parts and commands._is_kind_token(parts[0]):
+                        kinds.append(parts.pop(0))
+                    if not kinds and parts:  # the first word is not a kind: the refusal names it and lists the four
+                        kinds.append(parts.pop(0))
+                    out = commands.todo_done(case, args.ref, kinds, " ".join(parts))
+                elif args.action == "why":
+                    out = commands.todo_why(case, args.ref, text)
+                elif args.action == "note":
+                    out = commands.todo_note(case, args.ref, text, edit=args.edit, drop=args.drop)
                 elif args.action == "edit":
                     if not text:
                         raise StoreError("usage: el todo edit N.M \"new text\"", 2)
@@ -319,6 +346,8 @@ def run(argv=None) -> int:
                     out = commands.phase_plan(case, args.n, args.text, args.goal)
                 elif args.action == "cancel":
                     out = commands.phase_cancel(case, args.n, args.text)
+                elif args.action == "note":
+                    out = commands.phase_note(case, args.n, args.text, edit=args.edit, drop=args.drop)
                 else:
                     if not args.text:
                         raise StoreError("phase close needs a summary: `el phase close 3 \"what it delivered\"`", 2)

@@ -186,17 +186,20 @@ def child_cases(case: Path, root_mode: bool) -> List[Path]:
 
 
 def child_status(child: Path) -> Tuple[str, str, str, str, str]:
-    """('open' | 'closed' | 'broken', progress, next, closed, due) read from the child's own README —
-    the child describes itself; a README el cannot parse makes the child BROKEN, and a broken
-    child holds its parent open (F18). `due` is the case deadline (`- due: YYYY-MM-DD · what`)."""
+    """('open' | 'closed' | 'legacy' | 'broken', progress, next, closed, due) read from the child's own
+    README — the child describes itself. A README outside the grammar that el never stamped is a case
+    from before el: LEGACY, read after `el migrate` (P13); a stamped README el cannot parse any more is
+    BROKEN (a hand edit): both hold the parent open (F18), each is named by its own name and fix
+    (feedback 2026-09-15: 28 pre-el folders drew 28 BROKEN lines). `due` is the case deadline."""
     from . import store, stamp  # local: store imports order for the README render
     try:
-        body, _ = stamp.split(store.read(child, "README.md"))
+        text = store.read(child, "README.md")
     except Exception:  # noqa: BLE001 — missing or unreadable README = broken, never silent
         return ("broken", "", "", "", "")
+    body, _ = stamp.split(text)
     parsed = grammar.parse_readme(body)
     if parsed.errors:
-        return ("broken", "", "", "", "")
+        return ("legacy" if stamp.verify(text)[1] == "missing" else "broken", "", "", "", "")
     state: Dict[str, str] = {}
     for ln in parsed.sections.get("State", []):
         m = CASE_STATE_RE.match(ln)
@@ -215,6 +218,8 @@ def case_desc(status) -> str:
     kind, progress, nxt, closed, due = status
     if kind == "broken":
         return "BROKEN: README unparsable"
+    if kind == "legacy":
+        return "legacy (before el): not read until migrated"
     if kind == "closed":
         return _short(closed, SUMMARY_CHARS)
     desc = progress + (f" · next: {nxt}" if nxt else "") + (f" · due {due}" if due else "")
@@ -236,6 +241,8 @@ def _render_cases(case: Path, root_mode: bool) -> List[str]:
         link = f"[{k.name}]({prefix}{k.name}/README.md)"
         if s[0] == "broken":
             out.append(f"  - {link} — {case_desc(s)}, holds this case open → el --case {k.name} check")
+        elif s[0] == "legacy":
+            out.append(f"  - {link} — {case_desc(s)}, holds this case open → el --case {k.name} migrate")
         else:
             out.append(f"  - {link} — {case_desc(s)}")
     for k, s in closed[:CASES_SHOWN_CLOSED]:
@@ -647,8 +654,11 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
         if not desc or desc.startswith(PLACEHOLDER_FOLDER):
             out.append(f"folder {f.name}/ has no description → el readme add links \"{f.name}/ — что здесь\"")
     for k in child_cases(case, root_mode):
-        if child_status(k)[0] == "broken":
+        kind = child_status(k)[0]
+        if kind == "broken":
             out.append(f"nested case {k.name}: README unparsable — it holds this case open (F18) → el --case {k.name} check")
+        elif kind == "legacy":  # a case from before el: its own name and its own fix, never "broken" (2026-09-15)
+            out.append(f"nested case {k.name}: from before el (never stamped, outside the grammar) — it holds this case open (F18) → el --case {k.name} migrate")
     for small, other, share in duplicates(folders):
         out.append(f"{small} ≈ {other}: {int(share * 100)} % of {small.rsplit('/', 1)[-1]}'s text is verbatim in "
                    f"{other.rsplit('/', 1)[-1]} → say the difference in each summary, or merge")

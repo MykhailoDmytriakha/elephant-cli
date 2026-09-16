@@ -90,7 +90,9 @@ class CaseMap(unittest.TestCase):
     def test_broken_child_is_named_and_holds_the_parent_open(self):
         run("case", "new", "broken one", "--goal", "g")
         name = self.child("broken-one")
-        (self.project / ".cases" / name / "README.md").write_text("garbage\n", encoding="utf-8")
+        # a stamp that no longer matches = a hand edit since el wrote it (S4): BROKEN; a README that el
+        # never stamped is a case from before el — legacy, named by its own name (feedback 2026-09-15)
+        (self.project / ".cases" / name / "README.md").write_text("garbage\n\nstamp: 000000000000\n", encoding="utf-8")
         code, out, err = run("--case", self.project.name)
         self.assertEqual(code, 0, err)
         self.assertIn(f"[{name}](.cases/{name}/README.md) — BROKEN", (self.project / "README.md").read_text(encoding="utf-8"))

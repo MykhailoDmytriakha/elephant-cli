@@ -68,31 +68,31 @@ class TheFourKinds(Base):
         self.assertNotIn("[x]", self.read("TODO.md"))
         code, out, err = run("todo", "done", "1.1", "file:evidence/receipt.pdf", "fee paid")
         self.assertEqual(code, 0, err)
-        self.assertIn("  - [x] 1.1 pay the fee — file: [receipt.pdf](evidence/receipt.pdf)\n", self.read("TODO.md"))
+        self.assertIn("  - [x] 1.1 pay the fee\n    - result: fee paid\n      - file: [receipt.pdf](evidence/receipt.pdf)\n", self.read("TODO.md"))
         self.assertIn("RESULT · 1.1: file [receipt.pdf](evidence/receipt.pdf) — fee paid", self.read("JOURNAL.md"))
         self.assertIn("evidence: file [receipt.pdf](evidence/receipt.pdf)", out)
 
     def test_a_link_pasted_whole_and_a_path_outside_the_case(self):
         code, out, err = run("todo", "done", "1.1", "file:[receipt.pdf](evidence/receipt.pdf)", "paid")
         self.assertEqual(code, 0, err)
-        self.assertIn("— file: [receipt.pdf](evidence/receipt.pdf)", self.read("TODO.md"))
+        self.assertIn("      - file: [receipt.pdf](evidence/receipt.pdf)", self.read("TODO.md"))
         self.assertEqual(run("todo", "done", "1.2", "file:../outside.pdf", "x")[0], 2)
         self.assertEqual(run("todo", "done", "1.2", "file:/etc/hosts", "x")[0], 2)
 
     def test_ref_run_and_owner(self):
         code, out, err = run("todo", "done", "1.2", "ref:D005532-091426", "request filed via the portal")
         self.assertEqual(code, 0, err)
-        self.assertIn("  - [x] 1.2 file the request — ref: D005532-091426\n", self.read("TODO.md"))
+        self.assertIn("  - [x] 1.2 file the request\n    - result: request filed via the portal\n      - ref: D005532-091426\n", self.read("TODO.md"))
         code, out, err = run("todo", "done", "1.3", "run:make test", "x")
         self.assertEqual(code, 2, "run needs the arrow")
         self.assertIn("→", err)
         code, out, err = run("todo", "done", "1.3", "run:python3 -m unittest -> 12 OK", "tests pass")
         self.assertEqual(code, 0, err)
-        self.assertIn("— run: python3 -m unittest → 12 OK\n", self.read("TODO.md"), "-> is normalised to →")
+        self.assertIn("      - run: python3 -m unittest → 12 OK\n", self.read("TODO.md"), "-> is normalised to →")
         self.assertEqual(run("todo", "done", "1.1", "owner:me", "x")[0], 2, "owner takes no value")
         code, out, err = run("todo", "done", "1.1", "owner", "the clerk agreed: hand it in on Monday")
         self.assertEqual(code, 0, err)
-        self.assertIn("  - [x] 1.1 pay the fee — owner\n", self.read("TODO.md"))
+        self.assertIn("  - [x] 1.1 pay the fee\n    - result: the clerk agreed: hand it in on Monday\n      - owner\n", self.read("TODO.md"))
         self.assertIn("RESULT · 1.1: owner — the clerk agreed", self.read("JOURNAL.md"))
 
     def test_the_tail_is_outside_the_hundred_char_limit(self):
@@ -124,13 +124,14 @@ class ShownNeverNagged(Base):
 
 
 class SameDoor(Base):
-    def test_a_second_done_attaches_evidence_to_a_done_item(self):
+    def test_a_second_done_adds_evidence_to_a_done_item(self):
+        # 1.10.0 (the owner's word 2026-09-15): several proofs per item — a second done ADDS, the words are renewed
         run("todo", "done", "1.1", "owner", "paid, the owner says")
         code, out, err = run("todo", "done", "1.1", "file:evidence/receipt.pdf", "receipt saved")
         self.assertEqual(code, 0, err)
-        self.assertIn("1.1 was already done — evidence attached: file [receipt.pdf](evidence/receipt.pdf) (was: owner)", out)
-        self.assertIn("— file: [receipt.pdf](evidence/receipt.pdf)\n", self.read("TODO.md"))
-        self.assertNotIn("— owner", self.read("TODO.md"))
+        self.assertIn("1.1 was already done — evidence now: owner · file [receipt.pdf](evidence/receipt.pdf) (was: owner) · "
+                      "result renewed (was: «paid, the owner says»)", out)
+        self.assertIn("    - result: receipt saved\n      - owner\n      - file: [receipt.pdf](evidence/receipt.pdf)\n", self.read("TODO.md"))
         j = self.read("JOURNAL.md")
         self.assertIn("RESULT · 1.1: owner — paid", j, "history stays")
         self.assertIn("RESULT · 1.1: file [receipt.pdf](evidence/receipt.pdf) — receipt saved", j)
@@ -147,7 +148,7 @@ class SameDoor(Base):
         self.assertEqual(code, 0, err)
         todo = self.read("TODO.md")
         for m in (1, 2, 3):
-            self.assertRegex(todo, rf"  - \[x\] 1\.{m} .* — run: make check → OK\n")
+            self.assertRegex(todo, rf"  - \[x\] 1\.{m} [^\n]*\n    - result: pre-flight verified\n      - run: make check → OK\n")
         self.assertEqual(self.read("JOURNAL.md").count("RESULT · 1.1, 1.2, 1.3: run make check → OK — pre-flight verified"), 1)
 
 
@@ -162,9 +163,9 @@ class TheTailTravels(Base):
         code, out, err = run("phase", "close", "1", "all three ended")
         self.assertEqual(code, 0, err)
         pf = self.read("phases/1-work.md")
-        self.assertIn("- 1.1 ✓ pay the fee — file: [receipt.pdf](../evidence/receipt.pdf)\n", pf)
-        self.assertIn("- 1.2 ✓ file the request — ref: D005532\n", pf)
-        self.assertIn("- 1.3 ✓ run the tests — owner\n", pf)
+        self.assertIn("- 1.1 ✓ pay the fee\n  - result: paid\n    - file: [receipt.pdf](../evidence/receipt.pdf)\n", pf)
+        self.assertIn("- 1.2 ✓ file the request\n  - result: filed\n    - ref: D005532\n", pf)
+        self.assertIn("- 1.3 ✓ run the tests\n  - result: ok\n    - owner\n", pf)
         self.assertIn("violations: 0", run("check")[1])
 
     def test_a_deleted_evidence_file_is_a_dead_link_with_a_fix(self):

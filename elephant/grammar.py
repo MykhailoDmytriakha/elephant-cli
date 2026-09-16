@@ -7,7 +7,7 @@ agent can look the rule up. Nothing here touches the filesystem.
 """
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Tuple, List, Optional
 
 from . import stamp as stamp_mod
 
@@ -21,7 +21,11 @@ TODO_MAX_LINES = 200
 # 100 since 0.21 (feedback 2026-09-09): a rollout step reads `<Env>: [<Block>] <Action> -> expect <Result>`
 # — the expected result IS the checkable outcome F13 asks for, and 80 squeezed it to `ENABLED=1`;
 # 100 plus the `  - [ ] NN.MM ` prefix still fits one terminal line of 120 columns.
+# The owner's word 2026-09-15: 100 stays; an item over it is rephrased, not counted differently.
 TODO_ITEM_CHARS = 100
+# F22 — an item's pockets: `why:` (one), `note:` (several), each a pointer-sized line; the number is
+# README's pointer-line limit — a note points at context, the context itself lives in a file.
+POCKET_CHARS = README_POINTER_CHARS
 EVENT_CHARS = 200
 EVENT_WARN_CHARS = 180
 EVENT_BODY_LINES = 5
@@ -58,10 +62,16 @@ def split_evidence(text: str):
 
 
 def visible_len(text: str) -> int:
-    """Length as the reader sees it: markdown links `[name](path)` count as `name` (feedback 2026-09-01)."""
+    """Length as the reader sees it: markdown links `[name](path)` count as `name` (feedback 2026-09-01).
+    Nothing else is exempt (the owner's word, 2026-09-15: a 103-char item with an endpoint path is
+    rephrased — verb first, the path stays, the filler goes — not counted differently)."""
     return len(LINK_RE.sub(r"\1", text))
 DEEP_ITEM_RE = re.compile(r"^\s+- \[( |x)\] \d+\.\d+\.\d+")
 WAITS_RE = re.compile(r"^  - waits: (\S+)$")
+PHASE_NOTE_RE = re.compile(r"^  - note: (.+)$")                      # F22: a note under a phase line
+POCKET_RE = re.compile(r"^    - (why|note|result):(?: (.+))?$")       # F22: an item's pockets
+EVIDENCE_LINE_RE = re.compile(r"^(?:    |      )- (file|ref|run|owner)(?:: (.+))?$")  # F20: one line per proof
+POCKET_KINDS = ("why", "note", "result")
 SECTION_RE = re.compile(r"^## (.+)$")
 PHASE_TITLE_RE = re.compile(r"^# Phase (\d+) — (.+)$")
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -206,8 +216,22 @@ class Item:
     hold_reason: str = ""
     due: str = ""        # YYYY-MM-DD from the `— due: …` suffix; the tool counts dates it can parse
     after: List[str] = field(default_factory=list)  # F19: `— after: N.M, case` — what must end first
-    kind: str = ""       # F20: the kind of evidence of a done item — file · ref · run · owner ("" = done before 1.5.0)
-    proof: str = ""      # what the kind points at: `[name](path)` · the reference · `command → outcome`; owner has none
+    # F22 — the pockets under the item, one line each, rendered in this order: why · note… · result
+    why: str = ""                       # what the item is for — the owner's words, one line
+    notes: List[str] = field(default_factory=list)   # constraints, who to call, what to bring, a link to a document
+    result: str = ""                    # what came out — written by `done` only
+    # F20 — the evidence of a done item: (kind, proof) per line, kinds file · ref · run · owner; several allowed.
+    # An item ticked before 1.5.0 has none ("untyped"); an item done before 1.10.0 carried one as a tail.
+    evidence: List[Tuple[str, str]] = field(default_factory=list)
+
+    @property
+    def kind(self) -> str:
+        """The first kind — for counts and old call sites; the full list is `evidence`."""
+        return self.evidence[0][0] if self.evidence else ""
+
+    @property
+    def proof(self) -> str:
+        return self.evidence[0][1] if self.evidence else ""
 
 
 @dataclass
@@ -219,6 +243,7 @@ class Phase:
     summary: Optional[str] = None
     items: List[Item] = field(default_factory=list)
     waits: List[str] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)  # F22: notes parked under a planned or open phase
 
 
 @dataclass
@@ -238,9 +263,31 @@ class Todo(Result):
 def parse_todo(text: str) -> Todo:
     r = Todo()
     lines = _frame(text, r)
-    if len(lines) > TODO_MAX_LINES:
-        r.error("F4", 0, f"TODO is {len(lines)} lines, limit {TODO_MAX_LINES}")
-    phase, seen = None, set()
+    # F4 counts what the agent writes — phase and item lines, notes, why, waits. Lines el renders from
+    # `done` (`result:` and the evidence under it) are named, not counted: the agent cannot shorten them.
+    rendered = sum(1 for ln in lines if EVIDENCE_LINE_RE.match(ln) or (POCKET_RE.match(ln) and ln.startswith("    - result:")))
+    own = len(lines) - rendered
+    if own > TODO_MAX_LINES:
+        aside = f" (plus {rendered} result lines el renders, not counted)" if rendered else ""
+        r.error("F4", 0, f"TODO is {own} lines of your text, limit {TODO_MAX_LINES}{aside}")
+    phase, item, seen = None, None, set()
+    in_result = False  # after `    - result:` the evidence nests one level deeper
+
+    def finish(it: Optional[Item]):
+        """The item's lines are all read. A done item with no proof line under it may carry the tail form
+        of 1.5.0–1.9.0 (`text — kind: proof`): split it now — not at the item line, where a text that merely
+        ends in «— file» (found in the tool's own case, 2026-09-15) would be mistaken for evidence once
+        its proofs had moved to their own lines. The tail is outside the F13 count, the text is not."""
+        if it is None:
+            return
+        if it.done and not it.evidence:
+            txt, kind, proof = split_evidence(it.text)
+            if kind:
+                it.text = txt
+                it.evidence.append((kind, proof))
+        if visible_len(it.text) > TODO_ITEM_CHARS:
+            r.error("F13", it.line, f"item {it.n}.{it.m} text is {visible_len(it.text)} visible chars, limit {TODO_ITEM_CHARS}")
+
     for i, raw in enumerate(lines[1:], start=2):
         if raw.strip() == "":
             continue
@@ -264,7 +311,8 @@ def parse_todo(text: str) -> Todo:
                     if not re.search(rf"phases/{n}-[a-z0-9-]+\.md", summary):
                         r.error("F5", i, f"closed phase {n}: summary must end with a link to its file: `[phases/{n}-name.md](phases/{n}-name.md)`")
             # An open phase may carry `— <one-line intent>` (rolling wave); only closed phases need a summary.
-            phase = Phase(n, name, done, i, summary)
+            finish(item)
+            phase, item, in_result = Phase(n, name, done, i, summary), None, False
             r.phases.append(phase)
             continue
         m = ITEM_RE.match(raw)
@@ -272,13 +320,11 @@ def parse_todo(text: str) -> Todo:
             if phase is None:
                 r.error("F4", i, "item before any phase")
                 continue
+            finish(item)
             mark, n, k, txt = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4).strip()
             held, reason, due = mark == "~", "", ""
             if held and " — hold: " in txt:
                 txt, reason = txt.rsplit(" — hold: ", 1)
-            kind, proof = "", ""
-            if mark == "x":  # only a done item carries evidence; the suffix is outside the F13 limit
-                txt, kind, proof = split_evidence(txt)
             if " — due: " in txt:
                 txt, due = txt.rsplit(" — due: ", 1)
                 due = due.strip()
@@ -293,11 +339,62 @@ def parse_todo(text: str) -> Todo:
                         r.error("F19", i, f"item {n}.{k}: `after:` expects N.M or a case name, got `{ref}`")
             if n != phase.n:
                 r.error("F4", i, f"item {n}.{k} listed under phase {phase.n}")
-            if visible_len(txt) > TODO_ITEM_CHARS:
-                r.error("F13", i, f"item {n}.{k} text is {visible_len(txt)} visible chars, limit {TODO_ITEM_CHARS}")
             if phase.done:
                 r.error("F5", i, f"closed phase {phase.n} still lists items — they belong in the phase file")
-            phase.items.append(Item(n, k, mark == "x", txt, i, held, reason, due, after, kind, proof))
+            item, in_result = Item(n, k, mark == "x", txt, i, held, reason, due, after), False  # F13 is checked in finish()
+            phase.items.append(item)
+            continue
+        m = EVIDENCE_LINE_RE.match(raw)
+        if m and item is not None and (in_result or raw.startswith("    - ")):
+            # F20: a proof line — `- file: [x](path)` · `- ref: …` · `- run: cmd → out` · `- owner`; only under a done item
+            kind, proof = m.group(1), (m.group(2) or "").strip()
+            if not item.done:
+                r.error("F20", i, f"item {item.n}.{item.m} is open and carries evidence `{kind}` — evidence comes with `done`, or the tick is missing")
+            elif kind == "owner" and proof:
+                r.error("F20", i, f"item {item.n}.{item.m}: `owner` carries no value — the outcome is the owner's word")
+            elif kind != "owner" and not proof:
+                r.error("F20", i, f"item {item.n}.{item.m}: `{kind}:` needs its proof")
+            item.evidence.append((kind, proof))
+            continue
+        m = POCKET_RE.match(raw)
+        if m:
+            if item is None:
+                r.error("F22", i, f"`{m.group(1)}:` under no item — a pocket line belongs under `  - [ ] N.M …`")
+                continue
+            pocket, val = m.group(1), (m.group(2) or "").strip()
+            if pocket == "result":
+                if not item.done:
+                    r.error("F20", i, f"item {item.n}.{item.m} is open and carries `result:` — the result comes with `done`, or the tick is missing")
+                if item.result:
+                    r.error("F22", i, f"item {item.n}.{item.m} has two `result:` lines — one result per item, several proofs under it")
+                item.result, in_result = val, True
+                continue
+            in_result = False
+            if not val:
+                r.error("F22", i, f"item {item.n}.{item.m}: `{pocket}:` is empty")
+            elif visible_len(val) > POCKET_CHARS:
+                r.error("F22", i, f"item {item.n}.{item.m}: `{pocket}:` is {visible_len(val)} visible chars, limit {POCKET_CHARS} — "
+                                  f"a pocket points at context; the context itself goes to a file, linked")
+            if pocket == "why":
+                if item.why:
+                    r.error("F22", i, f"item {item.n}.{item.m} has two `why:` lines — one why per item; the rest are notes")
+                item.why = val
+            else:
+                item.notes.append(val)
+            continue
+        m = PHASE_NOTE_RE.match(raw)
+        if m:
+            if phase is None:
+                r.error("F22", i, "`note:` before any phase")
+            elif phase.done:
+                r.error("F5", i, f"closed phase {phase.n} still carries a note — it belongs in the phase file")
+            else:
+                val = m.group(1).strip()
+                if visible_len(val) > POCKET_CHARS:
+                    r.error("F22", i, f"phase {phase.n}: `note:` is {visible_len(val)} visible chars, limit {POCKET_CHARS}")
+                phase.notes.append(val)
+            finish(item)
+            item, in_result = None, False
             continue
         m = WAITS_RE.match(raw)
         if m:
@@ -305,8 +402,12 @@ def parse_todo(text: str) -> Todo:
                 r.error("F6", i, "`waits:` before any phase")
             else:
                 phase.waits.append(m.group(1))
+            finish(item)
+            item, in_result = None, False
             continue
-        r.error("F4", i, "unparsable line: expected `- [ ] N Name`, `  - [ ] N.M text` or `  - waits: <case>`")
+        r.error("F4", i, "unparsable line: expected `- [ ] N Name`, `  - [ ] N.M text`, `  - note: …` (phase), "
+                         "`    - why: | note: | result: …` (item, F22), `      - <kind>: <proof>` (evidence, F20) or `  - waits: <case>`")
+    finish(item)
     return r
 
 

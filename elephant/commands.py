@@ -65,12 +65,26 @@ def _link_phase_paths(summary: str) -> str:
     return BARE_PHASE_PATH_RE.sub(lambda m: f"[{m.group(1)}]({m.group(1)})", summary)
 
 
-def _evidence_suffix(it: grammar.Item) -> str:
-    """The tail el writes on a done item (F20): `— file: [x](evidence/x.jpg)` · `— ref: …` · `— run: … → …` ·
-    `— owner`. Outside the F13 limit — the owner reads it and clicks it, the agent never types it."""
-    if not it.kind:
-        return ""
-    return f" — {it.kind}: {it.proof}" if it.proof else f" — {it.kind}"
+def _item_block(it: grammar.Item) -> List[str]:
+    """The item as TODO renders it (F4 · F20 · F22): its line with the suffixes el keeps outside the F13
+    count (after · due · hold), then the pockets in one fixed order — `why:` · `note:`… · `result:` with
+    one proof line under it per kind (file · ref · run · owner). A done item without result words (ticked
+    before 1.10.0, or a child case at its parent) lists its proof lines directly under the item. Written
+    by el, read by the owner: the tick, the words and the proof are three lines, not one (the owner's
+    word, 2026-09-15 — «результат в одну строку неудобно»)."""
+    mark = "x" if it.done else ("~" if it.held else " ")
+    suffix = ((f" — after: {', '.join(it.after)}" if it.after else "") + (f" — due: {it.due}" if it.due else "")
+              + (f" — hold: {it.hold_reason}" if it.held and it.hold_reason else ""))
+    lines = [f"  - [{mark}] {it.n}.{it.m} {it.text}{suffix}"]
+    if it.why:
+        lines.append(f"    - why: {it.why}")
+    lines += [f"    - note: {n}" for n in it.notes]
+    if it.done and (it.result or it.evidence):
+        deeper = "      " if it.result else "    "
+        if it.result:
+            lines.append(f"    - result: {it.result}")
+        lines += [f"{deeper}- {k}: {pr}" if pr else f"{deeper}- {k}" for k, pr in it.evidence]
+    return lines
 
 
 def render_todo(todo: grammar.Todo) -> str:
@@ -81,12 +95,9 @@ def render_todo(todo: grammar.Todo) -> str:
         if p.summary:
             head += f" — {_link_phase_paths(p.summary)}"
         out.append(head)
+        out += [f"  - note: {n}" for n in p.notes]  # F22: what the phase has to know, parked until it runs
         for it in [i for i in p.items if not i.held] + [i for i in p.items if i.held]:
-            mark = "x" if it.done else ("~" if it.held else " ")
-            suffix = ((f" — after: {', '.join(it.after)}" if it.after else "") + (f" — due: {it.due}" if it.due else "")
-                      + _evidence_suffix(it)
-                      + (f" — hold: {it.hold_reason}" if it.held and it.hold_reason else ""))
-            out.append(f"  - [{mark}] {it.n}.{it.m} {it.text}{suffix}")
+            out += _item_block(it)
         for w in p.waits:
             out.append(f"  - waits: {w}")
     return "\n".join(out) + "\n"
@@ -409,7 +420,7 @@ def _trim_suggestion(text: str, limit: int) -> str:
 # ---- todo ---------------------------------------------------------------------------------------
 EVIDENCE_KINDS_HELP = ("file:<path in the case or the project> (a photo, pdf, receipt, letter, screenshot, transcript, a source file) · "
                        "ref:<trace outside the case> (a request number, a URL, a letter in the mailbox) · "
-                       "run:\"<command → outcome>\" (a machine check) · owner (the owner's word — the only word that counts)")
+                       "run:\"<command -> outcome>\" (a machine check; → or ->) · owner (the owner's word — the only word that counts)")
 
 
 def _parse_evidence(case: Path, ref: str, token: str):
@@ -448,9 +459,15 @@ def _parse_evidence(case: Path, ref: str, token: str):
                              f"then from the project root); put it there or name what you have: ref:<trace> · owner", 3)
         return kind, f"[{target.name}]({os.path.relpath(target, case)})"
     if kind == "run":
-        value = value.replace("->", "→")
+        value = value.replace("->", "→")  # ASCII is accepted, the record keeps one arrow
         if "→" not in value:
-            raise StoreError(f"run: needs the command and what came out, joined by →: el todo done {ref} run:\"python3 -m unittest → 12 OK\" \"…\"", 2)
+            # feedback 2026-09-15: `run:curl x -> UP` typed WITHOUT quotes reached el as `run:curl x -` — the shell took
+            # `>` as a redirection and wrote the outcome into a file; the refusal named only → and the agent
+            # concluded that -> is rejected. A trailing `-` is the trace; it is named, like a swallowed `$150`.
+            trace = (" — the value ends with `-`: a `->` cut by the shell? unquoted, `>` redirects the rest into a file "
+                     "named like the outcome (remove it); quote the value" if value.rstrip().endswith("-") else "")
+            raise StoreError(f"run: needs the command and what came out, joined by → or ->: "
+                             f"el todo done {ref} run:\"python3 -m unittest -> 12 OK\" \"…\"{trace}", 2)
         return kind, value
     return kind, value
 
@@ -482,53 +499,73 @@ def _evidence_file(case: Path, value: str) -> Optional[Path]:
     return None
 
 
-def todo_done(case: Path, ref: str, evidence: str = "", outcome: str = "") -> Outcome:
-    """Done with evidence (F20): `el todo done N.M <kind> "what came out"` — the kind comes first
-    (file:<path> · ref:<trace> · run:"<command → outcome>" · owner), the outcome goes to the journal
-    as `RESULT · N.M: <kind> <proof> — …`, and the TODO line gets the tail `— <kind>: <proof>`. The
-    tick, the kind and the RESULT are one write. Nothing to say? Then it was not done:
-    `el todo cancel N.M "why"`. A second `done` on a done item attaches (or replaces) its evidence —
-    the door for items ticked before 1.5.0, which carry no kind and are never nagged: the rule lives
-    at the write, not at the read (the owner's word, 2026-09-14)."""
+def _is_kind_token(token: str) -> bool:
+    """A leading argument of `done` that names evidence: `file:…` · `ref:…` · `run:…` · `owner`."""
+    return bool(re.fullmatch(r"(file|ref|run):.+", token, re.S)) or token.strip() == "owner"
+
+
+def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "") -> Outcome:
+    """Done with evidence (F20): `el todo done N.M <kind> [<kind> …] "what came out"` — the kinds come
+    first (file:<path> · ref:<trace> · run:"<command → outcome>" · owner), several when the proof is several
+    things; the outcome goes to the journal as `RESULT · N.M: <kinds> — …` and under the TODO line as
+    `result: …` with one proof line per kind (F22). The tick, the words and the proofs are one write.
+    Nothing to say? Then it was not done: `el todo cancel N.M "why"`. A second `done` on a done item ADDS
+    evidence and renews the words (the owner's word, 2026-09-15: several artifacts per item) — the door for
+    items ticked before 1.5.0, which carry no kind and are never nagged: the rule lives at the write."""
     out = Outcome()
     if not re.fullmatch(r"[\d.,\s–-]+", ref) or "." not in ref:
         raise StoreError("use `el todo done N.M <kind> \"what came out\"` (or a range N.A-N.B, a list N.A, N.B) for items, "
                          "`el phase close N` for a phase", 2)
-    kind, proof = _parse_evidence(case, ref, evidence)
-    if kind == "ref" and not re.match(r"^[a-z][a-z0-9+.-]*:", proof) and _evidence_file(case, proof.split(" ")[0]) is not None:
-        out.warn(f"ref:{proof} is a file in reach — file:{proof.split(' ')[0]} would be checked (it exists) and linked; "
-                 f"ref is for a trace outside the case a person checks elsewhere")
+    if not tokens:
+        _parse_evidence(case, ref, "")  # raises the four-kinds refusal
+    proofs: List[Tuple[str, str]] = []
+    for token in tokens:
+        kind, proof = _parse_evidence(case, ref, token)
+        if kind == "ref" and not re.match(r"^[a-z][a-z0-9+.-]*:", proof) and _evidence_file(case, proof.split(" ")[0]) is not None:
+            out.warn(f"ref:{proof} is a file in reach — file:{proof.split(' ')[0]} would be checked (it exists) and linked; "
+                     f"ref is for a trace outside the case a person checks elsewhere")
+        if (kind, proof) not in proofs:
+            proofs.append((kind, proof))
     outcome = " ".join(outcome.split())
     if not outcome:
-        raise StoreError(f"done needs what came out (F20): el todo done {ref} {evidence.strip()} \"what came out\" — "
+        raise StoreError(f"done needs what came out (F20): el todo done {ref} {' '.join(tokens)} \"what came out\" — "
                          f"nothing came out? then it was not done: el todo cancel {ref} \"why\"", 2)
+    if grammar.visible_len(outcome) > grammar.POCKET_CHARS:
+        raise StoreError(f"the outcome is {grammar.visible_len(outcome)} visible chars, limit {grammar.POCKET_CHARS} (F22) — "
+                         f"one line under the item; the story goes to the phase file or a document\n"
+                         f"  suggestion: \"{_trim_suggestion(outcome, grammar.POCKET_CHARS)}\"", 3)
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)
     already = [it for it in items if it.done]
     fresh = [it for it in items if not it.done]
     blocking = _blocking(case, todo)
     done_now = {f"{phase.n}.{it.m}" for it in fresh}
-    was = {f"{phase.n}.{it.m}": (it.kind, it.proof) for it in already}
+    was = {f"{phase.n}.{it.m}": (list(it.evidence), it.result) for it in already}
     for it in fresh:
         it.done, it.held, it.hold_reason = True, False, ""
+        it.evidence = list(proofs)
+    for it in already:
+        it.evidence += [pr for pr in proofs if pr not in it.evidence]
     for it in items:
-        it.kind, it.proof = kind, proof
+        it.result = outcome
     out.absorb(_write_todo(case, todo))
     refs = _refs(phase, items)
-    shown = f"{kind} {proof}" if proof else kind
+    shown = " · ".join(f"{k} {pr}".strip() for k, pr in proofs)
     out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome}", f"p{phase.n}").lines
     for it in fresh:
         left = [r for r, _ in blocking.get(f"{phase.n}.{it.m}", []) if r not in done_now]
         if left:
             out.warn(f"{phase.n}.{it.m} was after {', '.join(left)}, still open — was the dependency wrong, or the order?")
     if len(fresh) == 1:
-        out.say(f"done: {_refs(phase, fresh)} {fresh[0].text} → TODO.md · RESULT in the journal · evidence: {shown}")
+        out.say(f"done: {_refs(phase, fresh)} {fresh[0].text} → TODO.md (result + {len(proofs)} proof line(s)) · RESULT in the journal · evidence: {shown}")
     elif fresh:
         out.say(f"done: {_refs(phase, fresh)} ({len(fresh)} items) → TODO.md · one RESULT in the journal · evidence: {shown}")
     for it in already:
-        k, pr = was[f"{phase.n}.{it.m}"]
-        before = (f"{k} {pr}".strip() if k else "untyped")
-        out.say(f"{phase.n}.{it.m} was already done — evidence attached: {shown} (was: {before}) · RESULT in the journal")
+        ev0, words0 = was[f"{phase.n}.{it.m}"]
+        before = " · ".join(f"{k} {pr}".strip() for k, pr in ev0) or "untyped"
+        renewed = f"result renewed (was: «{words0}»)" if words0 and words0 != outcome else "result kept"
+        out.say(f"{phase.n}.{it.m} was already done — evidence now: "
+                f"{' · '.join(f'{k} {pr}'.strip() for k, pr in it.evidence)} (was: {before}) · {renewed} · RESULT in the journal")
     return out
 
 
@@ -707,7 +744,27 @@ def _valid_date(due: str) -> str:
     return due
 
 
-def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None) -> Outcome:
+def _pocket_text(label: str, text: str, ref: str) -> str:
+    """A pocket line (F22) at the write door: one line, non-empty, within the pointer limit."""
+    text = " ".join(text.split())
+    if not text:
+        raise StoreError(f"{label} needs a text: el todo {label} {ref} \"…\"", 2)
+    if grammar.visible_len(text) > grammar.POCKET_CHARS:
+        raise StoreError(f"{label}: is {grammar.visible_len(text)} visible chars, limit {grammar.POCKET_CHARS} (F22) — a pocket points at "
+                         f"context, the context itself goes to a file in the case, linked [name](docs/file.md)\n"
+                         f"  suggestion: \"{_trim_suggestion(text, grammar.POCKET_CHARS)}\"", 3)
+    return text
+
+
+REPHRASE_HINT = ("  rephrase, do not truncate: verb first, the path or flag stays, the filler goes — "
+                 "«Trigger /v3/x, confirm FLAG=false in pod logs» is one action with its checkable outcome")
+
+
+def _item_context(it: grammar.Item) -> str:
+    return " ".join([it.text, it.why, *it.notes])
+
+
+def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why: str = "", notes: Optional[List[str]] = None) -> Outcome:
     """Add item N.M (M = next free) to an open or planned phase N; `ref` is the phase number.
     The text may end with `— due: YYYY-MM-DD`. `before` = N.K puts it in place instead of at the
     end (feedback 2026-09-08: an item refused for length and re-added later landed last, and a
@@ -731,18 +788,76 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None) -> O
     if grammar.visible_len(text) > grammar.TODO_ITEM_CHARS:
         raise StoreError(f"item text is {grammar.visible_len(text)} visible chars, limit {grammar.TODO_ITEM_CHARS} (F13); "
                          f"markdown links count as their name\n"
-                         f"  suggestion: \"{_trim_suggestion(text, grammar.TODO_ITEM_CHARS)}\"\n"
+                         f"  suggestion: \"{_trim_suggestion(text, grammar.TODO_ITEM_CHARS)}\"\n{REPHRASE_HINT}\n"
                          f"  (a re-added item takes the next free number at the END of the list — "
                          f"`el todo add {ref} \"…\" --before {phase.n}.K` puts it in place)", 3)
     m = _next_number(case, todo, phase)
     item = grammar.Item(phase.n, m, False, text, 0, due=due)
+    if why:
+        item.why = _pocket_text("why", why, f"{phase.n}.{m}")
+    item.notes = [_pocket_text("note", n, f"{phase.n}.{m}") for n in (notes or [])]
     phase.items.insert(at, item)
     if after:
         _set_after(case, todo, item, after)
     out.absorb(_write_todo(case, todo))
+    pockets = (" · why" if item.why else "") + (f" · {len(item.notes)} note(s)" if item.notes else "")
     out.say(f"added: {phase.n}.{m} {text}{f' — after: {chr(44).join(item.after)}' if item.after else ''}{f' — due: {due}' if due else ''}"
-            f"{f' (before {before})' if before else ''} → TODO.md")
-    _remind_link(case, f"{phase.n}.{m}", text, out)
+            f"{f' (before {before})' if before else ''}{pockets} → TODO.md")
+    _remind_link(case, f"{phase.n}.{m}", _item_context(item), out)
+    return out
+
+
+def todo_why(case: Path, ref: str, text: str) -> Outcome:
+    """`el todo why N.M "…"` — what the item is for, in the owner's words (F22): the line the agent reads
+    before going, so it knows what to ask when it gets there (the owner's word, 2026-09-15: went to the
+    court, read the item, did not understand why). One per item; "" removes it."""
+    out = Outcome()
+    todo = _todo(case, out)
+    phase, item = _find_item(todo, ref)
+    text = " ".join(text.split())
+    old = item.why
+    item.why = _pocket_text("why", text, ref) if text else ""
+    out.absorb(_write_todo(case, todo))
+    if item.why:
+        out.say(f"why {ref}: «{item.why}»" + (f" (was: «{old}»)" if old else "") + " → TODO.md")
+    else:
+        out.say(f"why {ref} removed" + (f" (was: «{old}»)" if old else " — there was none") + " → TODO.md")
+    _remind_link(case, ref, _item_context(item), out)
+    return out
+
+
+def todo_note(case: Path, ref: str, text: str, edit: Optional[int] = None, drop: Optional[int] = None) -> Outcome:
+    """`el todo note N.M "…"` adds a note under the item — a constraint, who to call, what to bring, a link
+    to the document (F22); a list `N.M, N.K` puts the same note under several items (a problem seen in one
+    environment is expected at the same step of the next ones). `--edit k "…"` rewrites note k in place,
+    `--drop k` removes it: every list has add · edit · drop."""
+    out = Outcome()
+    todo = _todo(case, out)
+    phase, items = _select_items(todo, ref)
+    if drop is not None or edit is not None:
+        if len(items) != 1:
+            raise StoreError("--edit / --drop work on one item: el todo note N.M --drop k", 2)
+        it, k = items[0], (drop if drop is not None else edit)
+        if not 1 <= k <= len(it.notes):
+            raise StoreError(f"{ref} has {len(it.notes)} note(s) — k is 1..{len(it.notes)}" if it.notes else f"{ref} has no notes", 4)
+        if drop is not None:
+            gone = it.notes.pop(k - 1)
+            out.absorb(_write_todo(case, todo))
+            out.say(f"note {k} dropped from {ref}: «{gone}» → TODO.md")
+            return out
+        new = _pocket_text("note", text, ref)
+        old, it.notes[k - 1] = it.notes[k - 1], new
+        out.absorb(_write_todo(case, todo))
+        out.say(f"note {k} of {ref}: «{new}» (was: «{old}») → TODO.md")
+        return out
+    text = _pocket_text("note", text, ref)
+    for it in items:
+        it.notes.append(text)
+    out.absorb(_write_todo(case, todo))
+    refs = _refs(phase, items)
+    out.say(f"note added under {refs}: «{text}» → TODO.md" + (f" (note {len(items[0].notes)} of {ref})" if len(items) == 1 else ""))
+    for it in items:
+        _remind_link(case, f"{phase.n}.{it.m}", _item_context(it), out)
     return out
 
 
@@ -817,20 +932,20 @@ def todo_edit(case: Path, ref: str, text: str) -> Outcome:
         _set_after(case, todo, item, after)
     if grammar.visible_len(text) > grammar.TODO_ITEM_CHARS:
         raise StoreError(f"item text is {grammar.visible_len(text)} visible chars, limit {grammar.TODO_ITEM_CHARS} (F13)\n"
-                         f"  suggestion: \"{_trim_suggestion(text, grammar.TODO_ITEM_CHARS)}\"", 3)
+                         f"  suggestion: \"{_trim_suggestion(text, grammar.TODO_ITEM_CHARS)}\"\n{REPHRASE_HINT}", 3)
     old_text, item.text = item.text, text
     if due:
         item.due = due
     out.absorb(_write_todo(case, todo))
     out.say(f"edited: {ref} → «{item.text}» (was: «{old_text}») → TODO.md")  # the new text is shown: an edit aimed at the wrong number is seen at once (feedback 2026-09-08)
-    _remind_link(case, ref, text, out)
+    _remind_link(case, ref, _item_context(item), out)
     return out
 
 
 def _list_lines(phase: grammar.Phase) -> List[str]:
     """The phase as TODO renders it — active items in order, held ones last."""
     items = [i for i in phase.items if not i.held] + [i for i in phase.items if i.held]
-    return [f"  - [{'x' if it.done else ('~' if it.held else ' ')}] {it.n}.{it.m} {it.text}" for it in items]
+    return [ln for it in items for ln in _item_block(it)]
 
 
 def _number_ranges(phase: grammar.Phase) -> str:
@@ -929,7 +1044,7 @@ def todo_reopen(case: Path, ref: str, why: str) -> Outcome:
     if not items:
         return out
     for it in items:
-        it.done, it.kind, it.proof = False, "", ""  # the evidence tail goes with the tick; the RESULT stays in the journal
+        it.done, it.result, it.evidence = False, "", []  # the result and its proofs go with the tick; why/notes stay; the RESULT stays in the journal
     out.absorb(_write_todo(case, todo))
     refs = _refs(phase, items)
     verb = "возвращён" if len(items) == 1 else "возвращены"
@@ -1112,7 +1227,7 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
         raise StoreError(f"phase {n} {phase.name} ran before it was cancelled — its file and journal hold its story; "
                          f"plan the work again under the next number: el phase plan {free} \"{name}\"", 4)
     pf = _phase_file(case, n, phase.name)
-    old_goal, items, extra = "", [], []
+    old_goal, items, extra, phase_notes = "", [], [], []
     if pf.exists():
         lines = pf.read_text(encoding="utf-8").split("\n")
         section = ""
@@ -1123,10 +1238,21 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
             if not ln.strip():
                 continue
             m = re.fullmatch(rf"- {n}\.(\d+) [✓✗] (.*)", ln)
+            pocket = re.fullmatch(r"  - (why|note): (.+)", ln)
             if section == "Items at cancel" and m:
                 text, _ = _rewrite_links(m.group(2), pf.parent, new_base=case)  # links come back up to the case root
                 text, _, _ = grammar.split_evidence(text)  # an item comes back open: its evidence, if any, stays in the journal
                 items.append(grammar.Item(n, int(m.group(1)), False, text, 0))
+            elif section == "Items at cancel" and items and pocket:  # F22: the pockets come back with their item
+                val, _ = _rewrite_links(pocket.group(2), pf.parent, new_base=case)
+                if pocket.group(1) == "why":
+                    items[-1].why = val
+                else:
+                    items[-1].notes.append(val)
+            elif section == "Items at cancel" and items and re.fullmatch(r"\s+- (file|ref|run|owner)\b.*", ln):
+                continue  # evidence of a done item: the item comes back open, the RESULT stays in the journal
+            elif section == "Notes at cancel" and ln.startswith("- note: "):
+                phase_notes.append(_rewrite_links(ln[len("- note: "):], pf.parent, new_base=case)[0])
             else:
                 extra.append(ln)
         if extra:
@@ -1135,7 +1261,7 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
         parsed = grammar.parse_phase_file("\n".join(lines))
         old_goal = "" if parsed.errors or parsed.goal == "—" else parsed.goal
     was = phase.summary or ""
-    phase.done, phase.name, phase.items = False, name, items
+    phase.done, phase.name, phase.items, phase.notes = False, name, items, phase_notes
     phase.summary = intent if intent is not None else (old_goal or None)
     if pf.exists():
         pf.unlink()  # born closed at cancel, nothing of its own inside (checked above)
@@ -1145,6 +1271,61 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
     out.say(f"re-planned: phase {n} {name} — {phase.summary or '(no goal)'} → TODO.md (was cancelled)"
             + (f" · items back: {_refs(phase, items)}" if items else "") + f" · open it later: el phase open {n}")
     return out
+
+
+def phase_note(case: Path, n: int, text: str, edit: Optional[int] = None, drop: Optional[int] = None) -> Outcome:
+    """`el phase note N "…"` — what the phase has to know before and while it runs (F22): a permit that
+    expires, a service to call, a problem seen one stage earlier. Parked under a planned phase it waits in
+    TODO under the phase line and travels into the phase file at close. `--edit k` · `--drop k`."""
+    out = Outcome()
+    todo = _todo(case, out)
+    phase = todo.phase(n)
+    if phase is None:
+        raise StoreError(f"no phase {n} in TODO.md — plan it first: el phase plan {n} \"Name\" --goal \"…\"", 4)
+    if phase.done:
+        raise StoreError(f"phase {n} {phase.name} is closed — its notes live in its file: phases/{_phase_file(case, n, phase.name).name}", 4)
+    k = drop if drop is not None else edit
+    if k is not None:
+        if not 1 <= k <= len(phase.notes):
+            raise StoreError(f"phase {n} has {len(phase.notes)} note(s) — k is 1..{len(phase.notes)}" if phase.notes else f"phase {n} has no notes", 4)
+        if drop is not None:
+            gone = phase.notes.pop(k - 1)
+            out.absorb(_write_todo(case, todo))
+            out.say(f"note {k} dropped from phase {n}: «{gone}» → TODO.md")
+            return out
+        new = _pocket_text("note", text, str(n))
+        old, phase.notes[k - 1] = phase.notes[k - 1], new
+        out.absorb(_write_todo(case, todo))
+        out.say(f"note {k} of phase {n}: «{new}» (was: «{old}») → TODO.md")
+        return out
+    text = _pocket_text("note", text, str(n))
+    phase.notes.append(text)
+    out.absorb(_write_todo(case, todo))
+    state = "open" if _phase_file(case, n, phase.name).exists() else "planned"
+    out.say(f"note {len(phase.notes)} under phase {n} {phase.name} ({state}): «{text}» → TODO.md"
+            + (" — it waits there until the phase runs and moves into the phase file at close" if state == "planned" else ""))
+    return out
+
+
+def _parked_events(journal: grammar.Journal, n: int) -> List[grammar.Event]:
+    """Journal events logged against phase N (`el log --phase N …`) — parked knowledge for a phase that
+    has not opened yet: a decision made early, a problem expected here (the owner's word, 2026-09-15)."""
+    return _events_for_phase(journal, f"p{n}")
+
+
+def _parked_line(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal]) -> Optional[str]:
+    """`parked: phase 5 Roof — 1 item · 2 notes · 1 journal event` for every planned phase that already holds
+    something: parked knowledge has a moment of return (the phase opens) and is counted until then."""
+    parts = []
+    for p in sorted(todo.phases, key=lambda x: x.n):
+        if p.done or _phase_file(case, p.n, p.name).exists():
+            continue
+        evs = _parked_events(journal, p.n) if journal is not None else []
+        bits = ([f"{len(p.items)} item(s)"] if p.items else []) + ([f"{len(p.notes)} note(s)"] if p.notes else []) \
+            + ([f"{len(evs)} journal event(s)"] if evs else [])
+        if bits:
+            parts.append(f"phase {p.n} {p.name} — {' · '.join(bits)}")
+    return ("parked: " + " · ".join(parts) + " (surfaces when the phase opens)") if parts else None
 
 
 def phase_open(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
@@ -1186,8 +1367,15 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
         if not goal:
             raise StoreError("a new phase needs `--goal \"one line\"` (F12)", 2)
         pf.parent.mkdir(exist_ok=True)
-        pf.write_text(f"# Phase {n} — {name}\ngoal: {' '.join(goal.split())}\nresult:\n\n## Notes\n", encoding="utf-8")
-        out.say(f"created: {pf.relative_to(case)}")
+        parked = _parked_events(_journal(case, out), n)  # what was said about this phase before it opened
+        before = ""
+        if parked:
+            before = "\n## Before opening\n" + "\n".join(
+                f"- {ev.type} · {_rewrite_links(ev.text, case, new_base=pf.parent)[0]}" for ev in parked) + "\n"
+        pf.write_text(f"# Phase {n} — {name}\ngoal: {' '.join(goal.split())}\nresult:\n{before}\n## Notes\n", encoding="utf-8")
+        out.say(f"created: {pf.relative_to(case)}" + (f" — {len(parked)} journal event(s) parked here before opening are in it" if parked else ""))
+        if existing is not None and existing.notes:
+            out.say(f"phase {n} carries {len(existing.notes)} note(s) in TODO — read them; they move into the phase file at close")
     if existing is None:
         todo.phases.append(grammar.Phase(n, name, False, 0))
     out.absorb(_write_todo(case, todo))
@@ -1249,13 +1437,15 @@ def phase_close(case: Path, n: int, summary: str) -> Outcome:
         out.say(f"created: {pf.relative_to(case)} (from the plan)")
     text = pf.read_text(encoding="utf-8").split("\n")
     text[2] = f"result: {summary}"
+    text = text[:3] + ["", "## Digest", *_digest(case, pf, phase, _events_for_phase(journal, f"p{n}"))] + text[3:]
     if phase.items:
         text.append("")
         text.append("## Items at close")
-        text.extend(_item_line_for_phase_file(case, pf, it) for it in phase.items)
-    pf.write_text("\n".join(text).rstrip("\n") + "\n", encoding="utf-8")
+        for it in phase.items:
+            text.extend(_item_block_for_phase_file(case, pf, it))
+    pf.write_text(re.sub(r"\n{3,}", "\n\n", "\n".join(text)).rstrip("\n") + "\n", encoding="utf-8")
     rel = f"phases/{pf.name}"
-    phase.done, phase.items = True, []
+    phase.done, phase.items, phase.notes = True, [], []
     phase.summary = f"{summary} · {date} · {_phase_link(pf.name)}" if rel not in summary else summary
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
@@ -1271,12 +1461,41 @@ def phase_close(case: Path, n: int, summary: str) -> Outcome:
     return out
 
 
-def _item_line_for_phase_file(case: Path, pf: Path, it: grammar.Item) -> str:
-    """An item copied from TODO into the phase file keeps pointing at the same files: TODO lives in the
-    case root, the phase file in phases/, so every relative link is re-based (`docs/x.md` → `../docs/x.md`).
-    Feedback 2026-09-08: verbatim copies left `el check` with broken links after every `phase close`."""
-    text, _ = _rewrite_links(it.text + _evidence_suffix(it), case, new_base=pf.parent)
-    return f"- {it.n}.{it.m} {'✓' if it.done else '✗'} {text}"
+def _item_block_for_phase_file(case: Path, pf: Path, it: grammar.Item) -> List[str]:
+    """An item copied from TODO into the phase file — its line and its pockets (F22) — keeps pointing at the
+    same files: TODO lives in the case root, the phase file in phases/, so every relative link is re-based
+    (`docs/x.md` → `../docs/x.md`). Feedback 2026-09-08: verbatim copies left `el check` with broken links."""
+    block = _item_block(it)
+    prefix = f"  - [{'x' if it.done else ('~' if it.held else ' ')}] {it.n}.{it.m} "
+    rest = block[0][len(prefix):] if block[0].startswith(prefix) else it.text  # `  - [x] N.M text…` → `- N.M ✓ text…`
+    lines = [f"- {it.n}.{it.m} {'✓' if it.done else '✗'} {rest}".rstrip()]
+    lines += [ln[2:] for ln in block[1:]]  # pockets one level up: the item is the bullet here
+    return [_rewrite_links(ln, case, new_base=pf.parent)[0] for ln in lines]
+
+
+def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]) -> List[str]:
+    """The `## Digest` of a closed phase — rendered, never typed (the owner's word, 2026-09-15: «клацаешь на
+    ссылку, а там список; хочется выжимку»): what the phase held (items, notes), what came out (RESULT),
+    what bit and what was decided (PROBLEM, DECISION), reflect and align — all from the journal events of
+    this phase and its items. Poor journal, poor digest: it shows the record as it is."""
+    def rel(text: str) -> str:
+        return _rewrite_links(order._short(text, 160), case, new_base=pf.parent)[0]
+
+    def bucket(label: str, texts: List[str]) -> List[str]:
+        return [f"- {label} ({len(texts)}):", *(f"  - {t}" for t in texts)] if texts else []
+
+    done_n = sum(1 for it in phase.items if it.done)
+    lines = [f"- items: {done_n} done" + (f" · {len(phase.items) - done_n} open" if len(phase.items) > done_n else "")]
+    lines += bucket("notes", [rel(n) for n in phase.notes])
+    lines += bucket("results", [rel(ev.text) for ev in evs if ev.type == "RESULT"])
+    lines += bucket("problems", [rel(ev.text) for ev in evs if ev.type == "PROBLEM"])
+    lines += bucket("decisions", [rel(ev.text) for ev in evs if ev.type == "DECISION"
+                                  and not ev.text.startswith(("reflect:", "align:"))])
+    for tag in ("reflect", "align"):
+        for ev in evs:
+            if ev.type == "DECISION" and ev.text.startswith(f"{tag}:"):
+                lines.append(f"- {tag}: {rel(ev.text[len(tag) + 1:].strip())}")
+    return lines
 
 
 def _cancel_phase(case: Path, todo: grammar.Todo, phase: grammar.Phase, why: str, out: Outcome) -> str:
@@ -1289,12 +1508,14 @@ def _cancel_phase(case: Path, todo: grammar.Todo, phase: grammar.Phase, why: str
         pf.write_text(f"# Phase {phase.n} — {phase.name}\ngoal: {phase.summary or '—'}\nresult:\n\n## Notes\n", encoding="utf-8")
     lines = pf.read_text(encoding="utf-8").split("\n")
     lines[2] = f"result: снято: {why}"
+    if phase.notes:
+        lines += ["", "## Notes at cancel", *(f"- note: {_rewrite_links(n, case, new_base=pf.parent)[0]}" for n in phase.notes)]
     if phase.items:
-        lines += ["", "## Items at cancel", *(_item_line_for_phase_file(case, pf, it) for it in phase.items)]
+        lines += ["", "## Items at cancel", *(ln for it in phase.items for ln in _item_block_for_phase_file(case, pf, it))]
     pf.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
     items = ", ".join(f"{it.n}.{it.m}" for it in phase.items if not it.done)
     waits = ", ".join(phase.waits)
-    phase.done, phase.items, phase.waits = True, [], []
+    phase.done, phase.items, phase.waits, phase.notes = True, [], [], []
     phase.summary = f"снято: {why} · {date} · {_phase_link(pf.name)}"
     text = f"снята фаза {phase.n} {phase.name} — {why}"
     if items:
@@ -1378,6 +1599,9 @@ def readme_set(case: Path, prefix: str, text: str) -> Outcome:
     parsed = _readme_sections(case, out)  # ensures the file parses before we touch it
     prefix = prefix.rstrip(":")
     text = " ".join(text.split())
+    if prefix.lower() == "closed":
+        raise StoreError("`- closed:` is written by `el done \"outcome\"` or `el case cancel \"why\"` — the case closes through "
+                         "its gates (every phase and nested case ended), not by a State line (F20)", 2)
     if prefix.lower() in STATE_OWNED:
         raise StoreError(f"`- {prefix}:` is held by el (derived on every write) — it is not set by hand (F3); "
                          f"State is still true and only its anchor is behind: el readme touch", 2)
@@ -1573,7 +1797,8 @@ def case_list(root: Path, everything: bool = False) -> Outcome:
         except StoreError:
             pass
         rows.append((case, depth, status, waits))
-    live = [r for r in rows if r[2][0] != "closed"]
+    live = [r for r in rows if r[2][0] not in ("closed", "legacy")]
+    legacy = [r for r in rows if r[2][0] == "legacy"]
     closed = sorted((r for r in rows if r[2][0] == "closed"), key=lambda r: r[2][3], reverse=True)
     for case, depth, status, waits in live:
         mark = "*" if case == current else " "
@@ -1593,7 +1818,18 @@ def case_list(root: Path, everything: bool = False) -> Outcome:
         out.say(f"  {'  ' * depth}closed: {case.name} — {order.case_desc(status)}")
     if len(closed) > len(shown):
         out.say(f"  … +{len(closed) - len(shown)} closed earlier — el case list --all")
-    out.say("", f"cases: {len(rows)} · {len(live)} open · {len(closed)} closed · current is marked *; switch: `el case use <name>`")
+    # cases from before el (README outside the grammar, never stamped): one count line by default —
+    # 28 of them drew 28 BROKEN lines and pushed the two live cases off the screen (feedback 2026-09-15);
+    # `--all` names each with its fix, and the case in hand is never hidden in the count
+    named = legacy if everything else [r for r in legacy if r[0] == current]
+    for case, depth, status, _ in named:
+        mark = "*" if case == current else " "
+        out.say(f"{mark} {'  ' * depth}legacy: {case.name} — {order.case_desc(status)} → el --case {case.name} migrate")
+    if len(legacy) > len(named):
+        out.say(f"  legacy (before el): {len(legacy) - len(named)} case(s) el cannot read until migrated — "
+                f"el case list --all names them · el --case <name> migrate")
+    tail = f" · {len(legacy)} legacy" if legacy else ""
+    out.say("", f"cases: {len(rows)} · {len(live)} open · {len(closed)} closed{tail} · current is marked *; switch: `el case use <name>`")
     return out
 
 
@@ -1666,6 +1902,13 @@ def spawn(root: Path, parent: Path, name: str, goal: str) -> Outcome:
     return out
 
 
+def _closed_line(value: str):
+    """The `- closed:` State line is el's (written by `done` / `case cancel`, never typed): it obeys el's own
+    pointer limit like `last:` does — the summary is shortened with «…», the whole text lives in the journal.
+    Feedback 2026-09-15: a 140-char summary made el warn about a 192-char line it had written itself."""
+    return value, order._short(value, grammar.README_POINTER_CHARS - len("- closed: "))
+
+
 def done(root: Path, case: Path, summary: str) -> Outcome:
     out = Outcome()
     todo = _todo(case, out)
@@ -1679,10 +1922,13 @@ def done(root: Path, case: Path, summary: str) -> Outcome:
                          " → close each (el --case <name> done \"…\") or cancel it with a reason", 4)
     summary = " ".join(summary.split())
     date, _ = _now()
-    text = _set_state_line(_readme_text(case, out), "closed: ", f"{date} · {summary}")
+    closed, shown = _closed_line(f"{date} · {summary}")
+    text = _set_state_line(_readme_text(case, out), "closed: ", shown)
     text = _set_state_line(text, "next: ", None)  # a closed case has no next step — the line would be a lie (2026-09-14)
     _write_readme(case, text, out, anchor=True)
     out.lines = log(case, "PHASE", f"дело закрыто → {summary}").lines + out.lines
+    if shown != closed:
+        out.say(f"closed: shortened to the pointer limit ({grammar.README_POINTER_CHARS} chars, F2) — the whole summary is in the journal (PHASE)")
     parent = store.parent_case(case, root)
     if parent is not None:
         ptodo = _todo(parent, out)
@@ -1695,7 +1941,7 @@ def done(root: Path, case: Path, summary: str) -> Outcome:
                 # the child's outcome lands at the parent as a done item whose evidence is the child itself
                 # (F20: the tool does not write a tick without a kind): file → the child's README
                 p.items.append(grammar.Item(p.n, m, True, f"{summary} · {case.name}/", 0,
-                                            kind="file", proof=_child_readme_link(parent, case)))
+                                            evidence=[("file", _child_readme_link(parent, case))]))
         out.absorb(_write_todo(parent, ptodo))
         _write_readme(parent, _set_state_line(_readme_text(parent, out), "ждёт: ", None), out)
         # the child always reports to its parent, however it was created (F18): an awaited child
@@ -1725,7 +1971,7 @@ def case_cancel(root: Path, case: Path, why: str) -> Outcome:
             out.lines += log(case, "DECISION", _cancel_phase(case, todo, p, why, out), f"p{p.n}").lines
     out.absorb(_write_todo(case, todo))
     date, _ = _now()
-    text = _set_state_line(_readme_text(case, out), "closed: ", f"{date} · снято: {why}")
+    text = _set_state_line(_readme_text(case, out), "closed: ", _closed_line(f"{date} · снято: {why}")[1])
     text = _set_state_line(text, "next: ", None)  # nothing is next for a cancelled case
     _write_readme(case, text, out, anchor=True)
     out.lines = log(case, "DECISION", f"дело снято → {why}").lines + out.lines
@@ -1737,7 +1983,7 @@ def case_cancel(root: Path, case: Path, why: str) -> Outcome:
                 p.waits.remove(case.name)
                 m = _next_number(parent, ptodo, p)
                 p.items.append(grammar.Item(p.n, m, True, f"снято: {why} · {case.name}/", 0,
-                                            kind="file", proof=_child_readme_link(parent, case)))
+                                            evidence=[("file", _child_readme_link(parent, case))]))
         out.absorb(_write_todo(parent, ptodo))
         _write_readme(parent, _set_state_line(_readme_text(parent, out), "ждёт: ", None), out)
         out.lines += log(parent, "DECISION", f"снято → {why} · {case.name}/").lines
@@ -2061,17 +2307,46 @@ def _evidence_line(todo: grammar.Todo) -> Optional[str]:
     done = [it for p in todo.phases if not p.done for it in p.items if it.done]
     if not done:
         return None
-    parts = [f"{k} {n}" for k in grammar.EVIDENCE_KINDS if (n := sum(1 for it in done if it.kind == k))]
-    untyped = sum(1 for it in done if not it.kind)
+    parts = [f"{k} {n}" for k in grammar.EVIDENCE_KINDS if (n := sum(1 for it in done if any(kd == k for kd, _ in it.evidence)))]
+    untyped = sum(1 for it in done if not it.evidence)
     if untyped:
         parts.append(f"untyped {untyped}")
     return f"evidence: {len(done)} done · " + " · ".join(parts)
 
 
+PROBLEM_UNTIL_RE = re.compile(r"\buntil: (\d{4}-\d{2}-\d{2})")
+
+
+def _problem_untils(readme_body: str):
+    """(k, line, date) for every Problems line carrying `until: YYYY-MM-DD` — a workaround that is tolerated
+    until a date (the owner's word, 2026-09-15: a crutch used for three months must have a return moment,
+    or it becomes permanent). The tool counts the date; whether the crutch still stands is the owner's."""
+    parsed = grammar.parse_readme(readme_body)
+    if parsed.errors:
+        return []
+    found = []
+    for k, ln in enumerate(parsed.sections.get("Problems", []), start=1):
+        m = PROBLEM_UNTIL_RE.search(ln)
+        if m:
+            try:
+                found.append((k, ln.lstrip("- ").strip(), dt.date.fromisoformat(m.group(1))))
+            except ValueError:
+                continue
+    return found
+
+
+def _until_lines(readme_body: str) -> List[str]:
+    today = dt.date.today()
+    return [f"problem {k} «{order._short(ln, 50)}» passed its until date {d.isoformat()} ({_when((d - today).days)}) → fixed: "
+            f"el readme drop problems {k} · still needed: el readme edit problems {k} \"… until: <new date>\""
+            for k, ln, d in _problem_untils(readme_body) if d < today]
+
+
 def _dates_line(todo: grammar.Todo, readme_body: str) -> Optional[str]:
     today = dt.date.today()
     overdue, due_today, week, deadline = _dated(todo, readme_body, today)
-    if not (overdue or due_today or week or deadline):
+    untils = [(k, ln, d) for k, ln, d in _problem_untils(readme_body) if d >= today]
+    if not (overdue or due_today or week or deadline or untils):
         return None
     parts = [f"today {today.isoformat()}"]
     if due_today:
@@ -2083,6 +2358,8 @@ def _dates_line(todo: grammar.Todo, readme_body: str) -> Optional[str]:
     if deadline:
         d, what = deadline
         parts.append(f"deadline {d.isoformat()}{f' «{what}»' if what else ''} {_when((d - today).days)}")
+    for k, ln, d in untils:
+        parts.append(f"problem {k} «{order._short(ln, 40)}» until {d.isoformat()} {_when((d - today).days)}")
     return "dates: " + " · ".join(parts)
 
 
@@ -2100,7 +2377,7 @@ def _items_link_rule(readme_body: str) -> bool:
 def _blind_items(todo: grammar.Todo, readme_body: str) -> List[str]:
     if not _items_link_rule(readme_body):
         return []
-    blind = [it for p in todo.phases if not p.done for it in p.items if not it.done and "](" not in it.text]
+    blind = [it for p in todo.phases if not p.done for it in p.items if not it.done and "](" not in _item_context(it)]
     if not blind:
         return []
     shown = ", ".join(f"{it.n}.{it.m}" for it in blind[:6]) + (f" … +{len(blind) - 6}" if len(blind) > 6 else "")
@@ -2173,6 +2450,7 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
     try:
         todo_now = store.todo_of(case)
         lines.extend(_overdue_lines(todo_now, readme_body))  # a date that passed is out of order
+        lines.extend(_until_lines(readme_body))                # a workaround past its until date (F3)
         lines.extend(_blind_items(todo_now, readme_body))    # an item with nowhere to go (case rule)
         lines.extend(_gone_lines(case, todo_now))              # waiting for something that no longer exists (F19)
         lines.extend(_ended_phase_lines(case, todo_now, journal))  # every item ended: the phase is ready to end (F20)
@@ -2230,6 +2508,9 @@ def entry(root: Path, case: Path) -> Outcome:
     out.say(readme_body.rstrip("\n"), "")
     out.say(todo_body.rstrip("\n"), "")
     journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
+    parked = _parked_line(case, todo, journal if not journal.errors else None) if not todo.errors else None
+    if parked:
+        out.say(parked, "")  # knowledge parked under a planned phase has a moment of return — counted until then (F22)
     if journal.entries:
         out.say(*_journal_headlines(journal, ENTRY_LIMIT), "")
     issues = _order_lines(case, root, readme_body, journal)

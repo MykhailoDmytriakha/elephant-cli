@@ -72,7 +72,8 @@ class WhereEveryCaseStands(Base):
         run("spawn", "child", "--goal", "c")
         run("done", "child finished")
         todo = self.read("parent", "TODO.md")
-        self.assertRegex(todo, r"  - \[x\] 1\.1 child finished · [\d-]+-child/ — file: \[[\d-]+-child\]\([\d-]+-child/README\.md\)\n")
+        self.assertRegex(todo, r"  - \[x\] 1\.1 child finished · [\d-]+-child/\n    - file: \[[\d-]+-child\]\([\d-]+-child/README\.md\)\n",
+                         "the child's proof is a line under the item (F22, 1.10.0)")
         self.assertIn("evidence: 1 done · file 1", run()[1], "the tool keeps its own F20")
         self.assertEqual(run("check")[0], 0, "the link resolves from the parent")
 
