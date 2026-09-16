@@ -25,6 +25,8 @@ EXAMPLES = """examples
   el todo note 4.3, 5.3, 6.3 "in SIT this step failed until the old PVC was removed — check PVC first"   one note under the same step of the next environments
   el todo done 2.3 file:evidence/receipt.pdf ref:4471-09 "paid, receipt in the folder"   several proofs: one `result:` line, one proof line each
   el todo expect 3.2 "chosen DB with its case [file: docs/db-choice.md] · load [run: k6 → p95] · budget [owner]"   the proof, promised before the work; done holds you to it
+  el todo show 3.3                      the item's card: pockets, the proofs of the items it comes after (its inputs), what it feeds
+  el phase plan 3 "Answer" --goal "why and how to re-enable [file: research/answer.md] [run: curl → 200]"   the phase's own promise; the Digest holds it to it
   el help practice                      how strong agents lead a case — weak against strong, by moment; every `hint:` points here
   el help people                        a card per person the cases deal with: .cases/people/<name>.md, `summary:` as line 2; cases link to it
   el phase note 6 "the permit runs out in March" · el log --phase 6 DECISION "lamps under the eaves — idea of 15.09"   parked for a planned phase; surfaces when it opens
@@ -134,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--phase", help="p1, 1 or a unique phase name (default: the open phase); e.g. `el log --phase p1 DECISION \"…\"`")
 
     s = sub.add_parser("todo", help="add · done · edit · move · drop · hold · resume items — N.M is an item's number for life: drop and move never renumber", allow_abbrev=False)
-    s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note", "expect"])
+    s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note", "expect", "show"])
     s.add_argument("ref", help="phase number for add (N), item for the rest (N.M); done/reopen/cancel also take a range N.A-N.B or a list \"N.A, N.B\"")
     s.add_argument("text", nargs="*", default=[], help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: the KIND of evidence, then what came out — file:<path> · ref:<trace> · run:\"<command → outcome>\" · owner (el help evidence); for cancel/reopen: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
     s.add_argument("--before", help="add only: put the new item before N.K instead of at the end (numbers never change, positions do)")
@@ -327,6 +329,8 @@ def run(argv=None) -> int:
                     out = commands.todo_why(case, args.ref, text)
                 elif args.action == "expect":
                     out = commands.todo_expect(case, args.ref, text)
+                elif args.action == "show":
+                    out = commands.todo_show(case, args.ref)
                 elif args.action == "note":
                     out = commands.todo_note(case, args.ref, text, edit=args.edit, drop=args.drop)
                 elif args.action == "edit":

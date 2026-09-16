@@ -523,7 +523,8 @@ def _proof_warnings(phase: grammar.Phase, items: List[grammar.Item], proofs: Lis
                   and any(k == "file" and _link_path(pr) == path for k, pr in it.evidence)]
         if others:
             out.warn(f"file:{path} already proves {', '.join(others)} — one file for {len(others) + len(items)} items: "
-                     f"is it the artifact of each, or one report about all of them? name what each item left behind")
+                     f"is it the artifact of each, or one report about all of them? items are cut by what they leave behind — "
+                     f"one outcome with its own proof each; two items with one artifact were one item with steps in its notes")
     for it in items:
         for k, note in enumerate(it.notes, start=1):
             if _note_repeats_proof(note, proofs + list(it.evidence)):
@@ -874,6 +875,46 @@ def _expect_text(text: str, ref: str) -> str:
     return text
 
 
+def _goal_text(goal: str) -> str:
+    """A phase `goal:` may promise what the phase leaves behind, in the same brackets as an item's `expect:` —
+    `[file: research/answer.md] [run: curl → 200]` — and the Digest holds the phase to it at close (the owner's
+    word, 2026-09-16: the expectation lives at every size of the node). Unknown kinds are refused like at done."""
+    goal = " ".join(goal.split())
+    for m in grammar.ANY_SLOT_RE.finditer(goal):
+        if m.group(1) not in grammar.EVIDENCE_KINDS:
+            raise StoreError(f"`[{m.group(1)}…]` is not a kind of proof — placeholders in a goal are [file: what] · [ref: what] · "
+                             f"[run: what] · [owner]; el help evidence", 2)
+    return goal
+
+
+def todo_show(case: Path, ref: str) -> Outcome:
+    """`el todo show N.M` — the item's card at the moment of picking it up: its pockets, and the inputs a chain
+    hands it — the proofs of the items it comes after (F19) — and what it feeds in turn (the owner's sketch,
+    2026-09-16: «сделал одно, пошёл к следующему»; Prove2Me: a proof imports the proved statements). Read-only."""
+    out = Outcome()
+    todo = _todo(case, out)
+    phase, item = _find_item(todo, ref)
+    state = "planned" if not _phase_file(case, phase.n, phase.name).exists() else "open"
+    out.say(f"phase {phase.n} {phase.name} ({state})", *_item_block(item))
+    by_ref = {f"{it.n}.{it.m}": it for it in _all_items(todo)}
+    kids = {k.name for k in order.child_cases(case, _is_project(case))}
+    for r in item.after:
+        pre = by_ref.get(r)
+        if pre is None:
+            what = "nested case" if r in kids else "gone"
+            out.say(f"  ← {r} ({what})" + (f" — its README is the input: el --case {r} status" if r in kids else " — el todo after " + ref + " <refs|none>"))
+            continue
+        proofs = " · ".join(f"{k} {pr}".strip() for k, pr in pre.evidence) or (pre.result or "")
+        mark = "✓" if pre.done else "open"
+        out.say(f"  ← {r} {mark} «{order._short(pre.text, 50)}»" + (f" — {proofs}" if proofs else ("" if pre.done else " — nothing to hand over yet")))
+    feeds = [f"{it.n}.{it.m}" for it in _all_items(todo) if ref in it.after]
+    if feeds:
+        out.say(f"  → feeds {', '.join(feeds)}")
+    if not item.after and not feeds:
+        out.say("  no after-edges: el todo after N.M \"…\" links a chain (el help todo)")
+    return out
+
+
 def todo_expect(case: Path, ref: str, text: str) -> Outcome:
     """`el todo expect N.M "…"` — what done will look like, written BEFORE the work (the owner's word, 2026-09-16:
     «пиши placeholder, куда потом заполнишь»): the proofs it will take stand in brackets, and `done` holds the
@@ -889,6 +930,7 @@ def todo_expect(case: Path, ref: str, text: str) -> Outcome:
     if item.expect:
         named = " · ".join(k for k, _ in slots) or "no proof placeholders — add [file: …] [run: …] [owner] so done can check"
         out.say(f"expect {ref}: «{item.expect}»" + (f" (was: «{old}»)" if old else "") + f" → TODO.md · proofs promised: {named}")
+        hints.attach(out, "todo_expect", item=item, phase=phase)
     else:
         out.say(f"expect {ref} removed" + (f" (was: «{old}»)" if old else " — there was none") + " → TODO.md")
     return out
@@ -937,7 +979,10 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why:
     out.say(f"added: {phase.n}.{m} {text}{f' — after: {chr(44).join(item.after)}' if item.after else ''}{f' — due: {due}' if due else ''}"
             f"{f' (before {before})' if before else ''}{pockets} → TODO.md")
     _remind_link(case, f"{phase.n}.{m}", _item_context(item), out)
-    hints.attach(out, "todo_add", item=item)
+    if item.expect:
+        hints.attach(out, "todo_expect", item=item, phase=phase)
+    else:
+        hints.attach(out, "todo_add", item=item)
     return out
 
 
@@ -1314,7 +1359,7 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
         raise StoreError(f"phase name `{name}` must be English, 1–3 words (F13)", 2)
     todo = _todo(case, out)
     existing = todo.phase(n)
-    intent = " ".join(goal.split()) if goal else None
+    intent = _goal_text(goal) if goal else None
     if intent and grammar.visible_len(intent) > grammar.TODO_ITEM_CHARS:
         raise StoreError(f"intent is {grammar.visible_len(intent)} visible chars, limit {grammar.TODO_ITEM_CHARS} — one line in TODO (F13); "
                          f"the story goes into the phase file once it opens\n"
@@ -1504,7 +1549,7 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
         renamed, existing.name = existing.name, name
         pf = _phase_file(case, n, name)
     if not pf.exists():
-        goal = goal or (existing.summary if existing else None)  # a planned phase carries its intent
+        goal = _goal_text(goal) if goal else (existing.summary if existing else None)  # a planned phase carries its intent
         if not goal:
             raise StoreError("a new phase needs `--goal \"one line\"` (F12)", 2)
         pf.parent.mkdir(exist_ok=True)
@@ -1607,7 +1652,8 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
         out.say(f"created: {pf.relative_to(case)} (from the plan)")
     text = pf.read_text(encoding="utf-8").split("\n")
     text[2] = f"result: {summary}"
-    text = text[:3] + ["", "## Digest", *_digest(case, pf, phase, evs_here)] + text[3:]
+    goal_line = grammar.parse_phase_file("\n".join(text)).goal
+    text = text[:3] + ["", "## Digest", *_digest(case, pf, phase, evs_here, goal_line)] + text[3:]
     if phase.items:
         text.append("")
         text.append("## Items at close")
@@ -1652,7 +1698,7 @@ def _verbatim_share(a: str, b: str) -> float:
     return order.text_share(a, b)
 
 
-def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]) -> List[str]:
+def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event], goal: str = "") -> List[str]:
     """The `## Digest` of a closed phase — rendered, never typed (the owner's word, 2026-09-15: «клацаешь на
     ссылку, а там список; хочется выжимку»): what the phase held (items, notes), what came out (RESULT),
     what bit and what was decided (PROBLEM, DECISION), reflect and align — all from the journal events of
@@ -1671,6 +1717,13 @@ def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]
         shared = max(set(proofs), key=proofs.count)
         head += f" · proofs: {distinct} distinct for {done_n} items ({rel(shared)} ×{proofs.count(shared)})"
     lines = [head]
+    goal_slots = grammar.expected_kinds(goal)
+    if goal_slots:  # the phase's own promise (its goal), held to the proofs its items left behind
+        have = {k for it in phase.items if it.done for k, _ in it.evidence}
+        met = [(k, w) for k, w in goal_slots if k in have]
+        missing = [(k, w) for k, w in goal_slots if k not in have]
+        lines.append(f"- phase promise: {len(met)} of {len(goal_slots)} filled"
+                     + (" — missing " + " ".join(f"[{k}: {w}]" if w else f"[{k}]" for k, w in missing) if missing else ""))
     promised = [it for it in phase.items if grammar.expected_kinds(it.expect)]
     if promised:  # F22: the record held to its own promises — met, or short and said so
         met = [it for it in promised if {k for k, _ in grammar.expected_kinds(it.expect)} <= {k for k, _ in it.evidence}]

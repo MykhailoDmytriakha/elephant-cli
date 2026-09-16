@@ -212,6 +212,12 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   `done` el holds the record to it: `expect: 2 of 3 filled — missing [run: …]` · `result:` + proof lines,
   written by `done` only. `todo add … --why "…" --note "…" --expect "…"` sets them at once. why/note/expect
   are yours and count in the 200 lines; result and proof lines are el's and do not.
+- cut items by what they leave behind: one outcome with its own proof per item. Two items whose proof is one
+  artifact were one item — its steps go to `note:` lines or the phase file; an item that leaves nothing checkable
+  is a step of another. el says so when an `expect:` names an artifact another item promised or left.
+- `el todo show N.M` — the item's card when you pick it up: its pockets, the proofs of the items it comes after
+  (`— after: N.K`, F19) as its inputs, and what it feeds. A chain hands its artifacts forward; a side branch on
+  its own clock is a nested case, and `after: <case>` joins it.
 """,
 
     "evidence": """evidence — what `done` stands on (F20; the owner's word, 2026-09-14)
@@ -288,6 +294,10 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   still applies, logged under that phase: `el log --phase N RESULT|DECISION "…"`. Next time, work
   that runs on its own clock is a nested case, not a phase: `el spawn "name" --goal "…"` (P11) —
   its own phases, its own agent, one rendered line at the parent when it closes.
+- a phase `goal:` may promise what the phase leaves behind, in the brackets `expect:` uses —
+  `--goal "why and how to re-enable [file: research/answer.md] [run: curl → 200]"` — and the Digest holds the
+  phase to it at close: `phase promise: 2 of 2 filled`. The expectation lives at every size of the node:
+  Context for the case, `goal:` for the phase, `expect:` for the item.
 - `el phase close N "what it delivered" --reflect "the lesson" --align "what changes next"` — the two DECISIONs
   P8 asks for and the close in one command; the gates are the same, nothing is logged if another gate refuses.
 - `el phase note N "…"` (`--edit k` · `--drop k`) — what the phase has to know: a permit that expires, a
@@ -389,7 +399,17 @@ AN ITEM
   strong  el todo add 3 "choose the database" --why "data model, migrations and cost depend on it" \
             --note "find out volumes, cost, migration path, environments" \
             --expect "chosen DB with its case [file: docs/db-choice.md] · load on a prototype [run: k6 → p95] · budget [owner]"
-          one action with a checkable outcome; why and note in the owner's words; the proof promised before the work
+          one action with a checkable outcome; why and note in the owner's words; the proof promised before the work.
+          Cut by what is left behind: one outcome with its own proof per item — four items proven by one file were
+          one item with four steps (steps go to its notes)
+
+A CHAIN
+  weak    3.1 analyze · 3.2 look in the DB · 3.3 combine — all three proven by research/notes.md
+  strong  3.1 why was it disconnected → [file: research/why-disconnected.md]
+          3.2 what the DB holds for group X → [file: research/db-group-x.md]
+          3.3 the answer — after: 3.1, 3.2 → [file: research/answer.md], and it links both inputs
+          each step leaves its artifact, the next one imports it; `el todo show 3.3` prints the inputs; a side
+          branch on its own clock is a nested case and `after: <case>` joins it (the owner's sketch, 2026-09-16)
 
 DONE
   weak    el todo done 3.2 owner "done"                                  — the agent's word dressed as the owner's

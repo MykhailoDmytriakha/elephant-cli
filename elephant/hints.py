@@ -32,7 +32,7 @@ def attach(out, moment: str, **ctx) -> None:
 
 
 def pick(moment: str, **ctx) -> Optional[str]:
-    fn = {"todo_add": _todo_add, "todo_done": _todo_done, "log": _log, "phase_open": _phase_open,
+    fn = {"todo_add": _todo_add, "todo_expect": _todo_expect, "todo_done": _todo_done, "log": _log, "phase_open": _phase_open,
           "phase_close": _phase_close, "case_new": _case_new, "entry": _entry}.get(moment)
     return fn(**ctx) if fn else None
 
@@ -46,6 +46,32 @@ def _todo_add(item: grammar.Item, **_) -> Optional[str]:
         return (f"what will prove {ref} done? write it before the work, not after: "
                 f"el todo expect {ref} \"… [run: …] [file: …] [owner]\" — el help practice")
     return None
+
+
+def _todo_expect(item: grammar.Item, phase: grammar.Phase, **_) -> Optional[str]:
+    """Items are cut by what they leave behind (the owner's word, 2026-09-16): a placeholder that names the same
+    artifact another item promised, or already left, says the two are one item — steps go to its notes."""
+    mine = {(k, w.strip().lower()) for k, w in grammar.expected_kinds(item.expect) if k in ("file", "ref") and w.strip()}
+    if not mine:
+        return None
+    for other in phase.items:
+        if other is item:
+            continue
+        theirs = {(k, w.strip().lower()) for k, w in grammar.expected_kinds(other.expect) if w.strip()}
+        theirs |= {(k, _link_path(pr).lower()) for k, pr in other.evidence if k in ("file", "ref")}
+        shared = mine & theirs
+        if shared:
+            k, w = sorted(shared)[0]
+            ref, oref = f"{item.n}.{item.m}", f"{other.n}.{other.m}"
+            return (f"[{k}: {w}] is also the artifact of {oref} — one artifact, one item: is {ref} a step of {oref}? "
+                    f"then el todo note {oref} \"…\" and el todo cancel {ref} \"step of {oref}\"; or name what {ref} leaves of its own — el help practice")
+    return None
+
+
+def _link_path(proof: str) -> str:
+    import re
+    m = re.fullmatch(r"\[[^\]]*\]\(([^)]+)\)", proof)
+    return m.group(1) if m else proof
 
 
 def _todo_done(items: List[grammar.Item], proofs, **_) -> Optional[str]:
