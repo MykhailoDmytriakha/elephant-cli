@@ -83,16 +83,26 @@ def _phase_close(n: int, events, **_) -> Optional[str]:
     return None
 
 
-def _case_new(**_) -> Optional[str]:
+def _case_new(root: Optional[Path] = None, **_) -> Optional[str]:
+    if root is not None:
+        from . import store
+        cards = store.people_cards(root)
+        if cards:  # the more derived hint wins: this workspace already knows its people
+            return (f"{len(cards)} people card(s) in .cases/people/ — link the ones this case deals with from Links "
+                    f"or a note: [name](../people/<name>.md) — el help people")
     return ("phases you already see? name them now, decompose when you get there: "
             "el phase plan 2 \"Name\" --goal \"…\" — el help phases")
 
 
 # ---- entry ------------------------------------------------------------------------------------------
-def _entry(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal], phase_file_exists, **_) -> Optional[str]:
+def _entry(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal], phase_file_exists, repeats=(), **_) -> Optional[str]:
     """One hint per entry, chosen among the applicable ones by the number of journal events: every write moves
     the choice, so a long session sees them all — deterministic, no state file."""
     cands: List[str] = []
+    for k, line, card in repeats:  # a person described again in Links while a card exists (L10)
+        cands.append(f"Links line {k} repeats {card} — link the card instead: "
+                     f"el readme edit links {k} \"[name](../{card}) — what this case needs from them\" — el help people")
+        break
     open_items = [it for p in todo.phases if not p.done for it in p.items]
     done_items = [it for it in open_items if it.done]
     todo_items = [it for it in open_items if not it.done]
@@ -117,7 +127,7 @@ def _entry(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal], p
     # events, not entries: the events of one minute share one entry header, and the choice must move with
     # every write — a long session then sees every applicable hint, without a state file
     events = sum(len(e.events) for e in journal.entries) if journal is not None else 0
-    if events < 8:
+    if not cands and events < 8:  # the generic onboarding hint only when nothing specific is there to fix
         cands.append("how strong agents lead a case, by moment — weak against strong, side by side: el help practice")
     if not cands:
         return None

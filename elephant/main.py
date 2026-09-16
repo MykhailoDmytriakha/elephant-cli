@@ -26,6 +26,7 @@ EXAMPLES = """examples
   el todo done 2.3 file:evidence/receipt.pdf ref:4471-09 "paid, receipt in the folder"   several proofs: one `result:` line, one proof line each
   el todo expect 3.2 "chosen DB with its case [file: docs/db-choice.md] · load [run: k6 → p95] · budget [owner]"   the proof, promised before the work; done holds you to it
   el help practice                      how strong agents lead a case — weak against strong, by moment; every `hint:` points here
+  el help people                        a card per person the cases deal with: .cases/people/<name>.md, `summary:` as line 2; cases link to it
   el phase note 6 "the permit runs out in March" · el log --phase 6 DECISION "lamps under the eaves — idea of 15.09"   parked for a planned phase; surfaces when it opens
   el readme add problems "open · Redis fails after the chart deploy · workaround: restart by hand · until: 2026-12-01 (chart 2.3)"   a crutch with a return date, counted on entry
   el todo move 3.6 4                    to another phase (joins its end under the next free number)
@@ -272,7 +273,7 @@ def run(argv=None) -> int:
             print(f"created: {case.relative_to(root.parent)} — now `el phase open 1 <Name> --goal \"…\"`")
             if hints.enabled():  # something to imitate: a model imitates the form it sees (2026-09-16)
                 print("", knowledge.EXEMPLAR, sep="\n")
-                tip = hints.pick("case_new")
+                tip = hints.pick("case_new", root=root)
                 if tip:
                     print(f"hint: {tip}")
             return 0

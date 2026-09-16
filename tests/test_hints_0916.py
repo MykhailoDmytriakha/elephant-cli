@@ -147,18 +147,21 @@ class Hints(Base):
 
     def test_entry_hint_is_last_derived_and_rotates_with_the_journal(self):
         self.open_case()
-        run("phase", "plan", "2", "Rollout", "--goal", "r")
         code, out, _ = run()
         lines = out.rstrip().splitlines()
-        self.assertTrue(lines[-1].startswith("hint: "), lines[-3:])
+        self.assertTrue(lines[-1].startswith("hint: how strong agents lead a case"), "nothing specific yet: the onboarding hint")
         self.assertEqual(out.count("\nhint: "), 1)
-        seen = {lines[-1]}
+        run("phase", "plan", "2", "Rollout", "--goal", "r")   # specific: an empty planned phase
+        run("todo", "add", "1", "a")                          # specific: items without pockets
+        run("todo", "add", "1", "b")
+        seen = {run()[1].rstrip().splitlines()[-1]}
         for text in ("a", "b", "c", "d"):
             run("log", "DECISION", text)  # every write moves the choice
             seen.add(run()[1].rstrip().splitlines()[-1])
         self.assertGreater(len(seen), 1, "a long session sees more than one hint")
         self.assertTrue(any("phase 2 Rollout? park it" in h for h in seen), seen)
-        self.assertTrue(any("el help practice" in h for h in seen), seen)
+        self.assertTrue(any("items carry pockets" in h for h in seen), seen)
+        self.assertFalse(any("el help practice" in h and "weak against strong" in h for h in seen), "the generic hint yields to specific ones")
         os.environ["EL_HINTS"] = "0"
         self.assertNotIn("hint:", run()[1])
 

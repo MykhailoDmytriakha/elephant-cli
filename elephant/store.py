@@ -15,6 +15,10 @@ from . import grammar, recover, stamp
 
 CASES_DIR = ".cases"
 FILES = ("README.md", "TODO.md", "JOURNAL.md")
+# L10 — people cards: one markdown per person the cases deal with, `summary:` as line 2 (role · what they own ·
+# how to reach). Inside .cases/ on purpose: a card is personal data and hides with the cases (the owner's word,
+# 2026-09-16). Not a case, never scanned as one; cases link to a card like to any file.
+PEOPLE_DIR = "people"
 # L2 naming policy: a case dir is `YYYY-MM-DD-<slug>`. Detection is case-INsensitive and imposes no
 # word count: the invariant is the date prefix plus a non-empty portable slug (letters, digits,
 # hyphens). `case new` normalizes NEW names to lowercase; existing dirs are never renamed.
@@ -86,6 +90,8 @@ def scan(root: Path):
         for child in sorted(d.iterdir()):
             if not child.is_dir() or child.name.startswith(".") or child.name in ("node_modules", "phases"):
                 continue
+            if top and child.name == PEOPLE_DIR:
+                continue  # L10: the people cards — a known folder, not a case-like one
             if is_case_dir(child):
                 found.append(child)
                 walk(child, False)
@@ -94,6 +100,12 @@ def scan(root: Path):
 
     walk(root, True)
     return found, rejected
+
+
+def people_cards(root: Path) -> List[Path]:
+    """The people cards of this workspace (L10): `.cases/people/*.md`, sorted."""
+    d = root / PEOPLE_DIR
+    return sorted(p for p in d.glob("*.md")) if d.is_dir() else []
 
 
 def project_case(root: Path):

@@ -8,6 +8,7 @@ EXEMPLAR = """a well-led item looks like this — pockets in the owner's words, 
   - [ ] 1.2 choose the database
     - why: the data model, the migrations and the cost for years depend on it
     - note: find out the volumes, the cost, the migration path, how many environments we keep
+    - note: the numbers come from [Menuka](../people/menuka-perera.md) — read her card before the call
     - expect: the chosen DB with its case [file: docs/db-choice.md] · load on a prototype [run: k6 → p95] · budget and horizon [owner]"""
 
 ONBOARDING = """start here — no `.cases/` from this folder upwards
@@ -325,6 +326,8 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
 - a way to do a frequent operation      → .howto/<task-verb>.md; its script → scripts/
 - received a file / doc / log / meeting → a case folder by kind, `summary:` as its line 2;
                                           Links picks it up by itself (folder line is yours)
+- a person the cases deal with          → .cases/people/<name>.md, `summary:` as line 2 (role · what they
+                                          own · how to reach); cases link to the card (el help people)
 - two files sharing their text (Order names them) → say the difference in each summary, or merge
 - finished for today                     → `el` → Order says "State is behind"? rewrite State
 - closed a phase                        → `el phase close N "…"` (does TODO+journal+README itself)
@@ -397,6 +400,12 @@ PARKING AN IDEA
           el log --phase 5 DECISION "…" — parked where it will be needed; `parked:` counts it on entry, it
           surfaces in the phase file when the phase opens. Decompose only what you work on.
 
+PEOPLE
+  weak    the secretary is described in the Links of every case, in slightly different words, one of them stale
+  strong  one card, .cases/people/court-secretary-3.md — `summary: sets hearing dates · no phone · in person on
+          Tuesdays 10–13` — and every case links it: `note: read [the secretary](../people/court-secretary-3.md) first`.
+          Personal data lives inside .cases/ and hides with the cases (el help people)
+
 A WORKAROUND
   weak    the crutch stays for months and becomes the architecture
   strong  el readme add problems "open · <root problem> · workaround: <what we do> · until: 2026-12-01 (<what fixes it>)"
@@ -411,6 +420,25 @@ CLOSING A PHASE
 
 """ + EXEMPLAR + """
 """,
+    "people": """people — the cards of the people the cases deal with (L10; the owner's word, 2026-09-16)
+A secretary, a stakeholder, a service you call: they appear in several cases, and a line in one case's Links
+goes stale in the next. One card per person, outside the cases and inside .cases/ — personal data hides with
+the cases under the same .gitignore rule:
+  .cases/people/menuka-perera.md
+    # Менука Перера
+    summary: stakeholder of pricing-disc-api · decides on budget and release dates · Teams, answers before noon
+    ## How to work with her
+    - show a ready curl and numbers, not a description
+    ## What she owns
+    - PROD acceptance, the signature on a contract change
+- the file name is Latin, lowercase, hyphens (a role when the name is unknown: court-secretary-3.md);
+  `summary:` is line 2 — the dose an agent reads before calling or writing: role · what they own · how to reach.
+  The body is free: how to work with them, what they own, what they never answer. Not their history —
+  that lives in the journals of the cases.
+- a case points at a card like at any file: `el todo note 2.4 "read [Menuka](../people/menuka-perera.md) first"`
+  or a Links line; the link is checked like every link (F16), a card without `summary:` is named in Order.
+- el writes nothing here — you write the card, like a recipe in .howto/. Later, if the cards are read:
+  `el who <name>` (the summary line at the moment of need) and «appears in cases: …» rendered from the links.""",
     "limits": """the numbers (all enforced at write time)
 README: 200 lines / 8 KB of YOUR text → warning · 300 lines / 12 KB → refusal; pointer line ≤ 150 chars
   (warning). The nested Links lines el renders from the files are reported, not counted — you
@@ -478,6 +506,7 @@ ALIASES = {
     "recover": "stamp", "rule": "model", "rules": "model", "graph": "model", "howto": "where", "recipe": "where",
     "recipes": "where", "legacy": "migrate", "migration": "migrate", "problems": "order", "until": "order",
     "workaround": "order", "report": "feedback", "bug": "feedback",
+    "person": "people", "who": "people", "contact": "people", "contacts": "people", "participants": "people", "team": "people",
 }
 
 

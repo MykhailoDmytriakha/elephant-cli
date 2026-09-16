@@ -1628,13 +1628,7 @@ ITEM_RESULT_RE = re.compile(r"^\d+\.\d+(?:[,\s–-]+\d+\.\d+)*:")  # `RESULT · 
 
 def _verbatim_share(a: str, b: str) -> float:
     """Share of a's word 3-grams found verbatim in b (the duplicate detector of F15, on two texts)."""
-    def sh(t: str) -> set:
-        toks = [w.lower() for w in order.TOKEN_RE.findall(t)]
-        return set(tuple(toks[i:i + order.SHINGLE_WORDS]) for i in range(len(toks) - order.SHINGLE_WORDS + 1))
-    sa, sb = sh(a), sh(b)
-    if len(sa) < 4 or len(sb) < 4:
-        return 0.0
-    return len(sa & sb) / len(sa)
+    return order.text_share(a, b)
 
 
 def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]) -> List[str]:
@@ -2080,6 +2074,7 @@ def spawn(root: Path, parent: Path, name: str, goal: str) -> Outcome:
     out.lines = log(parent, "PROBLEM", f"{goal} · open → {child_name}/").lines + out.lines
     child = case_new(root, name, goal, parent=None if into == root else parent)
     out.say(f"spawned: {child.relative_to(root)} — hand moves to the child; parent waits in phase {cur.n}")
+    hints.attach(out, "case_new", root=root)
     return out
 
 
@@ -2670,6 +2665,8 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_ended_phase_lines(case, todo_now, journal))  # every item ended: the phase is ready to end (F20)
     except StoreError:
         pass
+    lines.extend(order.people_lines(root))  # L10: a card every case reads before calling that person
+    lines.extend(order.shared_links_lines(case, root, readme_body))  # the same description in two cases → one card
     legacy = store.legacy_files(case)
     if legacy:
         lines.insert(0, f"legacy file(s) outside Elephant's grammar, never stamped: {', '.join(n for n, _ in legacy)} → "
@@ -2735,7 +2732,8 @@ def entry(root: Path, case: Path) -> Outcome:
     out.say(f"how to work: el help start · what goes where: el help where · rules: {_rules_pointer(root)} · full check: el check")
     if not todo.errors:  # one hint, derived from the case, last (a model weighs the last line most)
         hints.attach(out, "entry", case=case, todo=todo, journal=journal if not journal.errors else None,
-                     phase_file_exists=lambda p: _phase_file(case, p.n, p.name).exists())
+                     phase_file_exists=lambda p: _phase_file(case, p.n, p.name).exists(),
+                     repeats=order.links_repeating_cards(root, readme_body))
     total = "\n".join(out.lines)
     if len(total) > MAX_SCREEN:
         out.lines = [total[:MAX_SCREEN], "", f"[truncated at {MAX_SCREEN} chars — README/TODO/JOURNAL are on disk]"]
@@ -2805,6 +2803,8 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
         cases = [c for c in cases if c == only or only in c.parents]
     for path, reason in rejected:
         out.warn(f"not a case, ignored: {path.relative_to(root)} — {reason}")
+    for ln in order.people_lines(root):  # once per workspace, not once per case
+        out.warn(f"people · {ln}")
     errors = 0
     log_lines = []
     date, time = _now()

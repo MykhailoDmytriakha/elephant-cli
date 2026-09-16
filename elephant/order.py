@@ -450,6 +450,88 @@ def budgets(folders: List[Folder]) -> List[str]:
 
 
 # ---- State staleness (S5) -----------------------------------------------------------------------
+def text_shingles(text: str) -> set:
+    """Word 3-grams of a text, lowercased — the duplicate detector of F15 on a string."""
+    toks = [w.lower() for w in TOKEN_RE.findall(text)]
+    return set(tuple(toks[i:i + SHINGLE_WORDS]) for i in range(len(toks) - SHINGLE_WORDS + 1))
+
+
+def text_share(a: str, b: str, min_shingles: int = 4) -> float:
+    """Share of a's phrasing found verbatim in b; 0 when either text is too short to compare."""
+    sa, sb = text_shingles(a), text_shingles(b)
+    if len(sa) < min_shingles or len(sb) < min_shingles:
+        return 0.0
+    return len(sa & sb) / len(sa)
+
+
+MANUAL_LINK_SKIP_RE = re.compile(r"^- (?:[\w.-]+/\s|cases:|parent:|… \+)")  # folder lines and el's own lines
+
+
+def manual_links(readme_body: str) -> List[Tuple[int, str]]:
+    """(k, text) of the agent's own top-level Links lines — people, systems, who to ask — without the folder
+    lines and the lines el renders; k is the number `el readme edit links k` takes."""
+    parsed = grammar.parse_readme(readme_body)
+    if parsed.errors:
+        return []
+    out = []
+    for k, ln in enumerate(parsed.sections.get("Links", []), start=1):
+        if not ln.startswith("- ") or MANUAL_LINK_SKIP_RE.match(ln):
+            continue
+        out.append((k, ln[2:].strip()))
+    return out
+
+
+def shared_links_lines(case: Path, root: Path, readme_body: str) -> List[str]:
+    """L10: the same description in the Links of two cases — a person, a system, a contact written twice and
+    going stale in one of them. Named with its one home: a people card for a person, a recipe for a way of
+    doing things, then a link from both. Lines already pointing at a card are not counted (the fix is done)."""
+    from . import store, stamp  # local
+    mine = [(k, t) for k, t in manual_links(readme_body) if "/people/" not in t]
+    if not mine:
+        return []
+    out = []
+    for other in store.all_cases(root):
+        if other == case:
+            continue
+        try:
+            body, _ = stamp.split(store.read(other, "README.md"))
+        except Exception:  # noqa: BLE001 — an unreadable case says nothing here
+            continue
+        theirs = [t for _, t in manual_links(body) if "/people/" not in t]
+        for k, t in mine:
+            if any(text_share(t, u) >= DUP_SHARE for u in theirs):
+                out.append(f"Links line {k} «{_short(t, 60)}» is also in {other.name} — one home for it: a person → "
+                           f".cases/people/<name>.md with summary: (el help people), a way of doing things → .howto/; then link it from both")
+    return out
+
+
+def links_repeating_cards(root: Path, readme_body: str) -> List[Tuple[int, str, str]]:
+    """(k, line, card) for a Links line that repeats a people card's summary instead of linking it."""
+    from . import store  # local
+    cards = [(c, read_summary(c) or "") for c in store.people_cards(root)]
+    out = []
+    for k, t in manual_links(readme_body):
+        if "/people/" in t:
+            continue
+        for card, summary in cards:
+            if summary and text_share(t, summary) >= DUP_SHARE:
+                out.append((k, t, f"{store.PEOPLE_DIR}/{card.name}"))
+                break
+    return out
+
+
+def people_lines(root: Path) -> List[str]:
+    """L10: a people card without its `summary:` line — the one line an agent reads before calling or
+    writing to that person. Shown (the lower layer is the agent's), one line per card."""
+    from . import store  # local: store imports order for the README render
+    out = []
+    for card in store.people_cards(root):
+        if read_summary(card) is None:
+            rel = f"{store.PEOPLE_DIR}/{card.name}"
+            out.append(f"people card {rel} has no `summary:` line → add `summary: role · what they own · how to reach` as line 2 (F14, L10)")
+    return out
+
+
 def anchor(readme_body: str):
     """(date, time, phase|None, events|None) from the `as of` line; None when the State has none."""
     m = STATE_ANCHOR_RE.search(readme_body)
