@@ -115,6 +115,10 @@ happened. Now the lower layer is visible from the top, and the top is rendered f
   what it is"` — and it renders as a link among the folder's documents; undescribed ones stay
   folded into one `other:` line. A line you wrote for a file Elephant does not render (outside the
   content folders) stays as written — nothing in Links is dropped silently.
+  A document is one question per file, and the answer first: the line under `summary:` (or the first
+  paragraph) says the conclusion, the breakdown follows — the owner reads the Links line, then the top of
+  the file, and should not scroll for the answer. Two questions in one file dilute the summary and bury
+  both answers: make it two files (feedback 2026-09-16: «why-x-and-router-flow.md»).
   Recipes are NOT per-case: they go to the project-root .howto/.
 - README State carries lines el owns: `progress:` (from TODO), `last:` (newest RESULT),
   `as of:` (the journal entry State was last rewritten against, S5). Yours: next, ждёт, due …
@@ -168,6 +172,9 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   — kinds: file:<path> · ref:<trace> · run:"<command → outcome>" · owner, several at once when the proof is several
   things; the journal gets `RESULT · N.M: file [receipt.pdf](…) — fee paid` and under the TODO line el writes
   `result: fee paid` with one proof line per kind. A second done on a done item ADDS a proof. Who checks each kind: `el help evidence`.
+  The words are for the owner who was not in the session — what came out for the item, in plain terms, answering
+  its `why:`; a commit hash, a function name, an operator is a trace, and a trace is proof (ref:<hash> · file:<source>),
+  not the words (el warns when the words read like a code trace).
   Nothing came out? Then it was not done: `cancel N.M "why"`.
 - a tick taken back: `el todo reopen N.M "why the result no longer holds"` — the item is open
   again (the phase cannot close over it, its dependents are blocked again), the journal gets a
@@ -222,7 +229,7 @@ then the words; the tick, the kind and the RESULT are one write. Four kinds, and
                              it did not change) and writes the link from the case. The strongest kind.
                                                           → tail `— file: [receipt.pdf](evidence/receipt.pdf)`
 - ref:<trace outside>        a request number, a case number on a portal, a URL, a letter in the
-                             mailbox — a person can check it outside the case; the tool checks only
+                             mailbox, a commit hash — a person can check it outside the case; the tool checks only
                              that a trace is named. A screenshot or pdf turns a ref into a file; a ref
                              that names a file in reach gets a warning: that is a file, say file:.
                                                           → tail `— ref: D005532-091426`
@@ -326,6 +333,8 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
 - a way to do a frequent operation      → .howto/<task-verb>.md; its script → scripts/
 - received a file / doc / log / meeting → a case folder by kind, `summary:` as its line 2;
                                           Links picks it up by itself (folder line is yours)
+- wrote a document                      → one question per file, the answer right under `summary:`,
+                                          the breakdown after it (el help files)
 - a person the cases deal with          → .cases/people/<name>.md, `summary:` as line 2 (role · what they
                                           own · how to reach); cases link to the card (el help people)
 - two files sharing their text (Order names them) → say the difference in each summary, or merge
@@ -385,6 +394,10 @@ AN ITEM
 DONE
   weak    el todo done 3.2 owner "done"                                  — the agent's word dressed as the owner's
   weak    el todo done 3.2 file:testing/what-i-did.md "see the write-up"  — the agent's own text with a link on it
+  weak    el todo done 4.1 file:x.md "Commit f3277f8149 removed marketSegment == HA check and gutted update()"
+          — a code trace; the owner asked «why was it disconnected» and reads TODO without a terminal
+  strong  el todo done 4.1 ref:f3277f8149 "disconnected on purpose in the CSH merge: the HA check is gone, so the
+          router never sees PremierPricing" — the answer in the owner's words, the hash where it belongs: the proof
   strong  el todo done 3.2 file:docs/db-choice.md run:"k6 run load.js -> p95 48ms" owner "Postgres; budget 200$/mo confirmed"
           a thing anyone opens, a run anyone repeats, the owner's word for what only the owner can confirm; el then
           holds the record to the promise: `expect: 3 of 3 filled` — or names what is short
@@ -399,6 +412,13 @@ PARKING AN IDEA
   strong  el phase plan 5 "Roof" --goal "…" · el phase note 5 "lamps under the eaves" · el todo add 5 "…" ·
           el log --phase 5 DECISION "…" — parked where it will be needed; `parked:` counts it on entry, it
           surfaces in the phase file when the phase opens. Decompose only what you work on.
+
+A DOCUMENT
+  weak    research/why-x-and-router-flow.md — two questions in one file, `summary: analysis of X and the router`,
+          the answer somewhere in section 4
+  strong  research/why-x-disconnected.md — `summary: X was disconnected on purpose in the CSH merge`, the
+          first paragraph is the conclusion, the breakdown follows; the router flow is its own file.
+          One question per file, the answer first: the owner reads the Links line, then the top
 
 PEOPLE
   weak    the secretary is described in the Links of every case, in slightly different words, one of them stale

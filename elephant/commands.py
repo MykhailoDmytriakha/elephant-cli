@@ -571,6 +571,26 @@ def _evidence_file(case: Path, value: str) -> Optional[Path]:
     return None
 
 
+CODE_TRACE_RES = (re.compile(r"\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b"),  # a commit hash — hex with at least one letter
+                  re.compile(r"\b\w+\(\)"),                                 # a call: update()
+                  re.compile(r"[!=]=|::|->\s*\w+\("))                          # code operators
+
+
+def _outcome_warning(outcome: str, out: Outcome) -> None:
+    """The words of `done` are for the owner who was not in the session (feedback 2026-09-16: «Commit f3277f8149
+    removed marketSegment == HA check and gutted update()» — a code trace where the owner wanted «why was it
+    disconnected»). The tool cannot judge meaning; it can see a token class: a commit hash, a call, an operator.
+    A trace is proof — `ref:<hash>`, `file:<source>` — not the words. Shown, never refused."""
+    found = [m.group(0) for rx in CODE_TRACE_RES for m in rx.finditer(outcome)]
+    if not found:
+        return
+    hashes = [t for t in found if re.fullmatch(r"[0-9a-f]{7,40}", t)]
+    proof = f"ref:{hashes[0]}" if hashes else "ref:<trace>"
+    out.warn(f"the words of done read like a code trace ({', '.join(found[:3])}) — the owner reads TODO and JOURNAL: say what "
+             f"came out for the item, in the owner's words; the trace is proof, not the words: {proof} · file:<the source file> "
+             f"(el help practice)")
+
+
 def _is_kind_token(token: str) -> bool:
     """A leading argument of `done` that names evidence: `file:…` · `ref:…` · `run:…` · `owner`."""
     return bool(re.fullmatch(r"(file|ref|run):.+", token, re.S)) or token.strip() == "owner"
@@ -599,6 +619,7 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "") -> Out
         if (kind, proof) not in proofs:
             proofs.append((kind, proof))
     outcome = " ".join(outcome.split())
+    _outcome_warning(outcome, out)
     if not outcome:
         raise StoreError(f"done needs what came out (F20): el todo done {ref} {' '.join(tokens)} \"what came out\" — "
                          f"nothing came out? then it was not done: el todo cancel {ref} \"why\"", 2)
