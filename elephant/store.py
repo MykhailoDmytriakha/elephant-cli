@@ -275,6 +275,28 @@ def check_stamp(case: Path, name: str) -> WriteReport:
     return report
 
 
+def _introduced_warnings(name: str, body: str, current_text: str, warnings):
+    """Only the warnings THIS write introduces (the owner's word, 2026-09-17: 21 stderr lines about old README
+    lines on every `readme touch` taught the agent to filter warnings out — 46 of 66 in `check` were history).
+    A line warning stays when its line is new; a file warning (line 0, e.g. README over 8 KB) stays when the
+    file did not already carry that rule's warning. History is `check`'s business, shown there once per rule."""
+    if not current_text:
+        return warnings
+    cur_body, _ = stamp.split(current_text)
+    cur = recover.PARSERS[name](cur_body)
+    cur_lines = set(cur_body.split("\n"))
+    cur_rules0 = {f.rule for f in cur.warnings if f.line == 0}
+    new_lines = body.rstrip("\n").split("\n")
+    kept = []
+    for f in warnings:
+        if f.line == 0:
+            if f.rule not in cur_rules0:
+                kept.append(f)
+        elif f.line > len(new_lines) or new_lines[f.line - 1] not in cur_lines:
+            kept.append(f)
+    return kept
+
+
 def write(case: Path, name: str, body: str) -> WriteReport:
     """Validate `body` by its grammar, then write it with a fresh stamp (C8: nothing is touched on refusal).
 
@@ -291,6 +313,7 @@ def write(case: Path, name: str, body: str) -> WriteReport:
                          f"nothing is written into it until the case is migrated", 3, recovery=MIGRATE_HINT)
     report = check_stamp(case, name)
     result = recover.PARSERS[name](body)
+    result.warnings = _introduced_warnings(name, body, current_text, result.warnings)
     if result.errors:
         current, _ = stamp.split(read(case, name)) if file_path(case, name).exists() else ("", None)
         current_lines = set(current.split("\n"))

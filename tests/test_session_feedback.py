@@ -86,14 +86,15 @@ class ReadmeSections(Base):
 
 
 class WarningNoise(Base):
-    def test_log_does_not_warn_about_old_lines(self):
+    def test_log_warns_about_the_line_just_written_never_about_old_ones(self):
         near = "х" * 190
-        run("log", "RESULT", near)  # old line close to the limit
+        code, out, err = run("log", "RESULT", near)  # the line just written, close to the limit: said once, now
+        self.assertIn("close to the limit", err)
         code, out, err = run("log", "DECISION", "короткая свежая запись")
         self.assertEqual(code, 0)
-        self.assertNotIn("close to the limit", err, "old lines are check's business, not log's")
-        code, out, err = run("check")  # check still reports them
-        self.assertIn("close to the limit", err)
+        self.assertNotIn("close to the limit", err, "old lines are nobody's business at a write")
+        code, out, err = run("check")  # 1.20.0: nor check's — the soft threshold is a moment-of-writing nudge, not history
+        self.assertNotIn("close to the limit", err)
 
 
 class DanglingFolders(Base):

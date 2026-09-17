@@ -389,6 +389,9 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None) -> Outcome
     if typ not in grammar.JOURNAL_TYPES:
         raise StoreError(f"unknown type `{typ}` — allowed: PHASE · DECISION · PROBLEM · RESULT (F8)", 2)
     event_lines, split = _render_event(typ, text)
+    if not split and len(event_lines[0].strip()) > grammar.EVENT_WARN_CHARS:
+        out.warn(f"event line is {len(event_lines[0].strip())} chars, close to the limit {grammar.EVENT_CHARS} (F7) — "
+                 f"a line break in the text makes a body line")
     if split and "\n" in text.strip():
         out.warn(f"event written as a headline + {len(event_lines) - 1} body line(s): your line breaks are kept (F7)")
     elif split:
@@ -3222,6 +3225,27 @@ def migrate_cmd(case: Path, apply: bool = False) -> Outcome:
     return out
 
 
+def _grouped_warnings(findings) -> List[str]:
+    """File warnings for `check`, one line per rule and message shape: «F2 · pointer line over 150 — lines 14, 15,
+    18 (3 lines)» instead of three lines that differ only in numbers. `warnings: N` counts lines the reader can act on."""
+    groups: Dict[Tuple[str, str], List[int]] = {}
+    singles: List[str] = []
+    for f in findings:
+        if f.line == 0:
+            singles.append(str(f))
+            continue
+        key = (f.rule, re.sub(r"\d+", "N", f.message))
+        groups.setdefault(key, []).append(f.line)
+    out = list(singles)
+    for (rule, shape), lines in groups.items():
+        if len(lines) == 1:
+            out.append(f"{rule} · line {lines[0]} · {shape.replace('N', str(lines[0]), 0) if False else shape}")
+        else:
+            shown = ", ".join(str(n) for n in lines[:6]) + (f" … +{len(lines) - 6}" if len(lines) > 6 else "")
+            out.append(f"{rule} · {shape} — lines {shown} ({len(lines)} lines)")
+    return out
+
+
 def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> Outcome:
     """The case in hand (`only`, with its nested cases) against the rules; `only` None = every case
     here. Feedback 2026-09-09: a workspace with legacy cases from past months made the bare `check`
@@ -3259,8 +3283,8 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
                 out.say(f"x {case.name}/{name}: {f}")
                 log_lines.append(f"{date} {time} · {case.name} · {name} · {f.rule} · {f.message}")
                 errors += 1
-            for f in r.warnings:
-                out.warn(f"{case.name}/{name}: {f}")
+            for line in _grouped_warnings(r.warnings):  # one line per rule, not one per old line (2026-09-17)
+                out.warn(f"{case.name}/{name}: {line}")
             if r.stamp_state in ("mismatch", "not-last"):
                 out.warn(f"{case.name}/{name}: stamp {r.stamp_state} — written bypassing Elephant (S4)")
                 log_lines.append(f"{date} {time} · {case.name} · {name} · S4 · stamp {r.stamp_state}")

@@ -78,10 +78,14 @@ class JournalTests(unittest.TestCase):
         r = grammar.parse_journal(JOURNAL_OK.replace("chose X over Y because Z", "x" * 201))
         self.assertIn("F7", rules(r.errors))
 
-    def test_event_near_limit_warns(self):
+    def test_event_near_limit_is_not_a_parser_warning(self):
+        # 1.20.0: the soft threshold («close to the limit») is said once by `el log` for the line just written;
+        # the parser — and so `check` — does not nag history with it (46 of 66 check warnings were old lines)
         r = grammar.parse_journal(JOURNAL_OK.replace("chose X over Y because Z", "x" * 185))
         self.assertTrue(r.ok)
-        self.assertIn("F7", rules(r.warnings))
+        self.assertNotIn("F7", rules(r.warnings))
+        r = grammar.parse_journal(JOURNAL_OK.replace("chose X over Y because Z", "x" * 205))
+        self.assertIn("F7", rules(r.errors), "the hard limit stays an error")
 
     def test_oldest_first_is_rejected(self):
         swapped = JOURNAL_OK.replace("2026-08-30 00:10", "2026-08-28 00:10")
@@ -201,8 +205,12 @@ class ReadmeTests(unittest.TestCase):
         self.assertTrue(r.ok)
         self.assertIn("F3", rules(r.warnings))
 
-    def test_long_pointer_warns(self):
+    def test_long_pointer_warns_in_links_not_in_problems(self):
+        # 1.20.0: the pointer limit is for Links and State, where the owner clicks; Problems/Decisions are text
         r = grammar.parse_readme(README_OK.replace("- open · limits not measured", "- " + "o" * 160))
+        self.assertTrue(r.ok)
+        self.assertNotIn("F2", rules(r.warnings))
+        r = grammar.parse_readme(README_OK.replace("## Links\n", "## Links\n- " + "o" * 160 + "\n"))
         self.assertTrue(r.ok)
         self.assertIn("F2", rules(r.warnings))
 

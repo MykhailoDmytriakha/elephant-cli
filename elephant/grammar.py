@@ -193,8 +193,8 @@ def parse_journal(text: str) -> Journal:
             n = len(raw.strip())
             if n > EVENT_CHARS:
                 r.error("F7", i, f"event line is {n} chars, limit {EVENT_CHARS}: move details into a body line")
-            elif n > EVENT_WARN_CHARS:
-                r.warn("F7", i, f"event line is {n} chars, close to the limit {EVENT_CHARS}")
+            # «close to the limit» (soft, EVENT_WARN_CHARS) is said once, by `el log`, for the line just written —
+            # not by the parser on history: 46 of 66 check warnings were old lines nobody would touch (2026-09-17)
             event = Event(typ, txt, i)
             entry.events.append(event)
             continue
@@ -466,8 +466,10 @@ def parse_readme(text: str) -> Readme:
             continue
         r.sections[current].append(raw)
         owned = current == "State" and raw.startswith(tuple(f"- {p}:" for p in STATE_OWNED))
-        if raw.startswith("- ") and not owned and visible_len(raw.strip()) > README_POINTER_CHARS:
-            # lines el derives (`progress:` over 21 phases) are not the agent's to shorten (feedback 2026-09-04)
+        if current in ("Links", "State") and raw.startswith("- ") and not owned and visible_len(raw.strip()) > README_POINTER_CHARS:
+            # a POINTER line — Links and State, where the owner clicks and scans (F2); Decisions, Problems and Context
+            # are text, bounded by the README byte limit (2026-09-17: 19 Decisions lines warned for weeks, nobody acted).
+            # Lines el derives (`progress:` over 21 phases) are not the agent's to shorten (feedback 2026-09-04)
             r.warn("F2", i, f"pointer line is {visible_len(raw.strip())} visible chars, over {README_POINTER_CHARS}")
     # F2 counts the text people write. The nested Links lines (files, sub-folders, `other:`) are
     # rendered by el from the files and cannot be shortened in README — they are reported, not

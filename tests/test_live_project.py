@@ -268,13 +268,16 @@ class ReadmeBudget(Base):
         self.assertIn("[f109.md](docs/f109.md)", r, "README refreshed although the rendered index alone is over 12 KB")
         self.assertGreater(len(r.encode("utf-8")), 12 * 1024)
         self.assertNotIn("F2", err)
+        seen = ""
         for i in range(70):
-            run("readme", "add", "decisions", f"2026-09-03 · решение номер {i} · " + "потому что " * 10)
+            seen += run("readme", "add", "decisions", f"2026-09-03 · решение номер {i} · " + "потому что " * 10)[2]
+        self.assertIn("of your text", seen, "the write that crossed the budget said so")
+        self.assertIn("Links rendered by el:", seen)
+        self.assertIn("not counted", seen)
         code, out, err = run("readme", "add", "decisions", "ещё одно")
         self.assertEqual(code, 0, err)
-        self.assertIn("of your text", err)
-        self.assertIn("Links rendered by el:", err)
-        self.assertIn("not counted", err)
+        self.assertNotIn("of your text", err, "1.20.0: a later write does not echo an old warning — check names it")
+        self.assertIn("of your text", run("check")[2])
 
 
 if __name__ == "__main__":

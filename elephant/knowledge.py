@@ -528,9 +528,10 @@ proved statements of a theory: found and proved once, then built on, not re-deri
   expectation written before the work (`expect:`, expected `fact:`) stands next to both — confirmed or refuted
   is knowledge either way. `el help practice` shows the pair.""",
     "limits": """the numbers (all enforced at write time)
-README: 200 lines / 8 KB of YOUR text → warning · 300 lines / 12 KB → refusal; pointer line ≤ 150 chars
-  (warning). The nested Links lines el renders from the files are reported, not counted — you
-  cannot shorten them in README, and the file index must not squeeze out what the owner writes.
+README: 200 lines / 8 KB of YOUR text → warning · 300 lines / 12 KB → refusal; a POINTER line (Links, State)
+  ≤ 150 chars (warning) — Decisions, Problems and Context are text, bounded by the byte limit only. The nested
+  Links lines el renders from the files are reported, not counted — you cannot shorten them in README, and the
+  file index must not squeeze out what the owner writes.
 TODO: ≤ 200 lines (100 before 0.20: a rollout through five environments × 17 steps is structure,
   not water); item text ≤ 100 VISIBLE chars (80 before 0.21: `<Env>: [<Block>] <Action> -> expect
   <Result>` is one action with its checkable outcome) — markdown links [name](path) count as `name`, nothing
@@ -540,8 +541,11 @@ TODO: ≤ 200 lines (100 before 0.20: a rollout through five environments × 17 
   proof lines under it are el's — reported, not counted; the words of `done` longer than 150 are shortened with
   «…» on the `result:` line, the journal RESULT keeps them whole;
   phase name — English, 1–3 words; no items deeper than N.M.
-JOURNAL: event headline ≤ 200 chars (soft 180); long text splits automatically into headline +
-  up to 5 body lines of ≤ 160 chars; body beyond that → put the story in the phase file.
+JOURNAL: event headline ≤ 200 chars (soft 180 — said once, by `el log`, for the line you just wrote); long text
+  splits automatically into headline + up to 5 body lines of ≤ 160 chars; body beyond that → put the story in
+  the phase file.
+Warnings are about THIS write: a command warns only about lines it introduced; history is `check`'s business,
+  and `check` says it once per rule («F2 · pointer line over 150 — lines 14, 15, 18 (3 lines)»).
 Lower layer (shown, not refused): file `summary:` ≤ 120 chars; a file over 24 KB → split by summary
   or trim; two files where ≥ 50 % of the smaller one's phrasing is verbatim in the other → duplicate.
   No folder total (dropped in 0.11): a byte count cannot tell deliverables from water.
@@ -572,6 +576,8 @@ After apply: `el` (Order shows what to rewrite), `el readme set next "…"`, `el
     "outside Elephant's grammar and was never stamped" = a legacy file → `el migrate` (see `el help migrate`).
 4 — precondition not met: no .cases/ from here upwards · every case closed · a case file missing ·
     a phase not ready to open/close. The message names the check and a recovery command.
+Warnings: a write warns only about what it introduced (an old long line is not your business today); `check` shows
+    the soft layer once per rule with the line numbers. `violations: N` is what to read; warnings are the lower layer.
 Diagnostics without any writes: `el doctor`. Facts that save an investigation:
 - el never reads or writes AGENTS.md / CLAUDE.md — they only point at el;
 - el never changes your shell's cwd (a child process cannot);
