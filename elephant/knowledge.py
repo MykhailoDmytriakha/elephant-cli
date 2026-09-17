@@ -62,7 +62,9 @@ TOPICS = {
 6. Before you stop: `el` again — if Order says "State is behind", read State: something changed →
    `el readme set next "…"`; still true as it stands → `el readme touch`. The next session
    starts from that line.
-7. Never edit README.md / TODO.md / JOURNAL.md by hand — Elephant is the only write door; hand edits
+7. An old case? Its closed phases are history — leave them. The phase you work in is held to the
+   current form: Order names what it lacks (a promise in the goal, expect on items, a kind on ticks).
+8. Never edit README.md / TODO.md / JOURNAL.md by hand — Elephant is the only write door; hand edits
    are detected by the stamp and moved aside.""",
 
     "order": """order — the case keeps itself tidy (F14, F15, S5, P12)
@@ -297,6 +299,12 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   still applies, logged under that phase: `el log --phase N RESULT|DECISION "…"`. Next time, work
   that runs on its own clock is a nested case, not a phase: `el spawn "name" --goal "…"` (P11) —
   its own phases, its own agent, one rendered line at the parent when it closes.
+- the phase in flight is held to the current form; closed phases are history. A legacy case, an old phase:
+  read as they are, never nagged, never migrated by hand. The phase you WORK in is the write door itself
+  (the owner's word, 2026-09-17): its goal promises proofs, every open item carries `expect:`, every tick
+  carries a kind — Order names what is missing there, `check` counts a tick without a kind there as a
+  violation, and nothing is asked of the phases before it. Start on an old case: migrate it if it is
+  pre-el, then bring only the running phase to order.
 - acceptance is a promise, and a promise is items. The `goal:` names what must be TRUE when the phase closes,
   one proof per criterion, in the brackets `expect:` uses — `--goal "discount applied [run: trace shows outbound
   PremierPricingDiscLookup] [run: discount fields non-zero] [run: rerun shows the changed rate]"`. Each criterion

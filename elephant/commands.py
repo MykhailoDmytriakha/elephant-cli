@@ -981,6 +981,35 @@ def _phase_goal(case: Path, phase: grammar.Phase) -> str:
     return phase.summary or ""
 
 
+def _running_phases(case: Path, todo: grammar.Todo) -> List[grammar.Phase]:
+    """The phases in flight: open, with a phase file. The owner's word, 2026-09-17: a legacy case and its closed
+    phases stay as they are — history is read, never nagged — but the phase you WORK in is not history: it is the
+    write door itself, and it is held to the current form (goal with its promise, expect on every item, a kind on
+    every tick). Nothing here touches closed phases."""
+    return [p for p in todo.phases if not p.done and _phase_file(case, p.n, p.name).exists()]
+
+
+def _untyped_running(case: Path, todo: grammar.Todo) -> List[Tuple[str, grammar.Item]]:
+    return [(f"{p.n}.{it.m}", it) for p in _running_phases(case, todo) for it in p.items if it.done and not it.evidence]
+
+
+def _running_order_lines(case: Path, todo: grammar.Todo) -> List[str]:
+    """Order for the phase in flight (the strict form applies where the work is): a goal that promises nothing,
+    ticks without a kind. Closed phases are never listed here."""
+    lines = []
+    for p in _running_phases(case, todo):
+        goal = _phase_goal(case, p)
+        if p.items and goal and not grammar.expected_kinds(goal):  # work has started under a goal that promises nothing
+            lines.append(f"phase {p.n} {p.name} (running): its goal promises no proof — what must be true when it closes? add "
+                         f"[run: …] [file: …] [owner] to the goal line in phases/{_phase_file(case, p.n, p.name).name} (el help phases)")
+    untyped = _untyped_running(case, todo)
+    if untyped:
+        shown = ", ".join(r for r, _ in untyped[:4]) + (f" … +{len(untyped) - 4}" if len(untyped) > 4 else "")
+        lines.append(f"{len(untyped)} tick(s) without a kind of evidence in the running phase — {shown} → el todo done N.M <kind> \"…\" "
+                     f"attaches it (F20; closed phases stay as they are)")
+    return lines
+
+
 def _expect_gap_lines(case: Path, todo: grammar.Todo) -> List[str]:
     """F22 (the owner's word, 2026-09-17): every item of a RUNNING phase says what work is expected and how it will
     be proved. Content, so shown: one line per phase, until every open item carries `expect:`."""
@@ -2952,6 +2981,7 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_ended_phase_lines(case, todo_now, journal))  # every item ended: the phase is ready to end (F20)
         lines.extend(_promise_lines(case, todo_now))               # a promised proof nobody works towards (F12)
         lines.extend(_expect_gap_lines(case, todo_now))            # an item of a running phase with no expectation (F22)
+        lines.extend(_running_order_lines(case, todo_now))         # the phase in flight is held to the current form
         lines.extend(_refuted_lines(todo_now))                     # a fact resting on a refuted one (the fact chain)
     except StoreError:
         pass
@@ -3240,6 +3270,14 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
                 out.say(f"x {case.name}/phases/{pf.name}: {f}")
                 log_lines.append(f"{date} {time} · {case.name} · phases/{pf.name} · {f.rule} · {f.message}")
                 errors += 1
+        try:  # the running phase is the write door: a tick without a kind there is F20 broken, not history (2026-09-17)
+            for ref, it in _untyped_running(case, store.todo_of(case)):
+                out.say(f"x {case.name}/TODO.md: F20 · {ref} is done without a kind of evidence in the running phase → "
+                        f"el todo done {ref} <kind> \"…\" attaches it (closed phases stay as they are)")
+                log_lines.append(f"{date} {time} · {case.name} · TODO.md · F20 · {ref} untyped in the running phase")
+                errors += 1
+        except StoreError:
+            pass
         for rec in store.recover_files(case):
             out.warn(f"{case.name}: pending {rec.name}")
         readme_text_ = store.read(case, "README.md") if store.file_path(case, "README.md").exists() else ""

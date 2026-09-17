@@ -115,9 +115,14 @@ class ShownNeverNagged(Base):
         code, out, err = run()
         self.assertEqual(code, 0, err)
         self.assertIn("evidence: 3 done · file 1 · owner 1 · untyped 1", out)
-        self.assertNotIn("untyped", out.split("## Order")[1], "a count, not an Order line")
+        # 1.19.0 (the owner's word 2026-09-17): history is never nagged, but the RUNNING phase is the write door —
+        # a tick without a kind there is named in Order and is an F20 violation until a kind is attached
+        self.assertIn("1 tick(s) without a kind of evidence in the running phase — 1.3", out.split("## Order")[1])
         code, out, err = run("check")
-        self.assertIn("violations: 0", out, "reading never demands the kind")
+        self.assertEqual(code, 3)
+        self.assertIn("F20 · 1.3 is done without a kind of evidence in the running phase", err + out)
+        run("todo", "done", "1.3", "owner", "attached later")
+        self.assertIn("violations: 0", run("check")[1])
 
     def test_no_done_items_no_line(self):
         self.assertNotIn("evidence:", run()[1])
