@@ -212,6 +212,9 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   `done` el holds the record to it: `expect: 2 of 3 filled — missing [run: …]` · `result:` + proof lines,
   written by `done` only. `todo add … --why "…" --note "…" --expect "…"` sets them at once. why/note/expect
   are yours and count in the 200 lines; result and proof lines are el's and do not.
+- `fact:` — the fifth pocket: what the item is expected to establish (open) or has established (done); `-` says
+  none. Every item of a RUNNING phase says what work is expected (`expect:`) — el warns at add and Order names
+  the gaps; a fact is expected only where knowledge is the outcome (el help facts).
 - cut items by what they leave behind: one outcome with its own proof per item. Two items whose proof is one
   artifact were one item — its steps go to `note:` lines or the phase file; an item that leaves nothing checkable
   is a step of another. el says so when an `expect:` names an artifact another item promised or left.
@@ -417,6 +420,12 @@ A CHAIN
           each step leaves its artifact, the next one imports it; `el todo show 3.3` prints the inputs; a side
           branch on its own clock is a nested case and `after: <case>` joins it (the owner's sketch, 2026-09-16)
 
+RESULT AND FACT
+  weak    el todo done 4.1 run:"grep trace -> no call" "checked the trace"          — what you did
+  strong  el todo done 4.1 run:"grep trace -> no outbound PremierPricingDiscLookup" "trace read across three DEV pods" \
+            --fact "the router never calls Premier Pricing in the CSET flow; the direct endpoint works only standalone"
+          the result is the work, the fact is what is now known — the next agent builds on the fact (el facts)
+
 DONE
   weak    el todo done 3.2 owner "done"                                  — the agent's word dressed as the owner's
   weak    el todo done 3.2 file:testing/what-i-did.md "see the write-up"  — the agent's own text with a link on it
@@ -495,6 +504,21 @@ the cases under the same .gitignore rule:
   or a Links line; the link is checked like every link (F16), a card without `summary:` is named in Order.
 - el writes nothing here — you write the card, like a recipe in .howto/. Later, if the cards are read:
   `el who <name>` (the summary line at the moment of need) and «appears in cases: …» rendered from the links.""",
+    "facts": """facts — the chain of what is known (the owner's word, 2026-09-17)
+A result is the work: «servers up, no errors», «trace grepped across three pods». A fact is what is now KNOWN
+and later work builds on: «the router never calls Premier Pricing in the CSET flow». Not every item yields a
+fact — starting servers does not; grepping the trace does. The fact chain is made of facts only, like the
+proved statements of a theory: found and proved once, then built on, not re-derived by the next agent.
+- `fact:` is the fifth pocket. Expected while the item is open (`el todo add … --fact "…"`, `el todo fact N.M
+  "…"`), established once done. `done` on an item with an expected fact asks for the verdict: `--fact confirmed`
+  · `--fact "the fact as it turned out"` · `--fact -` (none came out). The journal RESULT carries it.
+- `el facts` renders the chain: ✓ established · · expected (open) · ? under question (rests on an item that is
+  open again — refuted, and el never reopens the dependents itself: finish the base, rewire `after`, or reopen)
+  · ✗ dead branch (cancelled, with its reason, from the journal). Done items without a fact are counted as work.
+- the chain has edges: `— after: N.K` says what a fact rests on; `el todo show N.M` prints the inputs.
+- what the strong form looks like: `result:` says what the work produced, `fact:` says what is true now, and the
+  expectation written before the work (`expect:`, expected `fact:`) stands next to both — confirmed or refuted
+  is knowledge either way. `el help practice` shows the pair.""",
     "limits": """the numbers (all enforced at write time)
 README: 200 lines / 8 KB of YOUR text → warning · 300 lines / 12 KB → refusal; pointer line ≤ 150 chars
   (warning). The nested Links lines el renders from the files are reported, not counted — you
@@ -562,6 +586,7 @@ ALIASES = {
     "recover": "stamp", "rule": "model", "rules": "model", "graph": "model", "howto": "where", "recipe": "where",
     "recipes": "where", "legacy": "migrate", "migration": "migrate", "problems": "order", "until": "order",
     "workaround": "order", "report": "feedback", "bug": "feedback",
+    "fact": "facts", "chain": "facts", "knowledge": "facts",
     "person": "people", "who": "people", "contact": "people", "contacts": "people", "participants": "people", "team": "people",
 }
 

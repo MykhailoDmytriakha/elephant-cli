@@ -16,6 +16,10 @@ from .store import StoreError
 
 MAX_SCREEN = 24_000  # chars: Claude Code truncates tool output around 30K (owner's measurement 2026-08-22)
 ENTRY_LIMIT = 10  # P1: last 10 journal entries on entry
+# measured on the tool's own case (2026-09-17): 10 entries carried 46 event headlines — 8.6K chars, the heaviest
+# part of a 20.6K-char entry; entries had grown to 5–8 events each. The entry shows the last 10 entries but at most
+# this many event headlines; the rest of those entries is named, not printed (the cold entry is the case's measure)
+ENTRY_EVENTS = 24
 
 
 @dataclass
@@ -86,6 +90,8 @@ def _item_block(it: grammar.Item) -> List[str]:
         if it.result:
             lines.append(f"    - result: {it.result}")
         lines += [f"{deeper}- {k}: {pr}" if pr else f"{deeper}- {k}" for k, pr in it.evidence]
+    if it.fact:  # expected while open, established once done — the line the fact chain is made of
+        lines.append(f"    - fact: {it.fact}")
     return lines
 
 
@@ -103,6 +109,35 @@ def render_todo(todo: grammar.Todo) -> str:
         for w in p.waits:
             out.append(f"  - waits: {w}")
     return "\n".join(out) + "\n"
+
+
+def render_todo_entry(todo: grammar.Todo) -> Tuple[str, int]:
+    """TODO as the ENTRY shows it: open items with their pockets (what to do, why, what is expected), done items
+    collapsed to their line and their `fact:` — the result and the proofs are history the file keeps (TODO.md), not
+    what the next agent needs to continue. Found on the tool's own case (2026-09-17): 25 done items with pockets
+    pushed the entry past 24 000 chars and the Order block off the screen — the cold entry is the case's own
+    measure (≤ 3K tokens). Returns (text, number of collapsed items)."""
+    out = [f"# {todo.title}", ""]
+    collapsed = 0
+    for p in sorted(todo.phases, key=lambda x: x.n):
+        mark = "x" if p.done else " "
+        head = f"- [{mark}] {p.n} {p.name}"
+        if p.summary:
+            head += f" — {_link_phase_paths(p.summary)}"
+        out.append(head)
+        out += [f"  - note: {n}" for n in p.notes]
+        for it in [i for i in p.items if not i.held] + [i for i in p.items if i.held]:
+            if it.done:
+                out.append(f"  - [x] {it.n}.{it.m} {it.text}")
+                if it.fact:
+                    out.append(f"    - fact: {it.fact}")
+                if it.result or it.evidence or it.why or it.notes or it.expect:
+                    collapsed += 1
+            else:
+                out += _item_block(it)
+        for w in p.waits:
+            out.append(f"  - waits: {w}")
+    return "\n".join(out) + "\n", collapsed
 
 
 def _derive_todo(case: Path, todo: grammar.Todo) -> bool:
@@ -603,7 +638,7 @@ def _is_kind_token(token: str) -> bool:
     return bool(re.fullmatch(r"(file|ref|run):.+", token, re.S)) or token.strip() == "owner"
 
 
-def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "") -> Outcome:
+def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: Optional[str] = None) -> Outcome:
     """Done with evidence (F20): `el todo done N.M <kind> [<kind> …] "what came out"` — the kinds come
     first (file:<path> · ref:<trace> · run:"<command → outcome>" · owner), several when the proof is several
     things; the outcome goes to the journal as `RESULT · N.M: <kinds> — …` and under the TODO line as
@@ -635,6 +670,15 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "") -> Out
     shown_outcome = order._short(outcome, grammar.POCKET_CHARS)
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)
+    fact = " ".join(fact.split()) if fact is not None else None
+    expected_facts = [it for it in items if it.fact and not it.done]
+    if expected_facts and fact is None:  # an expected fact asks for its verdict: confirmed, changed, or none
+        it0 = expected_facts[0]
+        raise StoreError(f"{phase.n}.{it0.m} expected the fact «{it0.fact}» — what is established now? "
+                         f"el todo done {ref} {' '.join(tokens)} \"{outcome}\" --fact confirmed · --fact \"the fact as it turned out\" · "
+                         f"--fact - (no fact came out)", 2)
+    if fact is not None and fact.lower() not in ("confirmed", "same") and fact not in FACT_NONE:
+        fact = _pocket_text("fact", fact, ref)
     _proof_warnings(phase, items, proofs, out)
     already = [it for it in items if it.done]
     fresh = [it for it in items if not it.done]
@@ -646,13 +690,23 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "") -> Out
         it.evidence = list(proofs)
     for it in already:
         it.evidence += [pr for pr in proofs if pr not in it.evidence]
+    fact_note = ""
     for it in items:
         it.result = shown_outcome
+        if fact is not None:
+            if fact.lower() in ("confirmed", "same"):
+                fact_note = f" · fact confirmed: {it.fact}" if it.fact else ""
+            elif fact in FACT_NONE:
+                fact_note = " · no fact" if it.fact else ""
+                it.fact = ""
+            else:
+                fact_note = f" · fact: {fact}"
+                it.fact = fact
     out.absorb(_write_todo(case, todo))
     refs = _refs(phase, items)
     shown = " · ".join(f"{k} {pr}".strip() for k, pr in proofs)
     short, expect_lines = _expect_check(phase, items)
-    out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome}" + (f" ({short})" if short else ""), f"p{phase.n}").lines
+    out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome}" + (f" ({short})" if short else "") + fact_note, f"p{phase.n}").lines
     for it in fresh:
         left = [r for r, _ in blocking.get(f"{phase.n}.{it.m}", []) if r not in done_now]
         if left:
@@ -664,6 +718,9 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "") -> Out
     if shown_outcome != outcome:
         out.say(f"result: line shortened to {grammar.POCKET_CHARS} chars in TODO (F22, el's line) — the whole outcome is in the journal RESULT")
     out.say(*expect_lines)  # after `done:` — the promise, then what arrived
+    for it in items:
+        if it.fact:
+            out.say(f"  fact {phase.n}.{it.m}: «{it.fact}» — established; it enters the chain: el facts")
     hints.attach(out, "todo_done", items=items, proofs=proofs)
     for it in already:
         ev0, words0 = was[f"{phase.n}.{it.m}"]
@@ -924,6 +981,37 @@ def _phase_goal(case: Path, phase: grammar.Phase) -> str:
     return phase.summary or ""
 
 
+def _expect_gap_lines(case: Path, todo: grammar.Todo) -> List[str]:
+    """F22 (the owner's word, 2026-09-17): every item of a RUNNING phase says what work is expected and how it will
+    be proved. Content, so shown: one line per phase, until every open item carries `expect:`."""
+    lines = []
+    for p in todo.phases:
+        if p.done or not _phase_file(case, p.n, p.name).exists():
+            continue
+        gaps = [f"{p.n}.{it.m}" for it in p.items if not it.done and not it.expect]
+        if gaps:
+            shown = ", ".join(gaps[:4]) + (f" … +{len(gaps) - 4}" if len(gaps) > 4 else "")
+            lines.append(f"phase {p.n} {p.name}: {len(gaps)} open item(s) without expect: — {shown} → "
+                         f"el todo expect N.M \"what work is expected [run: …] [file: …] [owner]\" (every item of a running phase says it, F22)")
+    return lines
+
+
+def _refuted_lines(todo: grammar.Todo) -> List[str]:
+    """The fact chain (the owner's word, 2026-09-17): a done item resting (`after`) on an item that is open again
+    or cancelled stands on a refuted fact — under question, never reopened by el: three exits."""
+    by_ref = {f"{it.n}.{it.m}": it for it in _all_items(todo)}
+    lines = []
+    for it in _all_items(todo):
+        if not it.done or not it.after:
+            continue
+        shaky = [r for r in it.after if r in by_ref and not by_ref[r].done]
+        if shaky:
+            ref = f"{it.n}.{it.m}"
+            lines.append(f"{ref} «{order._short(it.fact or it.result or it.text, 50)}» rests on {', '.join(shaky)}, open again — a fact on a "
+                         f"refuted one is under question: finish {shaky[0]} · or el todo reopen {ref} \"…\" · or el todo after {ref} <refs|none>")
+    return lines
+
+
 def _promise_lines(case: Path, todo: grammar.Todo) -> List[str]:
     """Order (F12): a proof the open phase promised in its goal that no item promises — the acceptance criterion
     nobody is working towards. Shown while the phase runs; the close refuses over it."""
@@ -936,6 +1024,31 @@ def _promise_lines(case: Path, todo: grammar.Todo) -> List[str]:
                 lines.append(f"phase {p.n} {p.name} promises {_slot(kind, what)} and no item promises it — the criterion nobody works towards: "
                              f"el todo add {p.n} \"…\" --expect \"{_slot(kind, what)}\" · or correct the goal line in phases/{_phase_file(case, p.n, p.name).name}")
     return lines
+
+
+FACT_NONE = ("-", "—", "no", "none")
+
+
+def todo_fact(case: Path, ref: str, text: str) -> Outcome:
+    """`el todo fact N.M "…"` — what this item is expected to establish (open) or has established (done): the
+    line the fact chain is made of (the owner's word, 2026-09-17: a result is the work — «servers up, no errors»;
+    a fact is what is now known and later work builds on — «the router never calls Premier Pricing in the CSET
+    flow»). Not every item yields a fact: `-` says none. One per item; the journal keeps the old words."""
+    out = Outcome()
+    todo = _todo(case, out)
+    phase, item = _find_item(todo, ref)
+    text = " ".join(text.split())
+    old = item.fact
+    item.fact = "" if text in FACT_NONE or not text else _pocket_text("fact", text, ref)
+    out.absorb(_write_todo(case, todo))
+    state = "established" if item.done else "expected"
+    if item.fact:
+        out.say(f"fact {ref} ({state}): «{item.fact}»" + (f" (was: «{old}»)" if old else "") + " → TODO.md")
+        if item.done:
+            out.lines += log(case, "RESULT", f"{ref}: fact — {item.fact}", f"p{phase.n}").lines
+    else:
+        out.say(f"fact {ref}: none" + (f" (was: «{old}»)" if old else "") + " → TODO.md")
+    return out
 
 
 def _goal_text(goal: str) -> str:
@@ -1000,7 +1113,7 @@ def todo_expect(case: Path, ref: str, text: str) -> Outcome:
 
 
 def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why: str = "", notes: Optional[List[str]] = None,
-             expect: str = "") -> Outcome:
+             expect: str = "", fact: str = "") -> Outcome:
     """Add item N.M (M = next free) to an open or planned phase N; `ref` is the phase number.
     The text may end with `— due: YYYY-MM-DD`. `before` = N.K puts it in place instead of at the
     end (feedback 2026-09-08: an item refused for length and re-added later landed last, and a
@@ -1034,14 +1147,22 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why:
     item.notes = [_pocket_text("note", n, f"{phase.n}.{m}") for n in (notes or [])]
     if expect:
         item.expect = _expect_text(expect, f"{phase.n}.{m}")
+    if fact and fact.strip() not in ("-", "—", "no", "none"):
+        item.fact = _pocket_text("fact", fact, f"{phase.n}.{m}")
     phase.items.insert(at, item)
     if after:
         _set_after(case, todo, item, after)
     out.absorb(_write_todo(case, todo))
-    pockets = (" · why" if item.why else "") + (f" · {len(item.notes)} note(s)" if item.notes else "") + (" · expect" if item.expect else "")
+    pockets = ((" · why" if item.why else "") + (f" · {len(item.notes)} note(s)" if item.notes else "") + (" · expect" if item.expect else "")
+               + (" · expected fact" if item.fact else ""))
     out.say(f"added: {phase.n}.{m} {text}{f' — after: {chr(44).join(item.after)}' if item.after else ''}{f' — due: {due}' if due else ''}"
             f"{f' (before {before})' if before else ''}{pockets} → TODO.md")
     _remind_link(case, f"{phase.n}.{m}", _item_context(item), out)
+    if not item.expect and _phase_file(case, phase.n, phase.name).exists():
+        # the owner's word, 2026-09-17: every item of a running phase says what work is expected and how it will
+        # be proved — content, so shown, not refused: a warning here, an Order line until it is there
+        out.warn(f"{phase.n}.{m} has no expect: — every item of a running phase says what is expected and how it will be proved: "
+                 f"el todo expect {phase.n}.{m} \"… [run: …] [file: …] [owner]\"")
     if item.expect:
         hints.attach(out, "todo_expect", item=item, phase=phase)
     else:
@@ -1294,6 +1415,11 @@ def todo_reopen(case: Path, ref: str, why: str) -> Outcome:
     refs = _refs(phase, items)
     verb = "возвращён" if len(items) == 1 else "возвращены"
     out.lines += log(case, "DECISION", f"{refs} {verb} в работу — {why}", f"p{phase.n}").lines
+    refuted = {f"{phase.n}.{it.m}" for it in items}
+    resting = [it for it in _all_items(todo) if it.done and set(it.after) & refuted]
+    if resting:  # the fact chain: what stands on the refuted item is under question — shown, never reopened by el
+        out.say("  standing on it, done: " + ", ".join(f"{it.n}.{it.m}" for it in resting)
+                + " — a fact resting on a refuted one is under question; Order names them until you confirm, rewire or reopen (el facts)")
     what = f"{items[0].text}" if len(items) == 1 else f"({len(items)} items)"
     out.say(f"reopened: {refs} {what} → TODO.md · DECISION in the journal (the RESULTs stay as history)")
     return out
@@ -1485,7 +1611,7 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
             if not ln.strip():
                 continue
             m = re.fullmatch(rf"- {n}\.(\d+) [✓✗] (.*)", ln)
-            pocket = re.fullmatch(r"  - (why|note|expect): (.+)", ln)
+            pocket = re.fullmatch(r"  - (why|note|expect|fact): (.+)", ln)
             if section == "Items at cancel" and m:
                 text, _ = _rewrite_links(m.group(2), pf.parent, new_base=case)  # links come back up to the case root
                 text, _, _ = grammar.split_evidence(text)  # an item comes back open: its evidence, if any, stays in the journal
@@ -1496,6 +1622,8 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
                     items[-1].why = val
                 elif pocket.group(1) == "expect":
                     items[-1].expect = val
+                elif pocket.group(1) == "fact":
+                    items[-1].fact = val
                 else:
                     items[-1].notes.append(val)
             elif section == "Items at cancel" and items and re.fullmatch(r"\s+- (file|ref|run|owner)\b.*", ln):
@@ -1810,6 +1938,7 @@ def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]
                 f"got {' · '.join(sorted({k for k, _ in it.evidence})) or 'nothing'}" for it in short) + ")"
         lines.append(line)
     lines += bucket("notes", [rel(n) for n in phase.notes])
+    lines += bucket("facts", [f"{it.n}.{it.m} {rel(it.fact)}" for it in phase.items if it.done and it.fact])
     # item results (`RESULT · N.M: …`) live under their items below; the digest keeps the phase-level ones
     lines += bucket("results", [rel(ev.text) for ev in evs if ev.type == "RESULT" and not ITEM_RESULT_RE.match(ev.text)])
     lines += bucket("problems", [rel(ev.text) for ev in evs if ev.type == "PROBLEM"])
@@ -2753,12 +2882,21 @@ def _journal_headlines(journal: grammar.Journal, limit: int) -> List[str]:
     (`DECISION · todo …` written by v0.7–0.8 for every TODO edit). Bodies stay on disk."""
     total = len(journal.entries)
     lines = [f"# JOURNAL — last {min(limit, total)} of {total} entries (headlines; bodies in JOURNAL.md)"]
+    shown, hidden = 0, 0
     for e in journal.entries[:limit]:
         events = [ev for ev in e.events if not (ev.type == "DECISION" and ev.text.startswith("todo "))]
         if not events:
             continue
+        if shown >= ENTRY_EVENTS:
+            hidden += len(events)
+            continue
         lines.append(f"- {e.date} {e.time} · {e.phase}")
-        lines.extend(f"  {ev.type} · {ev.text}" for ev in events)
+        room = ENTRY_EVENTS - shown
+        lines.extend(f"  {ev.type} · {ev.text}" for ev in events[:room])
+        shown += min(len(events), room)
+        hidden += max(len(events) - room, 0)
+    if hidden:
+        lines.append(f"  … +{hidden} event line(s) more in these entries — JOURNAL.md (the entry shows {ENTRY_EVENTS})")
     return lines
 
 
@@ -2813,6 +2951,8 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_gone_lines(case, todo_now))              # waiting for something that no longer exists (F19)
         lines.extend(_ended_phase_lines(case, todo_now, journal))  # every item ended: the phase is ready to end (F20)
         lines.extend(_promise_lines(case, todo_now))               # a promised proof nobody works towards (F12)
+        lines.extend(_expect_gap_lines(case, todo_now))            # an item of a running phase with no expectation (F22)
+        lines.extend(_refuted_lines(todo_now))                     # a fact resting on a refuted one (the fact chain)
     except StoreError:
         pass
     lines.extend(order.people_lines(root))  # L10: a card every case reads before calling that person
@@ -2866,8 +3006,18 @@ def entry(root: Path, case: Path) -> Outcome:
     evidence = _evidence_line(todo) if not todo.errors else None
     if evidence:
         out.say(evidence, "")  # what the done items stand on (F20): file · ref · run · owner — counted, never nagged
+    facts_line = _facts_line(case, todo, None) if not todo.errors else None
+    if facts_line:
+        out.say(facts_line, "")  # the fact chain in numbers; the chain itself: el facts
     out.say(readme_body.rstrip("\n"), "")
-    out.say(todo_body.rstrip("\n"), "")
+    if not todo.errors:
+        shown, collapsed = render_todo_entry(todo)
+        out.say(shown.rstrip("\n"))
+        if collapsed:
+            out.say(f"({collapsed} done item(s) collapsed here — result and proofs: TODO.md · one item in full: el todo show N.M)")
+        out.say("")
+    else:
+        out.say(todo_body.rstrip("\n"), "")
     journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
     parked = _parked_line(case, todo, journal if not journal.errors else None) if not todo.errors else None
     if parked:
@@ -2886,8 +3036,110 @@ def entry(root: Path, case: Path) -> Outcome:
                      repeats=order.links_repeating_cards(root, readme_body))
     total = "\n".join(out.lines)
     if len(total) > MAX_SCREEN:
-        out.lines = [total[:MAX_SCREEN], "", f"[truncated at {MAX_SCREEN} chars — README/TODO/JOURNAL are on disk]"]
+        # the tail — Order, the footer, the hint — is what the entry is FOR: cut the body, keep the tail
+        cut = next((i for i, ln in enumerate(out.lines) if ln.startswith("## Order")), len(out.lines))
+        tail = out.lines[cut:]
+        room = max(MAX_SCREEN - len("\n".join(tail)) - 120, 0)
+        body = "\n".join(out.lines[:cut])[:room]
+        out.lines = [body, "", f"[body truncated at {room} chars — README/TODO/JOURNAL are on disk]", ""] + tail
     return out
+
+
+def _closed_phase_items(case: Path, p: grammar.Phase) -> List[grammar.Item]:
+    """The items of a closed phase, read back from its file (`## Items at close`) with their pockets."""
+    pf = _phase_file(case, p.n, p.name)
+    if not pf.exists():
+        return []
+    items: List[grammar.Item] = []
+    section = ""
+    for ln in pf.read_text(encoding="utf-8").split("\n"):
+        if ln.startswith("## "):
+            section = ln[3:].strip()
+            continue
+        if section not in ("Items at close", "Items at cancel"):
+            continue
+        m = re.fullmatch(rf"- {p.n}\.(\d+) ([✓✗]) (.*)", ln)
+        if m:
+            text, _, _ = grammar.split_evidence(m.group(3))
+            text, _, after = _split_suffixes(text)
+            items.append(grammar.Item(p.n, int(m.group(1)), m.group(2) == "✓", text, 0, after=after))
+            continue
+        pocket = re.fullmatch(r"  - (why|note|expect|result|fact): (.+)", ln)
+        if pocket and items:
+            setattr(items[-1], pocket.group(1) if pocket.group(1) != "note" else "notes",
+                    pocket.group(2) if pocket.group(1) != "note" else items[-1].notes + [pocket.group(2)])
+            continue
+        ev = re.fullmatch(r"\s+- (file|ref|run|owner)(?:: (.+))?", ln)
+        if ev and items:
+            items[-1].evidence.append((ev.group(1), (ev.group(2) or "").strip()))
+    return items
+
+
+def facts(case: Path, journal: Optional[grammar.Journal] = None) -> Outcome:
+    """`el facts` — the fact chain of the case, rendered, never typed (the owner's word, 2026-09-17: a search tree
+    where the branches that worked became facts, the branches that did not stayed as dead ends, and the next agent
+    starts from proved facts, as in physics). Made of `fact:` lines only: ✓ established (done) · · expected (open)
+    · ? under question (rests on an item open again) · ✗ dead branch (cancelled, from the journal). Results without
+    a fact are work, not knowledge: counted, not listed."""
+    out = Outcome()
+    todo = _todo(case, out)
+    journal = journal or _journal(case, out)
+    by_ref: Dict[str, grammar.Item] = {}
+    per_phase: List[Tuple[grammar.Phase, List[grammar.Item]]] = []
+    for p in sorted(todo.phases, key=lambda x: x.n):
+        its = _closed_phase_items(case, p) if p.done else list(p.items)
+        per_phase.append((p, its))
+        for it in its:
+            by_ref[f"{it.n}.{it.m}"] = it
+    dead = []
+    for e in journal.entries:
+        for ev in e.events:
+            m = re.match(r"^снято ((?:\d+\.\d+ «[^»]*»(?:, )?)+) — (.+)$", ev.text)
+            if ev.type == "DECISION" and m:
+                for ref, text in re.findall(r"(\d+\.\d+) «([^»]*)»", m.group(1)):
+                    dead.append((ref, text, m.group(2), e.date))
+    established = [it for its in (i for _, i in per_phase) for it in its if it.done and it.fact]
+    pending = [it for its in (i for _, i in per_phase) for it in its if not it.done and it.fact]
+    def shaky(it):
+        return [r for r in it.after if r in by_ref and not by_ref[r].done]
+    question = [it for it in established if shaky(it)]
+    work_only = sum(1 for its in (i for _, i in per_phase) for it in its if it.done and not it.fact)
+    out.say(f"facts — {case.name} · {len(established) - len(question)} established · {len(question)} under question · "
+            f"{len(pending)} expected · {len(dead)} dead branch(es) · {work_only} done item(s) without a fact (work, not knowledge)")
+    for p, its in per_phase:
+        rows = [it for it in its if it.fact]
+        dead_here = [d for d in dead if d[0].startswith(f"{p.n}.")]
+        if not rows and not dead_here:
+            continue
+        out.say(f"phase {p.n} {p.name}" + (" (closed)" if p.done else ""))
+        for it in sorted(rows, key=lambda x: x.m):
+            ref = f"{it.n}.{it.m}"
+            sh = shaky(it) if it.done else []
+            mark = "?" if sh else ("✓" if it.done else "·")
+            tail = f"   ← rests on {', '.join(sh)}, open again" if sh else (f"   ← after: {', '.join(it.after)}" if it.after else "")
+            out.say(f"  {mark} {ref} {it.fact}{tail}")
+            for k, pr in it.evidence:
+                out.say(f"        {k}: {pr}".rstrip())
+            if not it.done and it.expect:
+                out.say(f"        expect: {it.expect}")
+        for ref, text, why, date in sorted(dead_here):
+            out.say(f"  ✗ {ref} {text}   ← снято {date}: {why}")
+    if len(out.lines) == 1:
+        out.say("  no fact lines yet — a done item that established something: el todo fact N.M \"what is now known\"; "
+                "what it is for: el help facts")
+    return out
+
+
+def _facts_line(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal]) -> Optional[str]:
+    """`facts: 5 established · 1 under question · 2 expected — el facts` on entry, when the case has any."""
+    by_ref = {f"{it.n}.{it.m}": it for it in _all_items(todo)}
+    est = [it for it in _all_items(todo) if it.done and it.fact]
+    q = [it for it in est if any(r in by_ref and not by_ref[r].done for r in it.after)]
+    pend = [it for it in _all_items(todo) if not it.done and it.fact]
+    if not est and not pend:
+        return None
+    return (f"facts: {len(est) - len(q)} established" + (f" · {len(q)} under question" if q else "")
+            + (f" · {len(pend)} expected" if pend else "") + " — el facts")
 
 
 def order_cmd(root: Path, case: Path, adopt: bool = False) -> Outcome:

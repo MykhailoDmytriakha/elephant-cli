@@ -69,9 +69,9 @@ def visible_len(text: str) -> int:
 DEEP_ITEM_RE = re.compile(r"^\s+- \[( |x)\] \d+\.\d+\.\d+")
 WAITS_RE = re.compile(r"^  - waits: (\S+)$")
 PHASE_NOTE_RE = re.compile(r"^  - note: (.+)$")                      # F22: a note under a phase line
-POCKET_RE = re.compile(r"^    - (why|note|expect|result):(?: (.+))?$")  # F22: an item's pockets
+POCKET_RE = re.compile(r"^    - (why|note|expect|result|fact):(?: (.+))?$")  # F22: an item's pockets
 EVIDENCE_LINE_RE = re.compile(r"^(?:    |      )- (file|ref|run|owner)(?:: (.+))?$")  # F20: one line per proof
-POCKET_KINDS = ("why", "note", "expect", "result")
+POCKET_KINDS = ("why", "note", "expect", "result", "fact")
 # F22 `expect:` — what done will look like, written BEFORE the work; the proofs it names stand in brackets,
 # `[file: docs/x.md] [run: k6 → p95] [owner]`, so `done` can hold the record to its own promise.
 EXPECT_SLOT_RE = re.compile(r"\[(file|ref|run|owner)(?::\s*([^\]]*))?\]")
@@ -230,6 +230,8 @@ class Item:
     notes: List[str] = field(default_factory=list)   # constraints, who to call, what to bring, a link to a document
     expect: str = ""                    # what done will look like, with proof placeholders `[kind: what]` — before the work
     result: str = ""                    # what came out — written by `done` only
+    fact: str = ""                      # what is now KNOWN (the owner's word, 2026-09-17): expected while the item is open,
+                                        # established once it is done; the fact chain is made of these lines only
     # F20 — the evidence of a done item: (kind, proof) per line, kinds file · ref · run · owner; several allowed.
     # An item ticked before 1.5.0 has none ("untyped"); an item done before 1.10.0 carried one as a tail.
     evidence: List[Tuple[str, str]] = field(default_factory=list)
@@ -389,6 +391,10 @@ def parse_todo(text: str) -> Todo:
                 if item.why:
                     r.error("F22", i, f"item {item.n}.{item.m} has two `why:` lines — one why per item; the rest are notes")
                 item.why = val
+            elif pocket == "fact":
+                if item.fact:
+                    r.error("F22", i, f"item {item.n}.{item.m} has two `fact:` lines — one fact per item")
+                item.fact = val
             elif pocket == "expect":
                 if item.expect:
                     r.error("F22", i, f"item {item.n}.{item.m} has two `expect:` lines — one expectation per item, several proofs inside it")
@@ -424,7 +430,7 @@ def parse_todo(text: str) -> Todo:
             item, in_result = None, False
             continue
         r.error("F4", i, "unparsable line: expected `- [ ] N Name`, `  - [ ] N.M text`, `  - note: …` (phase), "
-                         "`    - why: | note: | expect: | result: …` (item, F22), `      - <kind>: <proof>` (evidence, F20) or `  - waits: <case>`")
+                         "`    - why: | note: | expect: | result: | fact: …` (item, F22), `      - <kind>: <proof>` (evidence, F20) or `  - waits: <case>`")
     finish(item)
     return r
 

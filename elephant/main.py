@@ -26,6 +26,9 @@ EXAMPLES = """examples
   el todo done 2.3 file:evidence/receipt.pdf ref:4471-09 "paid, receipt in the folder"   several proofs: one `result:` line, one proof line each
   el todo expect 3.2 "chosen DB with its case [file: docs/db-choice.md] · load [run: k6 → p95] · budget [owner]"   the proof, promised before the work; done holds you to it
   el todo show 3.3                      the item's card: pockets, the proofs of the items it comes after (its inputs), what it feeds
+  el todo add 3 "grep the DEV trace" --expect "[run: trace shows the outbound call]" --fact "the router calls Premier Pricing for the pair"   the expected fact
+  el todo done 3.4 run:"grep trace -> no outbound call" "trace read" --fact "the router never calls Premier Pricing in the CSET flow"   the fact as it turned out
+  el facts                              the fact chain: ✓ established · · expected · ? under question · ✗ dead branches — what the next agent builds on
   el phase plan 3 "Answer" --goal "why and how to re-enable [file: research/answer.md] [run: curl → 200]"   the phase's own promise; the Digest holds it to it
   el help practice                      how strong agents lead a case — weak against strong, by moment; every `hint:` points here
   el help people                        a card per person the cases deal with: .cases/people/<name>.md, `summary:` as line 2; cases link to it
@@ -71,7 +74,7 @@ options: --case <name or suffix> (or EL_CASE) picks the case; exit codes 0 ok ·
 """
 
 
-HELP_TOPIC = {"log": "journal", "todo": "todo", "phase": "phases", "readme": "readme", "case": "cases", "spawn": "cases",
+HELP_TOPIC = {"log": "journal", "todo": "todo", "phase": "phases", "readme": "readme", "case": "cases", "spawn": "cases", "facts": "facts",
               "done": "cases", "feedback": "feedback", "migrate": "migrate", "mv": "order", "relink": "order",
               "order": "order", "check": "errors", "status": "start"}
 # The form of every other command carries its meaning in its placeholders (N.M, TYPE, old new); feedback's
@@ -136,13 +139,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--phase", help="p1, 1 or a unique phase name (default: the open phase); e.g. `el log --phase p1 DECISION \"…\"`")
 
     s = sub.add_parser("todo", help="add · done · edit · move · drop · hold · resume items — N.M is an item's number for life: drop and move never renumber", allow_abbrev=False)
-    s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note", "expect", "show"])
+    s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note", "expect", "fact", "show"])
     s.add_argument("ref", help="phase number for add (N), item for the rest (N.M); done/reopen/cancel also take a range N.A-N.B or a list \"N.A, N.B\"")
     s.add_argument("text", nargs="*", default=[], help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: the KIND of evidence, then what came out — file:<path> · ref:<trace> · run:\"<command → outcome>\" · owner (el help evidence); for cancel/reopen: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
     s.add_argument("--before", help="add only: put the new item before N.K instead of at the end (numbers never change, positions do)")
     s.add_argument("--why", help="add only: what the item is for, one line (F22) — later: el todo why N.M \"…\"")
     s.add_argument("--note", action="append", help="add only, repeatable: a constraint, who to call, what to bring, a link (F22) — later: el todo note N.M \"…\"")
     s.add_argument("--expect", help="add only: what done will look like, proofs in brackets [file: …] [run: …] [owner] (F22) — later: el todo expect N.M \"…\"")
+    s.add_argument("--fact", help="add: the fact this item is expected to establish (or `-`: none); done: the verdict — `confirmed`, the fact as it turned out, or `-`")
     s.add_argument("--edit", type=int, metavar="K", help="note only: rewrite note K in place")
     s.add_argument("--drop", type=int, metavar="K", help="note only: remove note K")
 
@@ -199,6 +203,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--apply", action="store_true", help="archive legacy files under legacy/<date-time>/ and write the canonical files")
     s = sub.add_parser("check", help="the case in hand against the rules (violations → exit 3); --all: every case in the workspace", allow_abbrev=False)
     s.add_argument("--all", action="store_true", help="every case here, legacy ones included (one line each); default: the case in hand")
+    sub.add_parser("facts", help="the fact chain of the case in hand — established · expected · under question · dead branches; rendered from the fact: lines", allow_abbrev=False)
     sub.add_parser("doctor", help="read-only diagnostics: what el sees from here; changes nothing", allow_abbrev=False)
     sub.add_parser("status", help="where the case stands — the same screen as bare `el` (git/oc/cf habit)", allow_abbrev=False)
     s = sub.add_parser("help", help="examples; `el help <topic>` opens a knowledge dose", allow_abbrev=False)
@@ -215,7 +220,7 @@ SHELL_TRACES = (
     (re.compile(r"(?:^|\s)\.\d"), "an orphan decimal like `.72`"),
     (re.compile(r"^\s"), "a leading space"),  # a trailing one is too often innocent (`"x " * n`) to refuse
 )
-TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align")
+TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact")
 
 
 def shell_trace(args) -> Optional[str]:
@@ -317,20 +322,22 @@ def run(argv=None) -> int:
                 text = " ".join(parts)
                 if args.action == "add":
                     out = commands.todo_add(case, args.ref, text, args.before, why=args.why or "", notes=args.note or [],
-                                            expect=args.expect or "")
+                                            expect=args.expect or "", fact=args.fact or "")
                 elif args.action == "done":  # the kinds of evidence first (one or several), then what came out (F20)
                     kinds = []
                     while parts and commands._is_kind_token(parts[0]):
                         kinds.append(parts.pop(0))
                     if not kinds and parts:  # the first word is not a kind: the refusal names it and lists the four
                         kinds.append(parts.pop(0))
-                    out = commands.todo_done(case, args.ref, kinds, " ".join(parts))
+                    out = commands.todo_done(case, args.ref, kinds, " ".join(parts), fact=args.fact)
                 elif args.action == "why":
                     out = commands.todo_why(case, args.ref, text)
                 elif args.action == "expect":
                     out = commands.todo_expect(case, args.ref, text)
                 elif args.action == "show":
                     out = commands.todo_show(case, args.ref)
+                elif args.action == "fact":
+                    out = commands.todo_fact(case, args.ref, text)
                 elif args.action == "note":
                     out = commands.todo_note(case, args.ref, text, edit=args.edit, drop=args.drop)
                 elif args.action == "edit":
@@ -394,6 +401,8 @@ def run(argv=None) -> int:
                     out = commands.readme(case, text)
             elif args.cmd == "order":
                 out = commands.order_cmd(root, case, args.adopt)
+            elif args.cmd == "facts":
+                out = commands.facts(case)
             elif args.cmd == "migrate":
                 out = commands.migrate_cmd(case, args.apply)
             elif args.cmd == "mv":
