@@ -135,7 +135,7 @@ class Hints(Base):
         self.assertIn("    - expect: the chosen DB with its case [file: docs/db-choice.md]", out)
         self.assertTrue(out.rstrip().splitlines()[-1].startswith("hint: phases you already see? name them now"))
         code, out, _ = run("phase", "open", "1", "Build", "--goal", "b")
-        self.assertIn("hint: phases/1-build.md is yours — dead ends, measurements, drafts go there", out)
+        self.assertIn("hint: what must be true when phase 1 closes? promise it in the goal, one proof per criterion", out)
         run("todo", "add", "1", "a")
         run("todo", "done", "1.1", "owner", "ok")
         run("log", "RESULT", "r")

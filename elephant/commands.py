@@ -497,6 +497,12 @@ def _expect_check(phase: grammar.Phase, items: List[grammar.Item]):
             notes.append(f"{ref} expected {' · '.join(k for k, _ in slots)}, got {' · '.join(sorted(have)) or 'nothing'}")
         else:
             out.say(f"expect {ref}: {len(slots)} of {len(slots)} filled — {' · '.join(k for k, _ in slots)}")
+        # the promise next to what arrived, in words — the tool matches kinds, the reader matches meaning
+        # (feedback 2026-09-16: «HTTP 200 with benefits» filled a run slot that meant «discount applied»)
+        for k, w in filled:
+            if w:
+                brought = next((pr for kk, pr in it.evidence if kk == k), "")
+                out.say(f"  {_slot(k, w)} ← {k} {brought}".rstrip() + "  — does it show that?")
     return "; ".join(notes), out.lines
 
 
@@ -873,6 +879,63 @@ def _expect_text(text: str, ref: str) -> str:
             raise StoreError(f"`[{m.group(1)}…]` is not a kind of proof — placeholders in expect are [file: what] · [ref: what] · "
                              f"[run: what] · [owner]; a kind that is missing: el feedback \"…\" · el help evidence", 2)
     return text
+
+
+def _slot_key(kind: str, what: str) -> Tuple[str, str]:
+    return kind, " ".join(what.lower().split())
+
+
+def _goal_coverage(phase: grammar.Phase, goal: str) -> List[Tuple[Tuple[str, str], str, str]]:
+    """Each proof the phase promised in its `goal:` (F12), against the items (feedback 2026-09-16: a phase closed
+    on a baseline — HTTP 200 with benefits — while its goal was a discount applied; `check` said 0 violations
+    because four criteria of one kind were satisfied by one run). A promise with words is covered by an ITEM
+    whose `expect:` carries the same slot — the phase's statement decomposes into its items' statements — and
+    is proved when that item is done with a proof of that kind. A bare kind (`[owner]`) is proved by any done
+    item of that kind. Returns [(slot, status, ref)]: status ∈ proved · promised (item open) · uncovered."""
+    out = []
+    done_kinds = {k for it in phase.items if it.done for k, _ in it.evidence}
+    for kind, what in grammar.expected_kinds(goal):
+        key = _slot_key(kind, what)
+        if not key[1]:
+            out.append(((kind, what), "proved" if kind in done_kinds else "uncovered", ""))
+            continue
+        carriers = [it for it in phase.items if key in {_slot_key(k, w) for k, w in grammar.expected_kinds(it.expect)}]
+        proved = [it for it in carriers if it.done and any(k == kind for k, _ in it.evidence)]
+        if proved:
+            out.append(((kind, what), "proved", f"{phase.n}.{proved[0].m}"))
+        elif carriers:
+            out.append(((kind, what), "promised", ", ".join(f"{phase.n}.{it.m}" for it in carriers)))
+        else:
+            out.append(((kind, what), "uncovered", ""))
+    return out
+
+
+def _slot(kind: str, what: str) -> str:
+    return f"[{kind}: {what}]" if what else f"[{kind}]"
+
+
+def _phase_goal(case: Path, phase: grammar.Phase) -> str:
+    """The goal of a phase where it lives: the phase file once open, the TODO intent while planned."""
+    pf = _phase_file(case, phase.n, phase.name)
+    if pf.exists():
+        parsed = grammar.parse_phase_file(pf.read_text(encoding="utf-8"))
+        if not parsed.errors:
+            return parsed.goal
+    return phase.summary or ""
+
+
+def _promise_lines(case: Path, todo: grammar.Todo) -> List[str]:
+    """Order (F12): a proof the open phase promised in its goal that no item promises — the acceptance criterion
+    nobody is working towards. Shown while the phase runs; the close refuses over it."""
+    lines = []
+    for p in todo.phases:
+        if p.done or not _phase_file(case, p.n, p.name).exists():
+            continue
+        for (kind, what), status, ref in _goal_coverage(p, _phase_goal(case, p)):
+            if status == "uncovered" and what:
+                lines.append(f"phase {p.n} {p.name} promises {_slot(kind, what)} and no item promises it — the criterion nobody works towards: "
+                             f"el todo add {p.n} \"…\" --expect \"{_slot(kind, what)}\" · or correct the goal line in phases/{_phase_file(case, p.n, p.name).name}")
+    return lines
 
 
 def _goal_text(goal: str) -> str:
@@ -1569,7 +1632,9 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     opened = f"{name} открыта" + (f" (запланирована была как «{renamed}»)" if renamed else "")
     out.lines = log(case, "PHASE", opened, f"p{n}").lines + out.lines
     out.say(f"phase {n} {name} is open → TODO.md, README.md State")
-    hints.attach(out, "phase_open", rel=f"phases/{pf.name}")
+    hints.attach(out, "phase_open", rel=f"phases/{pf.name}", n=n,
+                 promised=[_slot(k, w) for k, w in grammar.expected_kinds(_phase_goal(case, todo.phase(n)))],
+                 covered=[_slot(k, w) for (k, w), st, _ in _goal_coverage(todo.phase(n), _phase_goal(case, todo.phase(n))) if st != "uncovered"])
     return out
 
 
@@ -1622,6 +1687,17 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
         # a flag stands in for the event it is about to log — everything else must already hold
         return [m for m in found if not (reflect and "reflect:" in m) and not (align and "align:" in m)]
     missing = gates(journal)
+    goal_now = _phase_goal(case, phase)
+    for (kind, what), status, ref in _goal_coverage(phase, goal_now):  # F12: the phase's own promise holds its close
+        if status == "proved":
+            continue
+        where = (f"the goal line in phases/{pf.name}" if pf.exists() else f"el phase plan {n} \"{phase.name}\" --goal \"…\"")
+        if status == "promised":
+            missing.append(f"phase {n} promised {_slot(kind, what)} — {ref} promises it and is not proved with a {kind}: "
+                           f"el todo done {ref} {kind}:… \"…\" · or correct the promise: {where}")
+        else:
+            missing.append(f"phase {n} promised {_slot(kind, what)} and no done item proves it — name the criterion as an item: "
+                           f"el todo add {n} \"…\" --expect \"{_slot(kind, what)}\" and prove it · or correct the promise: {where}")
     if open_items:  # F20: a phase closes only when every item ended — done with evidence, or cancelled with a reason
         missing.append(f"phase {n}: open items {', '.join(open_items)} — each must end one of two ways: "
                        f"el todo done N.M <kind> \"what came out\" · el todo cancel N.M \"why\" (or cancel the phase: el phase cancel {n} \"why\")")
@@ -1717,13 +1793,12 @@ def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]
         shared = max(set(proofs), key=proofs.count)
         head += f" · proofs: {distinct} distinct for {done_n} items ({rel(shared)} ×{proofs.count(shared)})"
     lines = [head]
-    goal_slots = grammar.expected_kinds(goal)
-    if goal_slots:  # the phase's own promise (its goal), held to the proofs its items left behind
-        have = {k for it in phase.items if it.done for k, _ in it.evidence}
-        met = [(k, w) for k, w in goal_slots if k in have]
-        missing = [(k, w) for k, w in goal_slots if k not in have]
-        lines.append(f"- phase promise: {len(met)} of {len(goal_slots)} filled"
-                     + (" — missing " + " ".join(f"[{k}: {w}]" if w else f"[{k}]" for k, w in missing) if missing else ""))
+    coverage = _goal_coverage(phase, goal)
+    if coverage:  # the phase's own promise (its goal), decomposed into its items and their proofs
+        proved = [(sl, ref) for sl, st, ref in coverage if st == "proved"]
+        lines.append(f"- phase promise: {len(proved)} of {len(coverage)} proved"
+                     + (" — " + " · ".join(f"{_slot(*sl)} by {ref}" if ref else _slot(*sl) for sl, ref in proved) if proved else "")
+                     + (" — not proved: " + " ".join(_slot(*sl) for sl, st, _ in coverage if st != "proved") if len(proved) < len(coverage) else ""))
     promised = [it for it in phase.items if grammar.expected_kinds(it.expect)]
     if promised:  # F22: the record held to its own promises — met, or short and said so
         met = [it for it in promised if {k for k, _ in grammar.expected_kinds(it.expect)} <= {k for k, _ in it.evidence}]
@@ -2737,6 +2812,7 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_blind_items(todo_now, readme_body))    # an item with nowhere to go (case rule)
         lines.extend(_gone_lines(case, todo_now))              # waiting for something that no longer exists (F19)
         lines.extend(_ended_phase_lines(case, todo_now, journal))  # every item ended: the phase is ready to end (F20)
+        lines.extend(_promise_lines(case, todo_now))               # a promised proof nobody works towards (F12)
     except StoreError:
         pass
     lines.extend(order.people_lines(root))  # L10: a card every case reads before calling that person

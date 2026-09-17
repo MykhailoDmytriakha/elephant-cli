@@ -294,10 +294,16 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   still applies, logged under that phase: `el log --phase N RESULT|DECISION "…"`. Next time, work
   that runs on its own clock is a nested case, not a phase: `el spawn "name" --goal "…"` (P11) —
   its own phases, its own agent, one rendered line at the parent when it closes.
-- a phase `goal:` may promise what the phase leaves behind, in the brackets `expect:` uses —
-  `--goal "why and how to re-enable [file: research/answer.md] [run: curl → 200]"` — and the Digest holds the
-  phase to it at close: `phase promise: 2 of 2 filled`. The expectation lives at every size of the node:
-  Context for the case, `goal:` for the phase, `expect:` for the item.
+- acceptance is a promise, and a promise is items. The `goal:` names what must be TRUE when the phase closes,
+  one proof per criterion, in the brackets `expect:` uses — `--goal "discount applied [run: trace shows outbound
+  PremierPricingDiscLookup] [run: discount fields non-zero] [run: rerun shows the changed rate]"`. Each criterion
+  with words is covered by an ITEM whose `expect:` carries the same slot (`el todo add N "…" --expect "[run: trace
+  shows …]"`) and proved when that item is done with a proof of that kind — the phase is proved by its items
+  (Prove2Me). While the phase runs, Order names a promised proof no item works towards; `phase close` REFUSES
+  over an unproved promise (finish the item, or correct the goal line); the Digest says `phase promise: 3 of 4
+  proved — [run: …] by 2.3 · not proved: [run: …]`. A baseline, an HTTP 200, a manual computation are steps —
+  RESULT events and notes — not the criterion (feedback 2026-09-16: a phase closed on a baseline, `check` 0).
+  The expectation lives at every size of the node: Context for the case, `goal:` for the phase, `expect:` for the item.
 - `el phase close N "what it delivered" --reflect "the lesson" --align "what changes next"` — the two DECISIONs
   P8 asks for and the close in one command; the gates are the same, nothing is logged if another gate refuses.
 - `el phase note N "…"` (`--edit k` · `--drop k`) — what the phase has to know: a permit that expires, a
@@ -450,6 +456,16 @@ A WORKAROUND
   weak    the crutch stays for months and becomes the architecture
   strong  el readme add problems "open · <root problem> · workaround: <what we do> · until: 2026-12-01 (<what fixes it>)"
           — counted on entry; past the date, Order asks: fixed, or move the date?
+
+ACCEPTANCE
+  weak    phase 4 «Premier discount»: items «build the CSET baseline», «compute the discounted values by hand»,
+          «call the router» — all done, all proved (HTTP 200, benefits, five cost rows); phase closed; check 0.
+          The DEV trace later: no PremierPricing call, discountAmount = 0. The proofs proved the baseline, not the goal.
+  strong  --goal "discount applied end to end [run: same request finds the provider with the Premier group/PFIN]
+          [run: trace shows outbound PremierPricingDiscLookup with groupNbr and billingPifin] [run: discount response
+          in the logs] [run: the rerun shows the changed member liability]" — four criteria, four items with the same
+          slots in their expect, four proofs; the baseline is a RESULT on the way, not a criterion. The close refuses
+          until each criterion is proved; the Digest shows which item proved which
 
 CLOSING A PHASE
   weak    reflect: "tests passed on DEV and UAT"           — that is a result
