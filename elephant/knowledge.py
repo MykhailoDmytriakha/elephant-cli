@@ -485,7 +485,7 @@ forge the record (no `done` on a cancelled item, no path written as text) — re
                  order · the record does not lie · knowledge in doses — and the principle it breaks
   --acceptance   how to see it is fixed — a check someone can run; it becomes the test
 Title, --actual and --expected are required; the other three are what makes the report fixable in one pass.
-The pool travels through git into a shared repository: no business data — no names of projects, clients,
+The report goes to the maintainer of el and may end up in a shared repository: no business data — no names of projects, clients,
 people, internal APIs or endpoints, no ticket, case or request numbers, addresses, sums. Describe the SHAPE
 («an item with an endpoint path and a flag name, 103 chars»), invent a neutral example of the same form.
 Valuable to the reader: the exact output and exit code · the source line you read (`commands.py:NN`) · what you
@@ -493,8 +493,9 @@ did instead · Actual checked against the live case (a fear written as a fact is
 A report is not a spec: it is weighed against the principles (`el help philosophy`) and may get an honest alternative.
 Where it lands: `<elephant-cli clone>/feedback/<date-time-title>.md` (the title transliterated like a case
 name; a second report in the same minute gets `-2`, never overwrites), its header carrying the date and the el
-version — nothing else from your environment, not even the case name. It travels with git: commit and
-push in that clone (or the owner pulls from this machine); until then it lies there and nobody has read it.
+version — nothing else from your environment, not even the case name. It does not travel by itself: anyone may
+clone elephant-cli, few may push to it — the owner carries the file to the maintainer's clone (its feedback/ folder);
+until then it lies there and nobody has read it. Tell the owner it is there.
 In your own case: `el log PROBLEM "el: <title> — workaround: …"` so the next agent does not hit the same wall
 twice; after `git pull` raised the el version, try the wall again.""",
     "practice": """how strong agents lead a case — weak against strong, by moment (the owner's word, 2026-09-16)

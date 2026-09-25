@@ -40,7 +40,7 @@ class UsageVoice(unittest.TestCase):
         self.assertIn("Valuable to the reader", err)
         self.assertIn("verbatim, with the exit code", err)
         self.assertIn("feedback/", err, "where the file lands")
-        self.assertIn("travels with git", err, "how it reaches the owner")
+        self.assertIn("the owner carries the file", err, "how it reaches the maintainer (not by git: few may push, 2026-09-25)")
         self.assertIn("recovery: el help feedback", err)
         self.assertIn("el help errors", err)
         self.assertFalse(self.pool.exists(), "nothing was written")
@@ -95,7 +95,7 @@ class UsageVoice(unittest.TestCase):
         fb = knowledge.TOPICS["feedback"]
         self.assertIn("not even the case name", fb, "the header carries no case name (2026-09-22) — the help says so")
         self.assertNotIn("nothing from your environment is included", fb)
-        self.assertIn("commit and", fb, "the file travels with git, the agent is told")
+        self.assertIn("the owner carries the file", fb, "the file does not travel by itself, the agent is told (2026-09-25)")
         self.assertIn("el log PROBLEM", fb, "the wall is recorded in the agent's own case")
         errors = knowledge.TOPICS["errors"]
         self.assertNotIn("mirrors them to stdout", errors, "since 1.7.0 the entry prints once, on stdout")

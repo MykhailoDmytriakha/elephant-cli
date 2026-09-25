@@ -202,7 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("summary")
     s.add_argument("--howto", help="the recipe question for PROBLEMs no phase close answered — .howto/<verb>.md or \"none: why\" (P8)")
 
-    s = sub.add_parser("feedback", help="report an Elephant problem or wish — lands in the elephant-cli clone's feedback/ pool", allow_abbrev=False)
+    s = sub.add_parser("feedback", help="report an Elephant problem or wish — a file in the elephant-cli clone's feedback/; the owner carries it to the maintainer", allow_abbrev=False)
     s.add_argument("title")
     s.add_argument("--expected", default="")
     s.add_argument("--actual", default="")
