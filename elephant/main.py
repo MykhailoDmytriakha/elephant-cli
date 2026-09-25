@@ -44,7 +44,7 @@ EXAMPLES = """examples
   el todo hold 3.2 "ждём ответа заказчика" · el todo resume 3.2
   el todo reopen 3.1 "the databases drifted — the result no longer holds"   a tick taken back: DECISION in the journal, the RESULT stays
   el todo brief 2.3                     the prompt for a FRESH session that accepts or returns 2.3 — a new chat, Codex, a clean subagent (el help acceptance)
-  el todo accept 2.3 --by codex "re-ran k6, opened k6.txt: p95 820 ms" · el todo reopen 2.3 --by codex "cold cache: 1400 ms"   the second hand (F23)
+  el todo accept 2.3 --by codex --run "k6 → p95 810 ms" "opened k6.txt too" · el todo reopen 2.3 --by codex "cold cache: 1400 ms"   the second hand re-runs each run: proof (F23)
   el todo add later "cache warm-up on deploy" · el todo move L3 5 · el todo move 4.7 later   the general list: not for this phase, formed at the boundary (F24)
   el phase open 5 --why "the pipeline blocks the migration" · el phase close 4 "…" --rest later · el phase agree 5 "only the cache"   order found late · a dead end · the owner's scope
   el readme set next "call the customer" · el readme set пауза "" (removes the line) · el readme add links "docs/contacts.md — кто есть кто"
@@ -158,6 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--edit", type=int, metavar="K", help="note only: rewrite note K in place")
     s.add_argument("--drop", type=int, metavar="K", help="note only: remove note K")
     s.add_argument("--by", help="accept / reopen: who checked — codex · claude · gemini · subagent · owner (F23); `self` is not an acceptance")
+    s.add_argument("--run", action="append", help="accept: one per `run:` proof of the item — the command re-run by the second hand and what came out now, joined by → (F23)")
 
     s = sub.add_parser("phase", help="plan · open · close a phase (plan = name the next one without opening it, repeat it to sharpen the goal; close needs RESULT, reflect:, align:)", allow_abbrev=False)
     s.add_argument("action", choices=["plan", "open", "close", "cancel", "note", "agree"])
@@ -235,7 +236,7 @@ SHELL_TRACES = (
     (re.compile(r"(?:^|\s)\.\d"), "an orphan decimal like `.72`"),
     (re.compile(r"^\s"), "a leading space"),  # a trailing one is too often innocent (`"x " * n`) to refuse
 )
-TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact", "howto")
+TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact", "howto", "run")
 
 
 def shell_trace(args) -> Optional[str]:
@@ -390,7 +391,7 @@ def run(argv=None) -> int:
                 elif args.action == "reopen":
                     out = commands.todo_reopen(case, args.ref, text, by=args.by)
                 elif args.action == "accept":
-                    out = commands.todo_accept(case, args.ref, text, args.by)
+                    out = commands.todo_accept(case, args.ref, text, args.by, runs=args.run or [])
                 elif args.action == "brief":
                     out = commands.todo_brief(case, args.ref)
                 elif args.action == "cancel":

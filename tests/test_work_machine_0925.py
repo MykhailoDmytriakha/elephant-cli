@@ -38,6 +38,7 @@ class Base(unittest.TestCase):
     def read(self, name: str) -> str:
         return (self.case / name).read_text(encoding="utf-8")
 
+    # since the owner's word of 2026-09-25 a second hand re-runs each `run:` proof: `--run "k6 -> …"` on every accept below
     def done(self, session: str = "aaaaaaaa1111"):
         os.environ["EL_SESSION"] = session
         code, out, err = run("todo", "done", "1.1", "run:k6 -> p95 820 ms", "file:evidence/k6.txt", "price lookup cached, p95 820 ms")
@@ -49,7 +50,7 @@ class Accept(Base):
     def test_accept_by_another_session_is_recorded_in_todo_and_journal(self):
         self.done("aaaaaaaa1111")
         os.environ["EL_SESSION"] = "bbbbbbbb2222"
-        code, out, err = run("todo", "accept", "1.1", "--by", "codex", "re-ran k6 and read k6.txt: p95 820 ms")
+        code, out, err = run("todo", "accept", "1.1", "--by", "codex", "--run", "k6 -> p95 810 ms", "re-ran k6 and read k6.txt: p95 820 ms")
         self.assertEqual(code, 0, err)
         self.assertIn("    - accepted: codex · another session", self.read("TODO.md"))
         self.assertIn("DECISION · принято 1.1: codex · другая сессия — re-ran k6", self.read("JOURNAL.md"))
@@ -63,7 +64,7 @@ class Accept(Base):
 
     def test_same_session_is_named_not_hidden(self):
         self.done("aaaaaaaa1111")
-        code, out, err = run("todo", "accept", "1.1", "--by", "claude", "looked at it again")
+        code, out, err = run("todo", "accept", "1.1", "--by", "claude", "--run", "k6 -> p95 810 ms", "looked at it again")
         self.assertEqual(code, 0, err)
         self.assertIn("accepted: claude · same session", self.read("TODO.md"))
         self.assertIn("same session as the doer", err)
@@ -71,7 +72,7 @@ class Accept(Base):
     def test_no_session_known_is_said(self):
         os.environ.pop("EL_SESSION", None)
         run("todo", "done", "1.1", "run:k6 -> p95 820 ms", "cached")
-        code, out, err = run("todo", "accept", "1.1", "--by", "codex", "re-ran k6")
+        code, out, err = run("todo", "accept", "1.1", "--by", "codex", "--run", "k6 -> p95 810 ms", "re-ran k6")
         self.assertEqual(code, 0, err)
         self.assertIn("accepted: codex · session not given", self.read("TODO.md"))
 
@@ -96,7 +97,7 @@ class Accept(Base):
     def test_accepted_line_is_rendered_not_counted_and_only_under_a_done_item(self):
         self.done("a1")
         os.environ["EL_SESSION"] = "b2"
-        run("todo", "accept", "1.1", "--by", "codex", "re-ran")
+        run("todo", "accept", "1.1", "--by", "codex", "--run", "k6 -> p95 810 ms", "re-ran")
         todo = grammar.parse_todo(stamp.split(self.read("TODO.md"))[0])
         self.assertEqual(todo.errors, [])
         self.assertTrue(todo.phase(1).items[0].accepted.startswith("codex · another session"))
@@ -107,7 +108,7 @@ class Accept(Base):
     def test_accepted_travels_into_the_phase_file_at_close(self):
         self.done("a1")
         os.environ["EL_SESSION"] = "b2"
-        run("todo", "accept", "1.1", "--by", "codex", "re-ran")
+        run("todo", "accept", "1.1", "--by", "codex", "--run", "k6 -> p95 810 ms", "re-ran")
         run("log", "RESULT", "p95 820 ms")
         code, _, err = run("phase", "close", "1", "p95 under a second", "--reflect", "measure first", "--align", "next: errors")
         self.assertEqual(code, 0, err)
@@ -118,7 +119,7 @@ class Return(Base):
     def test_reopen_by_the_acceptor_names_it_and_clears_the_acceptance(self):
         self.done("a1")
         os.environ["EL_SESSION"] = "b2"
-        run("todo", "accept", "1.1", "--by", "codex", "re-ran")
+        run("todo", "accept", "1.1", "--by", "codex", "--run", "k6 -> p95 810 ms", "re-ran")
         code, out, err = run("todo", "reopen", "1.1", "--by", "codex", "p95 is 1400 ms on a cold cache")
         self.assertEqual(code, 0, err)
         self.assertIn("DECISION · 1.1 возвращён в работу — p95 is 1400 ms on a cold cache (приёмка: codex", self.read("JOURNAL.md"))
@@ -179,7 +180,7 @@ class TwoHandsRule(Base):
         self.assertEqual(code, 4)
         self.assertIn("not accepted", err)
         os.environ["EL_SESSION"] = "b2"
-        run("todo", "accept", "1.1", "--by", "codex", "re-ran k6")
+        run("todo", "accept", "1.1", "--by", "codex", "--run", "k6 -> p95 810 ms", "re-ran k6")
         code, _, err = run("phase", "close", "1", "fast", "--reflect", "r", "--align", "a")
         self.assertEqual(code, 0, err)
 
@@ -360,8 +361,11 @@ class Thread(Base):
         run("readme", "set", "next", "measure the cold cache")
         out = run()[1]
         line = next(ln for ln in out.split("\n") if ln.startswith("thread: "))
-        self.assertEqual(line, "thread: goal «the service answers in under a second» → phase 1 Speed «p95 under a second» → "
-                               "item 1.1 «cache the price lookup» (why: the owner waits two seconds on every page) → next: «measure the cold cache»")
+        self.assertTrue(line.startswith("thread: goal «the service answers in under a second» → phase 1 Speed «p95 under a second» → "
+                                        "item 1.1 «cache the price lookup» (why: the owner waits two seconds on every page) → "), line)
+        self.assertTrue(line.endswith(" → next: «measure the cold cache»"), line)
+        # since 2026-09-25 a debt in Order is a step of the thread (tests/test_thread_order_0925.py): here, the folder evidence/
+        self.assertIn("→ first: Order «folder evidence/", line)
         self.assertLess(out.index("thread: "), out.index("## Context"), "the thread comes before the files it summarizes")
 
     def test_every_item_ended_is_said_in_the_thread(self):

@@ -57,14 +57,21 @@ class WarningsAreAboutThisWrite(Base):
 class CheckGroupsTheSoftLayer(Base):
     def test_many_long_pointer_lines_are_one_line_per_rule(self):
         for i in range(5):
-            run("readme", "add", "links", f"- long pointer number {i} " + "x" * 150)
+            run("readme", "add", "links", f"- long pointer number {i} " + "x" * (150 + i))
         code, out, err = run("check")
         self.assertEqual(err.count("pointer line"), 1, "one line per rule, not one per long line")
-        self.assertIn("F2 · pointer line is N visible chars, over N — lines", err)
+        self.assertIn("F2 · pointer line is N visible chars, over 150 — lines", err)  # 2026-09-25: the shared limit stays
         self.assertIn("(5 lines)", err)
         run("log", "RESULT", "х" * 190)
         code, out, err = run("check")
         self.assertNotIn("close to the limit", err, "the soft F7 threshold is not history")
+
+    def test_a_single_line_keeps_its_own_numbers(self):
+        # found on the tool's own case, 2026-09-25: «F2 · line 58 · pointer line is N visible chars, over N»
+        run("readme", "add", "links", "- one long pointer " + "x" * 150)
+        code, out, err = run("check")
+        self.assertRegex(err, r"F2 · line \d+ · pointer line is \d+ visible chars, over 150")
+        self.assertNotIn("over N", err)
 
 
 if __name__ == "__main__":

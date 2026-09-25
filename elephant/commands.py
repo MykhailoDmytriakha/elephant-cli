@@ -84,14 +84,15 @@ def _link_phase_paths(summary: str) -> str:
     return "".join(out) + link(summary[last:])
 
 
-def _item_block(it: grammar.Item) -> List[str]:
+def _item_block(it: grammar.Item, two_hands: bool = False) -> List[str]:
     """The item as TODO renders it (F4 · F20 · F22): its line with the suffixes el keeps outside the F13
     count (after · due · hold), then the pockets in one fixed order — `why:` · `note:`… · `result:` with
     one proof line under it per kind (file · ref · run · owner). A done item without result words (ticked
     before 1.10.0, or a child case at its parent) lists its proof lines directly under the item. Written
     by el, read by the owner: the tick, the words and the proof are three lines, not one (the owner's
     word, 2026-09-15 — «результат в одну строку неудобно»)."""
-    mark = "x" if it.done else ("~" if it.held else " ")
+    # F23: in a case that asks two hands a done item owes its acceptance — `[/]` until a second hand accepts it, then `[x]`
+    mark = ("/" if two_hands and not it.accepted else "x") if it.done else ("~" if it.held else " ")
     suffix = ((f" — after: {', '.join(it.after)}" if it.after else "") + (f" — due: {it.due}" if it.due else "")
               + (f" — hold: {it.hold_reason}" if it.held and it.hold_reason else ""))
     lines = [f"  - [{mark}] {it.n}.{it.m} {it.text}{suffix}"]
@@ -112,8 +113,12 @@ def _item_block(it: grammar.Item) -> List[str]:
     return lines
 
 
-def render_todo(todo: grammar.Todo) -> str:
-    out = [f"# {todo.title}", ""]
+def _owes_acceptance(todo: grammar.Todo, two_hands: bool) -> bool:
+    return two_hands and any(it.done and not it.accepted for p in todo.phases if not p.done for it in p.items)
+
+
+def render_todo(todo: grammar.Todo, two_hands: bool = False) -> str:
+    out = [f"# {todo.title}", ""] + ([grammar.LEGEND, ""] if _owes_acceptance(todo, two_hands) else [])
     for p in sorted(todo.phases, key=lambda x: x.n):
         mark = "x" if p.done else " "
         head = f"- [{mark}] {p.n} {p.name}"
@@ -122,7 +127,7 @@ def render_todo(todo: grammar.Todo) -> str:
         out.append(head)
         out += [f"  - note: {n}" for n in p.notes]  # F22: what the phase has to know, parked until it runs
         for it in [i for i in p.items if not i.held] + [i for i in p.items if i.held]:
-            out += _item_block(it)
+            out += _item_block(it, two_hands and not p.done)  # a closed phase is history: the rule has no force there
         for w in p.waits:
             out.append(f"  - waits: {w}")
     out += _later_section(todo)
@@ -141,13 +146,13 @@ def _later_section(todo: grammar.Todo) -> List[str]:
     return ["", grammar.LATER_HEAD] + [ln for it in todo.later for ln in _later_block(it)]
 
 
-def render_todo_entry(todo: grammar.Todo) -> Tuple[str, int]:
+def render_todo_entry(todo: grammar.Todo, two_hands: bool = False) -> Tuple[str, int]:
     """TODO as the ENTRY shows it: open items with their pockets (what to do, why, what is expected), done items
     collapsed to their line and their `fact:` — the result and the proofs are history the file keeps (TODO.md), not
     what the next agent needs to continue. Found on the tool's own case (2026-09-17): 25 done items with pockets
     pushed the entry past 24 000 chars and the Order block off the screen — the cold entry is the case's own
     measure (≤ 3K tokens). Returns (text, number of collapsed items)."""
-    out = [f"# {todo.title}", ""]
+    out = [f"# {todo.title}", ""] + ([grammar.LEGEND, ""] if _owes_acceptance(todo, two_hands) else [])
     collapsed = 0
     for p in sorted(todo.phases, key=lambda x: x.n):
         mark = "x" if p.done else " "
@@ -158,13 +163,13 @@ def render_todo_entry(todo: grammar.Todo) -> Tuple[str, int]:
         out += [f"  - note: {n}" for n in p.notes]
         for it in [i for i in p.items if not i.held] + [i for i in p.items if i.held]:
             if it.done:
-                out.append(f"  - [x] {it.n}.{it.m} {it.text}")
+                out.append(f"  - [{'/' if two_hands and not p.done and not it.accepted else 'x'}] {it.n}.{it.m} {it.text}")
                 if it.fact:
                     out.append(f"    - fact: {it.fact}")
                 if it.result or it.evidence or it.why or it.notes or it.expect:
                     collapsed += 1
             else:
-                out += _item_block(it)
+                out += _item_block(it, two_hands and not p.done)
         for w in p.waits:
             out.append(f"  - waits: {w}")
     out += _later_section(todo)
@@ -196,7 +201,15 @@ def _derive_todo(case: Path, todo: grammar.Todo) -> bool:
 def _write_todo(case: Path, todo: grammar.Todo):
     """The one door for TODO writes: derived lines first (F18), then the stamp door."""
     _derive_todo(case, todo)
-    return store.write(case, "TODO.md", render_todo(todo))
+    return store.write(case, "TODO.md", render_todo(todo, _case_two_hands(case)))
+
+
+def _case_two_hands(case: Path) -> bool:
+    """Does the case ask two hands (its Context line)? Read without the stamp door — a read, never a write."""
+    try:
+        return _two_hands(stamp.split(store.read(case, "README.md"))[0])
+    except StoreError:
+        return False
 
 
 def _unparsable(case: Path, name: str) -> StoreError:
@@ -1218,7 +1231,7 @@ def todo_show(case: Path, ref: str) -> Outcome:
         out.say(f"general list (Later) · since {item.since or '—'} — the next phase boundary decides: el todo move {ref} N", *_later_block(item))
         return out
     state = "planned" if not _phase_file(case, phase.n, phase.name).exists() else "open"
-    out.say(f"phase {phase.n} {phase.name} ({state})", *_item_block(item))
+    out.say(f"phase {phase.n} {phase.name} ({state})", *_item_block(item, _case_two_hands(case)))
     by_ref = {f"{it.n}.{it.m}": it for it in _all_items(todo)}
     kids = {k.name for k in order.child_cases(case, _is_project(case))}
     for r in item.after:
@@ -1801,7 +1814,7 @@ def _session_status(journal: grammar.Journal, phase: grammar.Phase, item: gramma
     return "same" if mine == doer else "another"
 
 
-def todo_accept(case: Path, ref: str, text: str, by: Optional[str]) -> Outcome:
+def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Optional[List[str]] = None) -> Outcome:
     """`el todo accept N.M --by codex "what was checked and how"` — the second hand (F23). Only a done item is accepted;
     the verdict goes under it as `accepted: <who> · <another session | same session | session not given | the owner's
     word> · <date>` (el's line) and into the journal as `DECISION · принято N.M: …`. The return is `el todo reopen N.M
@@ -1818,21 +1831,57 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str]) -> Outcome:
     if open_:
         raise StoreError(f"{_refs(phase, open_)} not done — nothing to accept yet; the doer ends it first: "
                          f"el todo done {phase.n}.{open_[0].m} <kind> \"what came out\"", 4)
+    reruns = _reruns(ref, who, [pr for it in items for k, pr in it.evidence if k == "run"], runs or [])
     journal = _journal(case, out)
     date, _ = _now()
     status = _session_status(journal, phase, items[0], who)
-    for it in items:
-        it.accepted = f"{who} · {_session_word(_session_status(journal, phase, it, who))} · {date}"
+    left, differs = list(reruns), []
+    for it in items:  # the --run words go to the item proofs in order: each item counts its own re-runs
+        proofs = [pr for k, pr in it.evidence if k == "run"]
+        mine, left = left[:len(proofs)], left[len(proofs):]
+        ran = [r for r in mine if not _outcome(r).startswith("not run")]
+        tally = (f" · re-ran {len(ran)} of {len(mine)}" + (f" ({len(mine) - len(ran)} not run)" if len(ran) < len(mine) else "")
+                 if mine else "")
+        it.accepted = f"{who} · {_session_word(_session_status(journal, phase, it, who))} · {date}{tally}"
+        differs += [(it, pr, r) for pr, r in zip(proofs, ran) if _outcome(pr).casefold() != _outcome(r).casefold()]
     out.absorb(_write_todo(case, todo))
     refs = _refs(phase, items)
-    out.lines += log(case, "DECISION", f"принято {refs}: {who} · {_session_word(status, 'ru')} — {text}", f"p{phase.n}").lines
+    body = "".join(f"\nre-run: {r}" for r in reruns[:4]) + (f"\nre-run: … +{len(reruns) - 4} more" if len(reruns) > 4 else "")
+    out.lines += log(case, "DECISION", f"принято {refs}: {who} · {_session_word(status, 'ru')} — {text}{body}", f"p{phase.n}").lines
     out.say(f"accepted: {refs} by {who} ({_session_word(status)}) → TODO.md (accepted: line) · DECISION in the journal")
     if status == "same":
         out.warn(f"same session as the doer — a subagent of that session, or the doer itself: el cannot tell which. A fresh session "
                  f"is a new chat, another agent, another terminal: el todo brief {ref} prints its prompt")
     elif status == "unknown":
         out.say("  session not given — recorded as reported (EL_SESSION, or the harness's own session id, tells more)")
+    for it, pr, r in differs:  # two records compared word for word, the meaning is the acceptor's — shown, not refused
+        out.warn(f"{phase.n}.{it.m}: the doer's run came out «{_outcome(pr)}», yours «{_outcome(r)}» — a result that differs "
+                 f"is a return: el todo reopen {phase.n}.{it.m} --by {who} \"now: {_outcome(r)}\" (the same thing in other words? "
+                 f"then the acceptance stands)")
     return out
+
+
+def _outcome(run: str) -> str:
+    """What came out, the part after the arrow of `command → outcome`."""
+    return " ".join(run.split("→", 1)[1].split()) if "→" in run else ""
+
+
+def _reruns(ref: str, who: str, proofs: List[str], runs: List[str]) -> List[str]:
+    """The second hand re-runs every `run:` proof and says what came out now (the owner's word, 2026-09-25: «the agent is
+    the second hand — it runs the commands and says it worked»). el runs nothing itself (2026-09-22): it asks, one `--run`
+    per proof, and records what was said — `→ not run: why` is an honest answer, counted as not re-run."""
+    runs = [" ".join(r.replace("->", "→").split()) for r in runs]
+    for r in runs:
+        if "→" not in r:
+            raise StoreError(f"--run takes the command and what came out now, joined by → or ->: --run \"{r} → <outcome now>\" "
+                             f"(could not run it: --run \"{r} → not run: why\")", 2)
+    if who == "owner" or len(runs) >= len(proofs):
+        return runs
+    missing = proofs[len(runs):]
+    shown = " ".join(f'--run "{p.split("→")[0].strip()} → <what came out now>"' for p in missing)
+    raise StoreError(f"{ref} stands on {len(proofs)} run proof(s): {' · '.join(proofs)} — the second hand re-runs each and says what "
+                     f"came out now: el todo accept {ref} --by {who} {shown} \"what you checked\" (could not run one: "
+                     f"--run \"<command> → not run: why\"; the owner's word needs none: --by owner)", 2)
 
 
 def _context_goal(readme_body: str) -> str:
@@ -1854,7 +1903,7 @@ def _proof_for_brief(case: Path, kind: str, proof: str) -> str:
         except ValueError:
             return f"file: {path}  (open it)"
     if kind == "run":
-        return f"run: {proof}  (re-run it if it is safe — el recorded it, nobody repeated it)"
+        return f"run: {proof}  (re-run it and bring what came out now — el recorded it, nobody repeated it)"
     if kind == "ref":
         return f"ref: {proof}  (follow it if you can reach it)"
     return "owner  (the owner's word — ask the owner if it matters)"
@@ -1912,8 +1961,12 @@ def todo_brief(case: Path, ref: str) -> Outcome:
             "show it → accept, saying what you checked.",
             "Verdict — run ONE per item from the project folder:")
     for it in items:
-        out.say(f"  el --case {name} todo accept {phase.n}.{it.m} --by <you: codex|claude|gemini|subagent> \"what you checked and how\"",
+        reruns = "".join(f' --run "{pr.split("→")[0].strip()} → <what came out now>"' for k, pr in it.evidence if k == "run")
+        out.say(f"  el --case {name} todo accept {phase.n}.{it.m} --by <you: codex|claude|gemini|subagent>{reruns} \"what you checked and how\"",
                 f"  el --case {name} todo reopen {phase.n}.{it.m} --by <you> \"what is missing or wrong\"")
+    if any(k == "run" for it in items for k, _ in it.evidence):
+        out.say("Every run proof is re-run by you: one --run per proof with what came out now; could not run one — "
+                "--run \"<command> → not run: why\". A result that differs is a return, not an acceptance.")
     out.say("No `el` where you run? Give the owner the verdict and the reason — the owner records it.")
     return out
 
@@ -1951,11 +2004,13 @@ def _stalled_lines(todo: grammar.Todo, journal: Optional[grammar.Journal]) -> Li
 LATER_BOUNDARIES = 3  # three closes passed it by: take it or let it go (F24) — shown, never refused
 
 
-def _thread_line(case: Path, todo: grammar.Todo, readme_body: str) -> Optional[str]:
+def _thread_line(case: Path, todo: grammar.Todo, readme_body: str, order_lines: Optional[List[str]] = None) -> Optional[str]:
     """`thread: goal «…» → phase N Name «goal» → item N.M «…» (why: …) → next: «…»` — the first line of the entry (the
     owner's word, 2026-09-25: an agent with no memory reads everything and must see what is subordinate to what — the big
     goal, the stage, where it stands, what it works on, and that its result moves the goal). Rendered from the case,
-    never typed: Context, the phase in flight, its first item one can take (not held, not blocked), State `next:`."""
+    never typed: Context, the phase in flight, its first item one can take (not held, not blocked), the first Order line
+    it has not named yet, State `next:`. One vector (a live report, 2026-09-25): the thread led to the item and to `next:`
+    while Order below asked to put a debt back first — the agent read two directions; now the debt is a step of the thread."""
     parts = []
     goal = _context_goal(readme_body)
     if goal:
@@ -1977,10 +2032,14 @@ def _thread_line(case: Path, todo: grammar.Todo, readme_body: str) -> Optional[s
             unaccepted = [it for it in phase.items if not it.accepted] if _two_hands(readme_body) else []
             parts.append(f"every item ended, {len(unaccepted)} not accepted: el todo brief {phase.n}.{unaccepted[0].m}" if unaccepted
                          else f"every item ended: el phase close {phase.n} \"…\"")
+            order_lines = [ln for ln in (order_lines or []) if not ln.startswith(f"phase {phase.n} ")]  # named just now
         elif open_items:
             parts.append(f"{len(open_items)} open item(s), none free — held or blocked: see unblocked:")
         else:
             parts.append(f"no items: el todo add {phase.n} \"…\"")
+    if order_lines:
+        more = f" (+{len(order_lines) - 1} more)" if len(order_lines) > 1 else ""
+        parts.append(f"first: Order «{order._short(order_lines[0], 70)}»{more}")
     m = re.search(r"^- next: (.+)$", readme_body, re.M)
     if m:
         parts.append(f"next: «{order._short(m.group(1).strip(), 70)}»")
@@ -3829,12 +3888,14 @@ def entry(root: Path, case: Path) -> Outcome:
     todo = grammar.parse_todo(todo_body)
     if not todo.errors and _derive_todo(case, todo):  # phase lines follow their files (F18)
         try:
-            out.absorb(store.write(case, "TODO.md", render_todo(todo)))
-            todo_body = render_todo(todo)
+            out.absorb(store.write(case, "TODO.md", render_todo(todo, _two_hands(readme_body))))
+            todo_body = render_todo(todo, _two_hands(readme_body))
             out.say("TODO refreshed: open phase lines follow their phase files (goal · path)")
         except StoreError as e:
             out.warn(f"TODO not refreshed — {e}")
-    thread = _thread_line(case, todo, readme_body) if not todo.errors else None
+    journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
+    issues = _order_lines(case, root, readme_body, journal)  # before the thread: a debt below is a step of the thread
+    thread = _thread_line(case, todo, readme_body, issues) if not todo.errors else None
     if thread:
         out.say(thread, "")  # what is subordinate to what — the goal, the phase, the item and why, the next step (F24)
     if todo.errors:  # silence is not «nothing due»: what could not be counted says so (feedback 2026-09-22)
@@ -3848,8 +3909,7 @@ def entry(root: Path, case: Path) -> Outcome:
     evidence = _evidence_line(todo) if not todo.errors else None
     if evidence:
         out.say(evidence, "")  # what the done items stand on (F20): file · ref · run · owner — counted, never nagged
-    journal0 = grammar.parse_journal(store.read(case, "JOURNAL.md"))
-    acceptance = _acceptance_line(todo, readme_body, journal0 if not journal0.errors else None) if not todo.errors else None
+    acceptance = _acceptance_line(todo, readme_body, journal if not journal.errors else None) if not todo.errors else None
     if acceptance:
         out.say(acceptance, "")  # done by one hand, accepted by another (F23) — counted; the gaps are Order lines
     facts_line = _facts_line(case, todo, None) if not todo.errors else None
@@ -3857,20 +3917,18 @@ def entry(root: Path, case: Path) -> Outcome:
         out.say(facts_line, "")  # the fact chain in numbers; the chain itself: el facts
     out.say(readme_body.rstrip("\n"), "")
     if not todo.errors:
-        shown, collapsed = render_todo_entry(todo)
+        shown, collapsed = render_todo_entry(todo, _two_hands(readme_body))
         out.say(shown.rstrip("\n"))
         if collapsed:
             out.say(f"({collapsed} done item(s) collapsed here — result and proofs: TODO.md · one item in full: el todo show N.M)")
         out.say("")
     else:
         out.say(todo_body.rstrip("\n"), "")
-    journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
     parked = _parked_line(case, todo, journal if not journal.errors else None) if not todo.errors else None
     if parked:
         out.say(parked, "")  # knowledge parked under a planned phase has a moment of return — counted until then (F22)
     if journal.entries:
         out.say(*_journal_headlines(journal, ENTRY_LIMIT), "")
-    issues = _order_lines(case, root, readme_body, journal)
     if issues:
         out.say(f"## Order — {len(issues)} thing(s) to put back", *(f"- {ln}" for ln in issues), "")
     else:
@@ -4073,6 +4131,7 @@ def _grouped_warnings(findings) -> List[str]:
     """File warnings for `check`, one line per rule and message shape: «F2 · pointer line over 150 — lines 14, 15,
     18 (3 lines)» instead of three lines that differ only in numbers. `warnings: N` counts lines the reader can act on."""
     groups: Dict[Tuple[str, str], List[int]] = {}
+    messages: Dict[Tuple[str, str], List[str]] = {}
     singles: List[str] = []
     for f in findings:
         if f.line == 0:
@@ -4080,13 +4139,18 @@ def _grouped_warnings(findings) -> List[str]:
             continue
         key = (f.rule, re.sub(r"\d+", "N", f.message))
         groups.setdefault(key, []).append(f.line)
+        messages.setdefault(key, []).append(f.message)
     out = list(singles)
-    for (rule, shape), lines in groups.items():
+    for key, lines in groups.items():
+        # a number shared by every line stays (the limit, 150); only the numbers that differ become N — found 2026-09-25:
+        # «pointer line is N visible chars, over N» hid the limit, and a single line lost its own numbers
+        parts = [re.split(r"(\d+)", m) for m in messages[key]]
+        shape = "".join(bit if i % 2 == 0 or len({pp[i] for pp in parts}) == 1 else "N" for i, bit in enumerate(parts[0]))
         if len(lines) == 1:
-            out.append(f"{rule} · line {lines[0]} · {shape.replace('N', str(lines[0]), 0) if False else shape}")
+            out.append(f"{key[0]} · line {lines[0]} · {shape}")
         else:
             shown = ", ".join(str(n) for n in lines[:6]) + (f" … +{len(lines) - 6}" if len(lines) > 6 else "")
-            out.append(f"{rule} · {shape} — lines {shown} ({len(lines)} lines)")
+            out.append(f"{key[0]} · {shape} — lines {shown} ({len(lines)} lines)")
     return out
 
 

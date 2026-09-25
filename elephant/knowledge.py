@@ -22,7 +22,7 @@ ONBOARDING_BLOCK = """## Elephant — память работы в `.cases/`
 
 **Работа — пункт за пунктом.** **IMPORTANT: закончил пункт — сразу `el todo done N.M <вид> "что вышло"`, не в конце сессии** (вид — `file:путь` · `ref:след` · `run:"команда → исход"` · `owner`). Решение — `el log DECISION "что · вместо чего · почему"`. Упёрся — сначала `grep -ril "<слова ошибки>" .howto/`, решил — `el log PROBLEM`. Не для этой фазы — `el todo add later "…"`.
 
-**Конец — снова `el`.** Order чист, State правдив: `el readme set next "…"`, а если всё верно — `el readme touch`. Сделанное принимает свежая сессия: `el todo brief N.M` печатает для неё задание.
+**Конец — снова `el`.** Order чист, State правдив: `el readme set next "…"`, а если всё верно — `el readme touch`. Сделанное принимает свежая сессия: `el todo brief N.M` печатает для неё задание; `[/]` в TODO — сделано, ждёт приёмки. Ты — вторая рука: перезапусти каждое `run:` и принеси, что вышло сейчас — `el todo accept N.M --by <ты> --run "команда → исход" "…"`.
 
 README, TODO, JOURNAL — только через `el`: правку руками ловит отпечаток. Строки `hint:` и `Order` — команды тебе, с номером: сделай или скажи, почему нет. Знание дозами: `el help start`, потом `el help <тема>`.
 
@@ -103,7 +103,8 @@ check · a second copy of the stamp.""",
   `el help later`) → agreed (`phase agree`) → in work → done → accepted or returned (`el help acceptance`) →
   closed; from any state, cancelled with a reason. Three roles: the owner sets the direction and agrees the scope,
   the agent decomposes and delivers, el keeps the order — and what one hand did, a fresh session accepts. The entry
-  opens with `thread:` — goal → phase → item (why) → next: what is subordinate to what.""",
+  opens with `thread:` — goal → phase → item (why) → first: the Order debt it has not named → next: what is
+  subordinate to what, and one direction: a debt below is a step of the thread, not a second voice.""",
 
     "start": """a day with el
 1. `el` (or `el status`) — prints the case in hand: README (the "now"), TODO (phases), journal
@@ -253,7 +254,9 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   again (the phase cannot close over it, its dependents are blocked again), the journal gets a
   DECISION and the old RESULT stays as history. `resume` only lifts a hold.
 - the second hand (F23): `el todo brief N.M` prints the prompt for a fresh session · its verdict:
-  `el todo accept N.M --by codex "what was checked"` or `el todo reopen N.M --by codex "what is wrong"` — el help acceptance.
+  `el todo accept N.M --by codex --run "make test → 12 OK" "what was checked"` (one `--run` per `run:` proof, re-run
+  now) or `el todo reopen N.M --by codex "what is wrong"` — el help acceptance. In a case with two hands el renders the
+  mark: `[/]` done, awaiting acceptance · `[x]` accepted — the legend under the TODO title says so while one is owed.
 - the general list (F24): `el todo add later "…"` → `## Later`, `Lk` · `el todo move Lk N` takes it into a phase ·
   `el todo move N.M later` puts an open item there with its pockets — el help later.
 - a block at once: done, reopen and cancel take a range `3.1-3.5` or a list `3.1, 3.4` (one phase
@@ -485,6 +488,16 @@ forge the record (no `done` on a cancelled item, no path written as text) — re
                  order · the record does not lie · knowledge in doses — and the principle it breaks
   --acceptance   how to see it is fixed — a check someone can run; it becomes the test
 Title, --actual and --expected are required; the other three are what makes the report fixable in one pass.
+Three depths — say which one you bring (feedback 2026-09-25: reports stayed at the first, the tool grew by the third):
+  1 a wall    el refused, crashed or printed a line that lies — the exact output is the report
+  2 a dose    the way exists, but you could not find it, or the refusal did not teach the fix
+  3 a lever   («move 37») el's own behavior breaks a principle of `el help philosophy` — Order sends you past a gate,
+              a mark says «checked» where one hand did it. Name the rule that lets the dishonest path exist and propose
+              the form in which the honest path is the only one: a state, a mark, a refusal, a rendered line — not one
+              more warning on top. That is how `[/]` came (1.27.0): the fix is in the form, not in the discipline.
+              Not a lever: --force or --skip, a larger limit without a measure of a live case, an opt-in line nobody
+              writes — each keeps the dishonest path open. At this depth --actual is where el lets the disorder in,
+              --expected the form in which it cannot happen, --acceptance a test a careless agent can no longer pass.
 The report goes to the maintainer of el and may end up in a shared repository: no business data — no names of projects, clients,
 people, internal APIs or endpoints, no ticket, case or request numbers, addresses, sums. Describe the SHAPE
 («an item with an endpoint path and a flag name, 103 chars»), invent a neutral example of the same form.
@@ -517,8 +530,9 @@ RETELLING (the owner's word, 2026-09-25: «he notices more than I said — and I
 
 ACCEPTANCE
   weak    el todo done 2.3 … and the phase closes on the doer's word
-  strong  el todo brief 2.3 → a fresh session opens the files, re-runs what it safely can, holds the result to `why`
-          and to `expect` → el todo accept 2.3 --by codex "…" · or el todo reopen 2.3 --by codex "what is missing"
+  strong  el todo brief 2.3 → a fresh session opens the files, re-runs every `run:` proof, holds the result to `why`
+          and to `expect` → el todo accept 2.3 --by codex --run "make test → 12 OK" "…" · or el todo reopen 2.3 --by
+          codex "what is missing"
 
 AN ITEM
   weak    el todo add 3 "database"
@@ -653,9 +667,20 @@ records the verdict.
   the case goal, the phase goal, the item with the owner's `why`, what was expected before the work, what the doer
   says came out, the proofs as paths from the project, the two verdict commands. No second agent at hand? The owner
   pastes it into a new chat.
-- the verdict — `el todo accept N.M --by codex "what you checked and how"` → under the item
-  `accepted: codex · another session · 2026-09-25` and `DECISION · принято N.M: …`; the return —
-  `el todo reopen N.M --by codex "what is missing or wrong"` → the tick and the acceptance go, the reason stays.
+- the verdict — `el todo accept N.M --by codex --run "make test → 12 OK" "what you checked and how"` → under the item
+  `accepted: codex · another session · 2026-09-25 · re-ran 1 of 1` and `DECISION · принято N.M: …` with a body line
+  `re-run: …` per command; the return — `el todo reopen N.M --by codex "what is missing or wrong"` → the tick and the
+  acceptance go, the reason stays.
+- re-run, not re-read (the owner's word, 2026-09-25: «the second hand runs the commands and says it worked»): every
+  `run:` proof of the item is re-run by the acceptor, one `--run "<command> → <what came out now>"` each; accept
+  refuses without them and names them. Could not run one here — `--run "<command> → not run: why"`, counted as not
+  re-run (`re-ran 0 of 1 (1 not run)`), said, not hidden. A result that differs is a return, not an acceptance.
+  el runs nothing itself — it asks and records what was said. The owner's word needs no re-run.
+- the marks (a live report, 2026-09-25: `[x]` on one hand's work read as «checked» to everybody): in a case with two
+  hands el renders the box from the item — `[ ]` open · `[/]` done, awaiting acceptance (half of an x: one hand of
+  two) · `[x]` accepted, finished · `[~]` on hold. A legend under the TODO title says so while an item is owed. The
+  mark is rendered, not written: `done` makes `[/]`, `accept` makes `[x]`, `reopen` makes `[ ]`. A case without the
+  rule keeps `[x]` for done.
 - the session: `done` writes the doer's session under its RESULT (`session: 1a2b3c4d` — EL_SESSION, else the
   harness's id; Claude Code sets CLAUDE_CODE_SESSION_ID); `accept` compares: another session · same session ·
   session not given · the owner's word. Provenance, not proof: a subagent shares its parent's session id.
@@ -792,7 +817,8 @@ ALIASES = {
     "recipes": "where", "legacy": "migrate", "migration": "migrate", "problems": "order", "until": "order",
     "workaround": "order", "report": "feedback", "bug": "feedback",
     "fact": "facts", "chain": "facts", "knowledge": "facts",
-    "accept": "acceptance", "accepted": "acceptance", "brief": "acceptance", "review": "acceptance", "reviewer": "acceptance",
+    "accept": "acceptance", "accepted": "acceptance", "mark": "acceptance", "marks": "acceptance", "checkbox": "acceptance",
+    "rerun": "acceptance", "re-run": "acceptance", "brief": "acceptance", "review": "acceptance", "reviewer": "acceptance",
     "verdict": "acceptance", "hands": "acceptance", "supervisor": "acceptance", "return": "acceptance", "stuck": "acceptance",
     "onboard": "onboarding", "instructions": "onboarding", "claude.md": "onboarding", "agents.md": "onboarding",
     "backlog": "later", "pool": "later", "general": "later", "triage": "later", "boundary": "later", "thread": "model",

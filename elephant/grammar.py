@@ -46,7 +46,10 @@ EVENT_RE = re.compile(r"^  (PHASE|DECISION|PROBLEM|RESULT|[A-Z]+) · (.+)$")
 BODY_RE = re.compile(r"^    (.+)$")
 PHASE_LINE_RE = re.compile(r"^- \[( |x)\] (\d+) (.+?)(?: — (.+))?$")
 PHASE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*(?: [A-Za-z0-9-]+){0,2}$")  # F13: English, 1–3 words
-ITEM_RE = re.compile(r"^  - \[( |x|~)\] (\d+)\.(\d+) (.+)$")  # `~` = on hold
+ITEM_RE = re.compile(r"^  - \[( |x|~|/)\] (\d+)\.(\d+) (.+)$")  # `~` = on hold · `/` = done, awaiting acceptance (F23)
+# F23 (a live report and the owner's word, 2026-09-25): in a case that asks two hands the mark is rendered from the item —
+# `[/]` done by one hand and owed its acceptance (half of an x), `[x]` finished; the legend under the title says so
+LEGEND = "> marks: [ ] open · [/] done, awaiting acceptance — el todo brief N.M · [x] finished · [~] on hold"
 # F24 — the general list (the owner's word, 2026-09-25: «what is not for this phase goes to the general list; the next
 # phase is formed from it»): a `## Later` section after the phases, one open line per thought with its own number for
 # life and the date it was put there — the boundary counter reads it
@@ -290,7 +293,7 @@ def parse_todo(text: str) -> Todo:
     lines = _frame(text, r)
     # F4 counts what the agent writes — phase and item lines, notes, why, waits. Lines el renders from
     # `done` (`result:` and the evidence under it) are named, not counted: the agent cannot shorten them.
-    rendered = sum(1 for ln in lines if EVIDENCE_LINE_RE.match(ln)
+    rendered = sum(1 for ln in lines if EVIDENCE_LINE_RE.match(ln) or ln == LEGEND
                    or (POCKET_RE.match(ln) and ln.startswith(("    - result:", "    - accepted:"))))
     own = len(lines) - rendered
     if own > TODO_MAX_LINES:
@@ -320,6 +323,8 @@ def parse_todo(text: str) -> Todo:
             continue
         if DEEP_ITEM_RE.match(raw):
             r.error("F13", i, "no items deeper than N.M — third level belongs in the phase file")
+            continue
+        if raw == LEGEND and phase is None and not in_later:  # el's legend of the marks (F23): rendered, not the agent's
             continue
         if raw == LATER_HEAD:
             if in_later:
@@ -382,7 +387,7 @@ def parse_todo(text: str) -> Todo:
             # a line el wrote is a line el reads (feedback 2026-09-22: one such line made the whole TODO
             # unwritable). The tail goes back onto the text, and finish() splits it as evidence.
             tail = ""
-            if mark == "x":
+            if mark in ("x", "/"):
                 mt = OLD_TAIL_RE.match(txt)
                 if mt:
                     txt, tail = mt.group(1), mt.group(2)
@@ -403,7 +408,7 @@ def parse_todo(text: str) -> Todo:
                 r.error("F4", i, f"item {n}.{k} listed under phase {phase.n}")
             if phase.done:
                 r.error("F5", i, f"closed phase {phase.n} still lists items — they belong in the phase file")
-            item, in_result = Item(n, k, mark == "x", txt, i, held, reason, due, after), False  # F13 is checked in finish()
+            item, in_result = Item(n, k, mark in ("x", "/"), txt, i, held, reason, due, after), False  # F13 is checked in finish()
             phase.items.append(item)
             continue
         m = EVIDENCE_LINE_RE.match(raw)
