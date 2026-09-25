@@ -4,3 +4,7 @@ import os
 # the suite decides it per test and never inherits the session of the terminal that runs it
 for _key in ("CLAUDE_CODE_SESSION_ID", "EL_SESSION"):
     os.environ.pop(_key, None)
+
+# el writes its onboarding block into the agent's instruction file (CLAUDE.md / AGENTS.md) at `case new` and keeps it
+# fresh on entry; the suite's temporary projects stay without it unless a test switches it on (tests/test_onboarding_0925.py)
+os.environ["EL_ONBOARDING"] = "0"

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from . import grammar, hints, migrate, order, stamp, store
+from . import grammar, hints, migrate, onboarding, order, stamp, store
 from .store import StoreError
 
 MAX_SCREEN = 24_000  # chars: Claude Code truncates tool output around 30K (owner's measurement 2026-08-22)
@@ -2440,7 +2440,7 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
 
 
 def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None, align: Optional[str] = None,
-                rest: Optional[str] = None) -> Outcome:
+                rest: Optional[str] = None, howto: Optional[str] = None) -> Outcome:
     """Close a phase. `--reflect "…"` and `--align "…"` log the two DECISION events P8 asks for in the same
     command (feedback 2026-09-16: three shell round trips for one close added friction, not rigour) — the
     record is identical, the gates are the same, and nothing is logged if another gate refuses the close.
@@ -2449,6 +2449,7 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     out = Outcome()
     if rest is not None and rest.strip().lower() not in LATER_WORDS:
         raise StoreError(f"--rest takes `later`: the open items go to the general list; to another phase: el todo move N.M K", 2)
+    howto_text = _howto_text(case, howto) if howto else None  # checked before anything is written
     todo = _todo(case, out)
     phase = todo.phase(n)
     if phase is None:
@@ -2499,6 +2500,10 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
         # a flag stands in for the event it is about to log — everything else must already hold
         return [m for m in found if not (reflect and "reflect:" in m) and not (align and "align:" in m)]
     missing = gates(journal)
+    unanswered = _unanswered_problems(_events_for_phase(journal, f"p{n}"))
+    if unanswered and not howto_text:  # P8: the close is the archivist's moment — what was caught becomes a recipe, or «none»
+        missing.append(f"phase {n} logged {len(unanswered)} PROBLEM(s) no recipe answers — «{order._short(unanswered[0].text, 60)}»: "
+                       f"{HOWTO_ASK}: el phase close {n} \"…\" --howto …")
     goal_now = _phase_goal(case, phase)
     for (kind, what), status, ref in _goal_coverage(phase, goal_now):  # F12: the phase's own promise holds its close
         if status == "proved":
@@ -2533,7 +2538,9 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     for tag, val in (("reflect", reflect), ("align", align)):
         if val:  # every other gate held: the two events are written now, then the close proceeds on them
             out.lines += log(case, "DECISION", f"{tag}: {val}", f"p{n}").lines
-    if reflect or align:
+    if howto_text:
+        out.lines += log(case, "DECISION", f"howto: {howto_text}", f"p{n}").lines
+    if reflect or align or howto_text:  # the events just written belong to the Digest rendered below
         journal = _journal(case, out)
     summary = " ".join(summary.split())
     date, _ = _now()
@@ -2582,6 +2589,52 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
         out.say(f"closed from the plan, out of turn — phase {alongside[0].n} {alongside[0].name} is still {alongside[1]}, "
                 f"the pipeline stays in order. {ALONGSIDE_HINT}")
     return out
+
+
+# ---- recipes at the close (P8; the owner's word, 2026-09-25) --------------------------------------------------------
+# «Every time we close a phase or a case there must be a step where .howto is checked — agents rarely update it, and the
+# close is the logical moment; nothing caught — say so». Measured the same day on the tool's own case: 48 PROBLEM events,
+# one names .howto/, four recipes in all. The close asks once, only when a PROBLEM of the phase (the case) has no recipe
+# answering it; the answer is a recipe the next agent finds by grep, or «none» with its reason. At the close door only:
+# an old phase closed before the rule is never asked again (P15).
+HOWTO_PATH_RE = re.compile(r"\.howto/[\w./-]+\.md")
+CASE_MARK_RE = re.compile(r" · open → \S+/$|^закрыто → .* · \S+/$|^дело закрыто → ")  # a nested case opened or closed — not a problem
+HOWTO_ASK = ('what became a recipe? --howto ".howto/<verb>.md" (first line `when: <the error words>` — grep finds it next time) '
+             '· nothing repeats → --howto "none: why"')
+
+
+def _unanswered_problems(evs: List[grammar.Event]) -> List[grammar.Event]:
+    """The PROBLEM events of a phase no recipe answers: none named `.howto/…` and no `DECISION · howto:` was given."""
+    if any(ev.type == "DECISION" and ev.text.startswith("howto:") for ev in evs):
+        return []
+    return [ev for ev in evs if ev.type == "PROBLEM" and not CASE_MARK_RE.search(ev.text)
+            and not HOWTO_PATH_RE.search(" ".join([ev.text, *ev.body]))]
+
+
+def _howto_text(case: Path, value: str) -> str:
+    """`--howto` checked before anything is written: `none: why` (the reason required), or recipe paths `.howto/x.md` that
+    exist in the project with `when:` as their first line — rendered as links from the case. Returns the words after `howto:`."""
+    value = " ".join(value.split())
+    if value.lower().startswith("none") or value in ("-", "—"):
+        rest = value[4:].lstrip(" :—-").strip() if value.lower().startswith("none") else ""
+        if not rest:
+            raise StoreError('--howto none needs its reason: --howto "none: why nothing here repeats"', 2)
+        return f"none: {rest}"
+    paths = HOWTO_PATH_RE.findall(value)
+    if not paths:
+        raise StoreError(f'--howto takes a recipe .howto/<verb>.md or "none: why" — not `{value}`', 2)
+    project, text = _project_root(case), value
+    for rel in dict.fromkeys(paths):
+        f = project / rel
+        if not f.is_file():
+            raise StoreError(f"{rel} is not there — write the recipe first (first line `when: <the error words>`), then close; "
+                             f"nothing repeats → --howto \"none: why\"", 4)
+        first = f.read_text(encoding="utf-8").split("\n", 1)[0].strip()
+        if not first.startswith("when:"):
+            raise StoreError(f"{rel}: the first line must be `when: <the error words>` — that line is what grep finds next time; "
+                             f"it reads «{order._short(first, 60)}»", 3)
+        text = text.replace(rel, f"[{f.name}]({os.path.relpath(f, case)})")
+    return text
 
 
 def _item_block_for_phase_file(case: Path, pf: Path, it: grammar.Item) -> List[str]:
@@ -2645,8 +2698,8 @@ def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]
     lines += bucket("results", [rel(ev.text) for ev in evs if ev.type == "RESULT" and not ITEM_RESULT_RE.match(ev.text)])
     lines += bucket("problems", [rel(ev.text) for ev in evs if ev.type == "PROBLEM"])
     lines += bucket("decisions", [rel(ev.text) for ev in evs if ev.type == "DECISION"
-                                  and not ev.text.startswith(("reflect:", "align:"))])
-    for tag in ("reflect", "align"):
+                                  and not ev.text.startswith(("reflect:", "align:", "howto:"))])
+    for tag in ("reflect", "align", "howto"):  # howto: what was caught became a recipe, or «none» (P8, 2026-09-25)
         for ev in evs:
             if ev.type == "DECISION" and ev.text.startswith(f"{tag}:"):
                 lines.append(f"- {tag}: {rel(ev.text[len(tag) + 1:].strip())}")
@@ -3074,8 +3127,9 @@ def _closed_line(value: str):
     return value, order._short(value, grammar.README_POINTER_CHARS - len("- closed: "))
 
 
-def done(root: Path, case: Path, summary: str) -> Outcome:
+def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> Outcome:
     out = Outcome()
+    howto_text = _howto_text(case, howto) if howto else None
     todo = _todo(case, out)
     open_phases = [p for p in todo.phases if not p.done]
     if open_phases:
@@ -3085,7 +3139,17 @@ def done(root: Path, case: Path, summary: str) -> Outcome:
     if live:  # F20: a parent closes only when every child is done or cancelled; BROKEN holds it open (F18)
         raise StoreError("cannot close the case: nested cases still open — " + ", ".join(live) +
                          " → close each (el --case <name> done \"…\") or cancel it with a reason", 4)
+    journal = _journal(case, out)
+    by_phase: Dict[str, List[grammar.Event]] = {}
+    for e in journal.entries:
+        by_phase.setdefault(e.phase, []).extend(e.events)
+    unanswered = [ev for evs in by_phase.values() for ev in _unanswered_problems(evs)]
+    if unanswered and not howto_text:  # P8 at the size of the case: what no phase close answered is asked once
+        raise StoreError(f"cannot close the case: {len(unanswered)} PROBLEM(s) no recipe answers — «{order._short(unanswered[0].text, 60)}»: "
+                         f"{HOWTO_ASK}: el done \"{' '.join(summary.split())}\" --howto …", 4)
     summary = " ".join(summary.split())
+    if howto_text:
+        out.lines += log(case, "DECISION", f"howto: {howto_text}").lines
     date, _ = _now()
     closed, shown = _closed_line(f"{date} · {summary}")
     text = _set_state_line(_readme_text(case, out), "closed: ", shown)
@@ -3656,8 +3720,12 @@ def _ended_phase_lines(case: Path, todo: grammar.Todo, journal: Optional[grammar
                 if "result:" in m or "is missing (F12)" in m:
                     continue
                 needs.append((m.split(" → ", 1)[1] if " → " in m else m.split(": ", 1)[-1]).split(" · or")[0].strip())
-        one = (f" · or in one command: el phase close {p.n} \"…\" --reflect \"…\" --align \"…\""
-               if any("reflect:" in n or "align:" in n for n in needs) else "")
+        ask_howto = journal is not None and bool(_unanswered_problems(_events_for_phase(journal, f"p{p.n}")))
+        if ask_howto:
+            needs.append('the recipe question: --howto ".howto/<verb>.md" · or --howto "none: why"')
+        flags = ((" --reflect \"…\" --align \"…\"" if any("reflect:" in n or "align:" in n for n in needs) else "")
+                 + (" --howto \"…\"" if ask_howto else ""))
+        one = f" · or in one command: el phase close {p.n} \"…\"{flags}" if flags else ""
         lines.append(f"phase {p.n} {p.name}: every item ended ({len(p.items)} done) → close it: el phase close {p.n} \"what came out\""
                      + (f" — first: {' · '.join(needs)}{one}" if needs else "")
                      + f" · or add what is missing: el todo add {p.n} \"…\"")
@@ -3685,6 +3753,7 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_unaccepted_lines(case, todo_now, readme_body))  # done by one hand, not yet accepted by another (F23)
     except StoreError:
         pass
+    lines.extend(onboarding.order_lines(_project_root(case)))  # S6: a block el cannot keep current (edited or pasted by hand)
     lines.extend(order.people_lines(root))  # L10: a card every case reads before calling that person
     lines.extend(order.shared_links_lines(case, root, readme_body))  # the same description in two cases → one card
     legacy = store.legacy_files(case)
@@ -3714,6 +3783,9 @@ def entry(root: Path, case: Path) -> Outcome:
     out = Outcome()
     names = store.chain(case, root)
     out.say(f"el · case in hand: {' › '.join(names)}", "")
+    refreshed = onboarding.refresh(_project_root(case))  # the block in CLAUDE.md / AGENTS.md follows the one el ships
+    if refreshed:
+        out.say(*refreshed, "")
     others = [c.name for c in store.all_cases(root) if store.is_open(c) and c != case]
     if others:
         out.say("other open cases: " + " · ".join(others) + " — switch: `el case use <name>`", "")
