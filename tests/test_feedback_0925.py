@@ -139,5 +139,14 @@ class ThePhilosophyTravelsWithEl(unittest.TestCase):
         self.assertIn("el help philosophy", dose)
         self.assertIn("the record does not lie", dose)
 
+    def test_the_feedback_dose_names_three_depths(self):
+        # feedback 2026-09-25 (el 1.26.0): the dose taught only the wall, so reports stopped at syntax and limits
+        from elephant import knowledge
+        dose = knowledge.resolve("feedback")
+        for depth in ("1 a wall", "2 a dose", "3 a lever"):
+            self.assertIn(depth, dose)
+        self.assertIn("the honest path is the only one", dose)
+        self.assertIn("Not a lever: --force or --skip", dose, "the agent's own report named the band-aids to refuse")
+
 if __name__ == "__main__":
     unittest.main()
