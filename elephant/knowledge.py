@@ -41,13 +41,20 @@ TOPICS = {
 - refused (exit 3/4): grammar and stamps, dead links in README/TODO, dependency cycles, dropping
   what others wait for, closing over open children, done without a kind or an outcome. Shown, never
   refused: summaries, duplicates, budgets, unreferenced files, blind items, items ticked before the
-  kinds existed (`untyped` in the `evidence:` count). The tool checks structure; the owner checks truth.""",
+  kinds existed (`untyped` in the `evidence:` count). The tool checks structure; the owner checks truth.
+- the machine (F23, F24; the owner's word, 2026-09-25): one course at three sizes — proposed (the general list,
+  `el help later`) → agreed (`phase agree`) → in work → done → accepted or returned (`el help acceptance`) →
+  closed; from any state, cancelled with a reason. Three roles: the owner sets the direction and agrees the scope,
+  the agent decomposes and delivers, el keeps the order — and what one hand did, a fresh session accepts. The entry
+  opens with `thread:` — goal → phase → item (why) → next: what is subordinate to what.""",
 
     "start": """a day with el
 1. `el` (or `el status`) — prints the case in hand: README (the "now"), TODO (phases), journal
    headlines, `dates:` and `unblocked:` when the case has dates or dependencies, and the `## Order`
-   block: what is out of order and the command that fixes each line. Read this, nothing else; first
-   say in your own words where the case stands and what the next step is — then go. How the whole
+   block: what is out of order and the command that fixes each line. Read this, nothing else; the first
+   line, `thread:`, says what is subordinate to what. Then retell it to the owner — not in the owner's words:
+   where the case stands, the next step, what follows from it that nobody said (marked as your inference) and
+   what you would ask; words that repeat the owner's words prove nothing (el help practice: RETELLING) — then go. How the whole
    thing fits together: `el help model`. The last line may be a `hint:` — el saw something in the case you
    can do better; do it, or say why not. How strong agents lead a case: `el help practice`.
 2. Work as usual. When something is worth remembering — `el log <TYPE> "…"`.
@@ -58,7 +65,8 @@ TOPICS = {
    file into .howto/ (first line `when: <error words>`).
 5. Finished a piece → `el todo done N.M <kind> "what came out"` — the kind of evidence first:
    file:<path> · ref:<trace> · run:"<command → outcome>" · owner (`el help evidence`); not needed after all → `el todo cancel N.M "why"`;
-   a phase → `el help phases`; the case → `el done "…"`.
+   a phase → `el help phases`; the case → `el done "…"`. Done by you is accepted by another hand: `el todo brief N.M`
+   prints the prompt for a fresh session (`el help acceptance`). Not for this phase → `el todo add later "…"` (`el help later`).
 6. Before you stop: `el` again — if Order says "State is behind", read State: something changed →
    `el readme set next "…"`; still true as it stands → `el readme touch`. The next session
    starts from that line.
@@ -184,6 +192,10 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
 - a tick taken back: `el todo reopen N.M "why the result no longer holds"` — the item is open
   again (the phase cannot close over it, its dependents are blocked again), the journal gets a
   DECISION and the old RESULT stays as history. `resume` only lifts a hold.
+- the second hand (F23): `el todo brief N.M` prints the prompt for a fresh session · its verdict:
+  `el todo accept N.M --by codex "what was checked"` or `el todo reopen N.M --by codex "what is wrong"` — el help acceptance.
+- the general list (F24): `el todo add later "…"` → `## Later`, `Lk` · `el todo move Lk N` takes it into a phase ·
+  `el todo move N.M later` puts an open item there with its pockets — el help later.
 - a block at once: done, reopen and cancel take a range `3.1-3.5` or a list `3.1, 3.4` (one phase
   per call) — one journal line names every number, so nothing is reused by mistake.
 - numbers are for life: drop, hold and move never renumber; a new item takes the next free number
@@ -299,7 +311,12 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
 - the next phase will not open until the previous one passed all of the above — a cancelled phase
   passes by itself (it never ran); a phase that is still open must close or be cancelled; a phase
   planned below and never opened must open first or be cancelled: phases are one pipeline, in
-  order, one in flight.
+  order, one in flight — unless something found makes N come first: `el phase open N --why "what was found"`
+  (F24, the owner's word 2026-09-25: a hidden blocker) — the planned ones below stay planned, a DECISION says why,
+  one phase in flight still. A dead end: `el phase close N "…" --rest later` — the open items go to the general
+  list with their pockets, the gates are the same (`el help later`). The scope the owner agreed:
+  `el phase agree N "the owner's words"` — at the boundary, before opening; under the case rule «two hands»
+  Order names a running phase without it (`el help acceptance`).
 - out of turn: work parked under a planned phase may end before its turn (it ran alongside). Then
   `el phase close N "…"` closes it straight from the plan once every item ended — the file is born
   at close, the journal says it ran alongside, progress shows ✓; `open` stays refused. Every gate
@@ -421,6 +438,19 @@ ENTRY
   weak    reads README, TODO, ten journal entries and starts working
   strong  reads them and says in its own words where the case stands and what the next step is — the hand-over
           is accepted, not just read; then works item by item, recording as it goes, not at the end
+
+RETELLING (the owner's word, 2026-09-25: «he notices more than I said — and I see he understood»)
+  weak    «You want Scrum.» — the owner's words back: clear, and it proves nothing — the same words match always;
+          three times in one session such an echo looked like understanding and the work went the wrong way
+  strong  «Scrum: a backlog, a sprint goal, the scope fixed while the sprint runs — do you size the items, and in
+          what?» — what follows from the words, marked as inference and open to the owner's check; the question at
+          the seam; what it changes for the goal. Surplus asserted as fact is the echo's twin: story points are not
+          in the Scrum Guide — say «I infer», not «we will have»
+
+ACCEPTANCE
+  weak    el todo done 2.3 … and the phase closes on the doer's word
+  strong  el todo brief 2.3 → a fresh session opens the files, re-runs what it safely can, holds the result to `why`
+          and to `expect` → el todo accept 2.3 --by codex "…" · or el todo reopen 2.3 --by codex "what is missing"
 
 AN ITEM
   weak    el todo add 3 "database"
@@ -546,6 +576,51 @@ proved statements of a theory: found and proved once, then built on, not re-deri
 - what the strong form looks like: `result:` says what the work produced, `fact:` says what is true now, and the
   expectation written before the work (`expect:`, expected `fact:`) stands next to both — confirmed or refuted
   is knowledge either way. `el help practice` shows the pair.""",
+    "acceptance": """acceptance — done by one hand, accepted by another (F23; the owner's word, 2026-09-25)
+Why: the agent who did the work already knows what it meant and reads that into the result; a fresh session knows
+only what lies in front of it. Anthropic's ART campaign (2026-09-23: 949 sessions, 119 tasks) never let a worker accept
+its own task — a supervisor did: the same model with a clean context. el launches nobody: it prints the brief and
+records the verdict.
+- `el todo brief N.M` — the prompt for a FRESH session (a new chat, another agent, a subagent with a clean context):
+  the case goal, the phase goal, the item with the owner's `why`, what was expected before the work, what the doer
+  says came out, the proofs as paths from the project, the two verdict commands. No second agent at hand? The owner
+  pastes it into a new chat.
+- the verdict — `el todo accept N.M --by codex "what you checked and how"` → under the item
+  `accepted: codex · another session · 2026-09-25` and `DECISION · принято N.M: …`; the return —
+  `el todo reopen N.M --by codex "what is missing or wrong"` → the tick and the acceptance go, the reason stays.
+- the session: `done` writes the doer's session under its RESULT (`session: 1a2b3c4d` — EL_SESSION, else the
+  harness's id; Claude Code sets CLAUDE_CODE_SESSION_ID); `accept` compares: another session · same session ·
+  session not given · the owner's word. Provenance, not proof: a subagent shares its parent's session id.
+- `--by self` is refused: a self-acceptance is not an acceptance. The owner's word passes: `--by owner "…"`.
+- two errors, two guards: the acceptor catches «done is not what was expected»; «expected is not what the owner
+  meant» only the owner catches — at the start, when the agent retells the task (el help practice: RETELLING).
+- stuck: an open item returned 3 times → an Order line with three honest exits: cut it smaller · cancel it with the
+  reason · finish it; `el todo show N.M` lists the reasons.
+- the case rule (opt-in): `el readme add context "rule: two hands — the owner agrees each phase's scope, a fresh
+  session accepts each done item"` → the entry counts `acceptance: k of n done accepted`, Order names the done items
+  nobody accepted and a running phase whose scope the owner never agreed (`el phase agree N "…"`), and `phase close`
+  refuses over an unaccepted item — a fresh session accepts, or the owner's word.""",
+
+    "later": """later — the general list and the phase boundary (F24; the owner's word, 2026-09-25)
+What is not for the running phase does not break it: it goes to the general list, and the next phase is formed from
+that list at the boundary — when a phase closes, or earlier by the owner's word. Not a backlog that eats thoughts:
+every boundary is a moment of return, and a counter names what the boundaries keep passing by.
+- `el todo add later "cache warm-up on deploy" --why "…"` → the last section of TODO, `## Later`:
+  `  - [ ] L3 cache warm-up on deploy — since: 2026-09-25`, pockets under it like an item; the number is for life.
+- at the boundary `el phase close N "…"` prints the list; each line gets a decision — into a phase: `el todo move L3 5`
+  (it becomes 5.k; the phase may be planned or open) · not needed: `el todo cancel L3 "why"` · kept: nothing to do,
+  it counts the boundaries. A line three closes passed by → an Order line asking by name.
+- the other way: an open item not for this phase → `el todo move 4.7 later` (with its pockets; a date or a dependency
+  stays behind — they belong to an item of a phase); a done item stays where it was done.
+- a Later line takes words and pockets only (edit · why · note · cancel · drop · show); done, dates, dependencies and
+  acceptance come after `move Lk N` — the refusal names that move.
+- a thought whose moment is known («this is for phase 5») parks at that phase: `el todo add 5 "…"` into the plan,
+  `el phase note 5 "…"` — `parked:` counts it until the phase opens.
+- the order of phases is decided at the boundary too: a hidden blocker makes a planned phase come first —
+  `el phase open 5 --why "the pipeline blocks the migration"`: the planned ones below stay planned, a DECISION says
+  why, one phase in flight still. A dead end → close early by the owner's word: `el phase close 4 "…" --rest later`
+  — the open items go to the general list, nothing is lost.""",
+
     "limits": """the numbers (all enforced at write time)
 README: 200 lines / 8 KB of YOUR text → warning · 300 lines / 12 KB → refusal; a POINTER line (Links, State)
   ≤ 150 chars (warning) — Decisions, Problems and Context are text, bounded by the byte limit only. The nested
@@ -564,6 +639,8 @@ TODO: ≤ 200 lines (100 before 0.20: a rollout through five environments × 17 
 JOURNAL: event headline ≤ 200 chars (soft 180 — said once, by `el log`, for the line you just wrote); long text
   splits automatically into headline + up to 5 body lines of ≤ 160 chars; body beyond that → put the story in
   the phase file.
+The machine (F23, F24): an open item returned 3 times → Order «stuck»; a Later line three phase closes passed by →
+  Order asks by name — both shown, never refused; the numbers are a first guess, moved by a live case.
 Warnings are about THIS write: a command warns only about lines it introduced; history is `check`'s business,
   and `check` says it once per rule («F2 · pointer line over 150 — lines 14, 15, 18 (3 lines)»).
 Lower layer (shown, not refused): file `summary:` ≤ 120 chars; a file over 24 KB → split by summary
@@ -621,6 +698,10 @@ ALIASES = {
     "recipes": "where", "legacy": "migrate", "migration": "migrate", "problems": "order", "until": "order",
     "workaround": "order", "report": "feedback", "bug": "feedback",
     "fact": "facts", "chain": "facts", "knowledge": "facts",
+    "accept": "acceptance", "accepted": "acceptance", "brief": "acceptance", "review": "acceptance", "reviewer": "acceptance",
+    "verdict": "acceptance", "hands": "acceptance", "supervisor": "acceptance", "return": "acceptance", "stuck": "acceptance",
+    "backlog": "later", "pool": "later", "general": "later", "triage": "later", "boundary": "later", "thread": "model",
+    "machine": "model", "agree": "phases", "scope": "phases",
     "person": "people", "who": "people", "contact": "people", "contacts": "people", "participants": "people", "team": "people",
 }
 

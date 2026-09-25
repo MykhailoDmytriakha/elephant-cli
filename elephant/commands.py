@@ -49,9 +49,17 @@ def _now():
     return t.strftime("%Y-%m-%d"), t.strftime("%H:%M")
 
 
-def _phase_of(todo: grammar.Todo) -> str:
-    cur = todo.current()
+def _phase_of(todo: grammar.Todo, case: Optional[Path] = None) -> str:
+    """The phase an event belongs to by default: the one in flight (its file exists), else the first not closed.
+    Since a planned phase may run before an earlier planned one (F24, 2026-09-25), «first not closed» is not «in flight»."""
+    flying = _flying(case, todo) if case is not None else None
+    cur = flying or todo.current()
     return f"p{cur.n}" if cur else "p0"
+
+
+def _flying(case: Path, todo: grammar.Todo) -> Optional[grammar.Phase]:
+    """The phase in flight: not closed and opened (its phase file exists) — one at a time (P8)."""
+    return next((p for p in sorted(todo.phases, key=lambda x: x.n) if not p.done and _phase_file(case, p.n, p.name).exists()), None)
 
 
 # ---- TODO rendering (machine-owned text) ---------------------------------------------------------
@@ -90,6 +98,8 @@ def _item_block(it: grammar.Item) -> List[str]:
         if it.result:
             lines.append(f"    - result: {it.result}")
         lines += [f"{deeper}- {k}: {pr}" if pr else f"{deeper}- {k}" for k, pr in it.evidence]
+    if it.done and it.accepted:  # F23: who accepted the result, from which session — el's line, like `result:`
+        lines.append(f"    - accepted: {it.accepted}")
     if it.fact:  # expected while open, established once done — the line the fact chain is made of
         lines.append(f"    - fact: {it.fact}")
     return lines
@@ -108,7 +118,20 @@ def render_todo(todo: grammar.Todo) -> str:
             out += _item_block(it)
         for w in p.waits:
             out.append(f"  - waits: {w}")
+    out += _later_section(todo)
     return "\n".join(out) + "\n"
+
+
+def _later_block(it: grammar.Item) -> List[str]:
+    """A line of the general list (F24): `  - [ ] Lk text — since: YYYY-MM-DD` and the item's pockets under it."""
+    block = _item_block(it)
+    return [f"  - [ ] L{it.m} {it.text}" + (f"{grammar.SINCE_SUFFIX}{it.since}" if it.since else "")] + block[1:]
+
+
+def _later_section(todo: grammar.Todo) -> List[str]:
+    if not todo.later:
+        return []
+    return ["", grammar.LATER_HEAD] + [ln for it in todo.later for ln in _later_block(it)]
 
 
 def render_todo_entry(todo: grammar.Todo) -> Tuple[str, int]:
@@ -137,6 +160,7 @@ def render_todo_entry(todo: grammar.Todo) -> Tuple[str, int]:
                 out += _item_block(it)
         for w in p.waits:
             out.append(f"  - waits: {w}")
+    out += _later_section(todo)
     return "\n".join(out) + "\n", collapsed
 
 
@@ -386,13 +410,13 @@ def _resolve_phase(todo: grammar.Todo, ref: str) -> str:
 ITEM_REF_RE = re.compile(r"(?<![\d.])(\d+)\.(\d+)(?![\d.]*\d)")  # N.M, not a version 1.20.0
 
 
-def _phase_by_refs(todo: grammar.Todo, text: str, out: Outcome) -> str:
+def _phase_by_refs(todo: grammar.Todo, text: str, out: Outcome, case: Optional[Path] = None) -> str:
     """The phase an event belongs to when `--phase` is not given: the one whose items the text names, else the
     phase in flight (feedback 2026-09-22: a RESULT about items 2.x landed under p1 because p1 was open — the
     journal then told the wrong story under the wrong phase). Items of several phases: the one in flight, said."""
     items = {(it.n, it.m) for p in todo.phases if not p.done for it in p.items}
     named = sorted({int(m.group(1)) for m in ITEM_REF_RE.finditer(text) if (int(m.group(1)), int(m.group(2))) in items})
-    default = _phase_of(todo)
+    default = _phase_of(todo, case)
     if len(named) == 1 and f"p{named[0]}" != default:
         out.say(f"filed under p{named[0]}: the text names its item(s) — another phase: el log --phase N …")
         return f"p{named[0]}"
@@ -402,12 +426,16 @@ def _phase_by_refs(todo: grammar.Todo, text: str, out: Outcome) -> str:
     return default
 
 
-def log(case: Path, typ: str, text: str, phase: Optional[str] = None) -> Outcome:
+def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: str = "") -> Outcome:
+    """`trailer` — a provenance body line el adds under the event (`session: 1a2b3c4d` under a RESULT, F23): kept out of
+    the headline, so the entry, which shows headlines only, does not change; dropped when the body is already full."""
     out = Outcome()
     typ = typ.upper()
     if typ not in grammar.JOURNAL_TYPES:
         raise StoreError(f"unknown type `{typ}` — allowed: PHASE · DECISION · PROBLEM · RESULT (F8)", 2)
     event_lines, split = _render_event(typ, text)
+    if trailer and len(event_lines) - 1 < grammar.EVENT_BODY_LINES:
+        event_lines = event_lines + [f"    {trailer}"]
     if not split and len(event_lines[0].strip()) > grammar.EVENT_WARN_CHARS:
         out.warn(f"event line is {len(event_lines[0].strip())} chars, close to the limit {grammar.EVENT_CHARS} (F7) — "
                  f"a line break in the text makes a body line")
@@ -416,7 +444,7 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None) -> Outcome
     elif split:
         out.warn(f"event longer than {grammar.EVENT_CHARS} chars — split into headline + {len(event_lines) - 1} body line(s) (F7)")
     todo = _todo(case, out)
-    phase = _resolve_phase(todo, phase) if phase else _phase_by_refs(todo, text, out)
+    phase = _resolve_phase(todo, phase) if phase else _phase_by_refs(todo, text, out, case)
     date, time = _now()
     if migrate.legacy_reason(case, "JOURNAL.md"):
         raise _unparsable(case, "JOURNAL.md")
@@ -757,7 +785,9 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     refs = _refs(phase, items)
     shown = " · ".join(f"{k} {pr}".strip() for k, pr in proofs)
     short, expect_lines = _expect_check(phase, items)
-    out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome}" + (f" ({short})" if short else "") + fact_note, f"p{phase.n}").lines
+    sid = session_id()
+    out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome}" + (f" ({short})" if short else "") + fact_note, f"p{phase.n}",
+                     trailer=f"session: {sid}" if sid else "").lines
     for it in fresh:
         left = [r for r, _ in blocking.get(f"{phase.n}.{it.m}", []) if r not in done_now]
         if left:
@@ -1171,6 +1201,9 @@ def todo_show(case: Path, ref: str) -> Outcome:
     out = Outcome()
     todo = _todo(case, out)
     phase, item = _find_item(todo, ref)
+    if phase.n == 0:
+        out.say(f"general list (Later) · since {item.since or '—'} — the next phase boundary decides: el todo move {ref} N", *_later_block(item))
+        return out
     state = "planned" if not _phase_file(case, phase.n, phase.name).exists() else "open"
     out.say(f"phase {phase.n} {phase.name} ({state})", *_item_block(item))
     by_ref = {f"{it.n}.{it.m}": it for it in _all_items(todo)}
@@ -1187,6 +1220,9 @@ def todo_show(case: Path, ref: str) -> Outcome:
     feeds = [f"{it.n}.{it.m}" for it in _all_items(todo) if ref in it.after]
     if feeds:
         out.say(f"  → feeds {', '.join(feeds)}")
+    back = _returns(_journal(case, out)).get(ref, [])
+    if back:  # F23: every return is a reason in the journal — the next attempt starts from them
+        out.say(f"  returned {len(back)} time(s), newest first: " + " · ".join(f"«{order._short(w, 60)}»" for w in back[:3]))
     if not item.after and not feeds:
         out.say("  no after-edges: el todo after N.M \"…\" links a chain (el help todo)")
     return out
@@ -1220,8 +1256,10 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why:
     end (feedback 2026-09-08: an item refused for length and re-added later landed last, and a
     batch of four cost four `move`s — the number is for life, the position is not)."""
     out = Outcome()
+    if ref.strip().lower() in LATER_WORDS:
+        return _add_later(case, text, before, why, notes, expect, fact)
     if not ref.isdigit():
-        raise StoreError("use `el todo add N \"text\"` — N is the phase number", 2)
+        raise StoreError("use `el todo add N \"text\"` — N is the phase number; not for this phase: el todo add later \"text\"", 2)
     todo = _todo(case, out)
     phase = todo.phase(int(ref))
     if phase is None or phase.done:
@@ -1268,6 +1306,59 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why:
         hints.attach(out, "todo_expect", item=item, phase=phase)
     else:
         hints.attach(out, "todo_add", item=item)
+    return out
+
+
+def _next_later(case: Path, todo: grammar.Todo) -> int:
+    """The next free number of the general list: above every line present and every `Lk` the journal speaks of."""
+    used = {it.m for it in todo.later}
+    try:
+        journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
+    except StoreError:
+        journal = None
+    for e in (journal.entries if journal is not None else []):
+        for ev in e.events:
+            # only the forms el writes — `снято L3 «…»`, `1.2 → L3` — not any `L<digits>` (found live, 2026-09-25: the
+            # rule class L10 in this case's journal made the first line L11; a GPU «L4» would do the same)
+            for a, b in re.findall(r"→ L(\d+)\b|\bL(\d+) «", ev.text):
+                used.add(int(a or b))
+    return max(used, default=0) + 1
+
+
+def _later_refuse_suffixes(ref: str, due: str, after: List[str]):
+    if due or after:
+        raise StoreError(f"{ref}: a line of the general list waits for a phase — a date or a dependency belongs to an item of a phase: "
+                         f"take it into one first (el todo move {ref} N), or plan the phase it needs (el phase plan N \"Name\")", 2)
+
+
+def _add_later(case: Path, text: str, before: Optional[str], why: str, notes: Optional[List[str]], expect: str, fact: str) -> Outcome:
+    """`el todo add later "…"` — a thought not for the running phase goes to the general list (F24; the owner's word,
+    2026-09-25): one line with its number for life and the date, formed into a phase at the next boundary."""
+    out = Outcome()
+    todo = _todo(case, out)
+    text, due, after = _split_suffixes(text)
+    k = _next_later(case, todo)
+    _later_refuse_suffixes(f"L{k}", due, after)
+    if before:
+        raise StoreError("--before is for items of a phase; the general list keeps the order thoughts came in", 2)
+    if grammar.visible_len(text) > grammar.TODO_ITEM_CHARS:
+        raise StoreError(f"line text is {grammar.visible_len(text)} visible chars, limit {grammar.TODO_ITEM_CHARS} (F13)\n"
+                         f"{_split_suggestion(text, 'el todo add later «head»', '--note «rest»')}\n{REPHRASE_HINT}", 3)
+    item = grammar.Item(0, k, False, text, 0)
+    item.since = _now()[0]
+    ref = f"L{k}"
+    if why:
+        item.why = _pocket_text("why", why, ref)
+    item.notes = [_pocket_text("note", n, ref) for n in (notes or [])]
+    if expect:
+        item.expect = _expect_text(expect, ref)
+    if fact and fact.strip() not in FACT_NONE:
+        item.fact = _pocket_text("fact", fact, ref)
+    todo.later.append(item)
+    out.absorb(_write_todo(case, todo))
+    pockets = (" · why" if item.why else "") + (f" · {len(item.notes)} note(s)" if item.notes else "") + (" · expect" if item.expect else "")
+    out.say(f"added: {ref} {text}{pockets} → TODO.md, the general list (Later) — the next phase boundary decides: "
+            f"el todo move {ref} N takes it into a phase · el todo cancel {ref} \"why\" lets it go")
     return out
 
 
@@ -1340,10 +1431,38 @@ def _remind_link(case: Path, ref: str, text: str, out: Outcome):
                  f"el todo edit {ref} \"{text} — [name](docs/file.md)\"")
 
 
+LATER_REF_RE = re.compile(r"[Ll](\d+)")
+LATER_WORDS = ("later", "backlog", "pool", "general")
+# what a line of the general list takes before it is in a phase: its words and its pockets — the rest (done, dates,
+# dependencies, acceptance) belongs to items of a phase, so the refusal names the one move that makes it an item
+LATER_ACTIONS = ("edit", "why", "note", "cancel", "drop", "move", "show")
+
+
+def later_refusal(ref: str, action: str) -> Optional[StoreError]:
+    """`el todo <action> Lk` for an action a Later line does not take: the refusal with the move that makes it an item."""
+    if LATER_REF_RE.fullmatch(ref.strip()) and action not in LATER_ACTIONS:
+        k = ref.strip()[1:]
+        return StoreError(f"L{k} waits in the general list (Later, F24) — `{action}` is for items of a phase: take it into one first: "
+                          f"el todo move L{k} N (then el todo {action} N.M …)", 4)
+    return None
+
+
+def _later_phase(todo: grammar.Todo) -> grammar.Phase:
+    """The general list as a phase-shaped view (n = 0): the same list object, so removing from it removes from TODO."""
+    return grammar.Phase(0, "Later", False, 0, items=todo.later)
+
+
 def _find_item(todo: grammar.Todo, ref: str):
+    ml = LATER_REF_RE.fullmatch(ref.strip())
+    if ml:
+        item = next((it for it in todo.later if it.m == int(ml.group(1))), None)
+        if item is None:
+            have = ", ".join(f"L{it.m}" for it in todo.later) or "none"
+            raise StoreError(f"no L{ml.group(1)} in the general list (lines: {have})", 4)
+        return _later_phase(todo), item
     m = re.fullmatch(r"(\d+)\.(\d+)", ref)
     if not m:
-        raise StoreError(f"`{ref}` — use N.M, e.g. 2.3", 2)
+        raise StoreError(f"`{ref}` — use N.M, e.g. 2.3 (a line of the general list: Lk)", 2)
     phase = todo.phase(int(m.group(1)))
     item = next((it for it in phase.items if it.m == int(m.group(2))), None) if phase else None
     if item is None:
@@ -1387,7 +1506,12 @@ def _select_items(todo: grammar.Todo, ref: str):
 
 
 def _refs(phase: grammar.Phase, items) -> str:
-    return ", ".join(f"{phase.n}.{it.m}" for it in items)
+    return ", ".join(_ref(phase, it) for it in items)
+
+
+def _ref(phase: grammar.Phase, it: grammar.Item) -> str:
+    """`N.M` for an item of a phase, `Lm` for a line of the general list (F24)."""
+    return f"L{it.m}" if phase.n == 0 else f"{phase.n}.{it.m}"
 
 
 def todo_edit(case: Path, ref: str, text: str) -> Outcome:
@@ -1395,6 +1519,8 @@ def todo_edit(case: Path, ref: str, text: str) -> Outcome:
     todo = _todo(case, out)
     phase, item = _find_item(todo, ref)
     text, due, after = _split_suffixes(text)  # a date or dependency kept in the item stays unless the new text carries one
+    if phase.n == 0:
+        _later_refuse_suffixes(ref, due, after)
     if after:
         _set_after(case, todo, item, after)
     if grammar.visible_len(text) > grammar.TODO_ITEM_CHARS:
@@ -1418,12 +1544,13 @@ def _list_lines(phase: grammar.Phase) -> List[str]:
 def _number_ranges(phase: grammar.Phase) -> str:
     """`2.1–2.6, 2.8, 2.17` — which numbers the phase holds now (gaps are normal: numbers are kept)."""
     ms = sorted(it.m for it in phase.items)
+    pre = "L" if phase.n == 0 else f"{phase.n}."
     parts, i = [], 0
     while i < len(ms):
         j = i
         while j + 1 < len(ms) and ms[j + 1] == ms[j] + 1:
             j += 1
-        parts.append(f"{phase.n}.{ms[i]}" if i == j else f"{phase.n}.{ms[i]}–{phase.n}.{ms[j]}")
+        parts.append(f"{pre}{ms[i]}" if i == j else f"{pre}{ms[i]}–{pre}{ms[j]}")
         i = j + 1
     return ", ".join(parts) or "(empty)"
 
@@ -1436,6 +1563,10 @@ def todo_move(case: Path, ref: str, to: str) -> Outcome:
     out = Outcome()
     todo = _todo(case, out)
     phase, item = _find_item(todo, ref)
+    if phase.n == 0:
+        return _take_from_later(case, todo, item, to, out)
+    if to.strip().lower() in LATER_WORDS:
+        return _put_to_later(case, todo, phase, item, out)
     if to.strip().isdigit():
         # to another phase: the item joins its end under the next free number there — the one time a
         # number changes, said aloud (feedback 2026-09-03: re-cutting a phase meant drop + add × 15)
@@ -1480,6 +1611,52 @@ def todo_move(case: Path, ref: str, to: str) -> Outcome:
     return out
 
 
+def _take_from_later(case: Path, todo: grammar.Todo, item: grammar.Item, to: str, out: Outcome) -> Outcome:
+    """`el todo move Lk N` — a line of the general list becomes an item of phase N (planned or open) at the boundary."""
+    ref = f"L{item.m}"
+    if to.strip().lower() in LATER_WORDS:
+        out.say(f"{ref} is already in the general list — nothing changed")
+        return out
+    if not to.strip().isdigit():
+        raise StoreError(f"a line of the general list moves into a phase: el todo move {ref} N (N — a planned or open phase)", 2)
+    dest = todo.phase(int(to))
+    if dest is None or dest.done:
+        raise StoreError(f"phase {to} is missing or closed — plan it first: el phase plan {to} \"Name\" --goal \"…\"", 4)
+    todo.later.remove(item)
+    item.n, item.m, item.since = dest.n, _next_number(case, todo, dest), ""
+    dest.items.append(item)
+    out.absorb(_write_todo(case, todo))
+    new = f"{item.n}.{item.m}"
+    out.say(f"taken: {ref} → {new} «{item.text}» (from the general list into phase {dest.n} {dest.name}; the number is its own now)")
+    if not item.expect and _phase_file(case, dest.n, dest.name).exists():
+        out.warn(f"{new} has no expect: — every item of a running phase says what is expected and how it will be proved: "
+                 f"el todo expect {new} \"… [run: …] [file: …] [owner]\"")
+    return out
+
+
+def _put_to_later(case: Path, todo: grammar.Todo, phase: grammar.Phase, item: grammar.Item, out: Outcome) -> Outcome:
+    """`el todo move N.M later` — an open item that is not for this phase goes to the general list with its pockets."""
+    ref = f"{phase.n}.{item.m}"
+    if item.done:
+        raise StoreError(f"{ref} is done — a done item stays in its phase (its RESULT is the record); the general list holds what is "
+                         f"still to do", 4)
+    waiting = [f"{it.n}.{it.m}" for it in _all_items(todo) if ref in it.after]
+    if waiting:
+        raise StoreError(f"{ref} is a dependency of {', '.join(waiting)} — rewire them first (el todo after N.M <refs|none>), "
+                         f"then move it", 4)
+    dropped = ([f"due {item.due}"] if item.due else []) + ([f"after {', '.join(item.after)}"] if item.after else []) \
+        + (["hold"] if item.held else [])
+    phase.items.remove(item)
+    k = _next_later(case, todo)
+    item.n, item.m, item.since = 0, k, _now()[0]
+    item.due, item.after, item.held, item.hold_reason = "", [], False, ""
+    todo.later.append(item)
+    out.absorb(_write_todo(case, todo))
+    out.say(f"moved: {ref} → L{k} «{item.text}» (to the general list; the next phase boundary decides: el todo move L{k} N)"
+            + (f" · left behind: {', '.join(dropped)} — they belong to an item of a phase" if dropped else ""))
+    return out
+
+
 def todo_hold(case: Path, ref: str, reason: str) -> Outcome:
     out = Outcome()
     todo = _todo(case, out)
@@ -1492,15 +1669,18 @@ def todo_hold(case: Path, ref: str, reason: str) -> Outcome:
     return out
 
 
-def todo_reopen(case: Path, ref: str, why: str) -> Outcome:
+def todo_reopen(case: Path, ref: str, why: str, by: Optional[str] = None) -> Outcome:
     """A tick taken back with a reason (feedback 2026-09-09: a database drift found at 22.2 sent
     22.1–22.6 back to open; `resume` only lifts a hold, so the agent edited the file and met the
     stamp). The RESULT logged at `done` stays — it is history — and a DECISION says it no longer
-    holds. The item is open again: the phase cannot close over it, its dependents are blocked again."""
+    holds. The item is open again: the phase cannot close over it, its dependents are blocked again.
+    `--by <who>` — the return of an acceptor (F23): named in the DECISION with its session; every return counts
+    towards «stuck» (three and Order says so)."""
     out = Outcome()
     why = " ".join(why.split())
     if not why:
         raise StoreError(f"reopen needs the reason: el todo reopen {ref} \"why the result no longer holds\"", 2)
+    who = _acceptor(by, ref, "reopen") if by is not None else ""
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)  # a closed phase refuses: its items live in the phase file
     open_ = [it for it in items if not it.done]
@@ -1510,12 +1690,17 @@ def todo_reopen(case: Path, ref: str, why: str) -> Outcome:
                 + (" (on hold — el todo resume)" if any(it.held for it in open_) else ""))
     if not items:
         return out
+    tag = ""
+    if who:
+        journal = _journal(case, out)
+        tag = f" (приёмка: {who} · {_session_word(_session_status(journal, phase, items[0], who), 'ru')})"
     for it in items:
-        it.done, it.result, it.evidence = False, "", []  # the result and its proofs go with the tick; why/notes stay; the RESULT stays in the journal
+        # the result, its proofs and its acceptance go with the tick; why/notes stay; the RESULT stays in the journal
+        it.done, it.result, it.evidence, it.accepted = False, "", [], ""
     out.absorb(_write_todo(case, todo))
     refs = _refs(phase, items)
     verb = "возвращён" if len(items) == 1 else "возвращены"
-    out.lines += log(case, "DECISION", f"{refs} {verb} в работу — {why}", f"p{phase.n}").lines
+    out.lines += log(case, "DECISION", f"{refs} {verb} в работу — {why}{tag}", f"p{phase.n}").lines
     refuted = {f"{phase.n}.{it.m}" for it in items}
     resting = [it for it in _all_items(todo) if it.done and set(it.after) & refuted]
     if resting:  # the fact chain: what stands on the refuted item is under question — shown, never reopened by el
@@ -1524,6 +1709,336 @@ def todo_reopen(case: Path, ref: str, why: str) -> Outcome:
     what = f"{items[0].text}" if len(items) == 1 else f"({len(items)} items)"
     out.say(f"reopened: {refs} {what} → TODO.md · DECISION in the journal (the RESULTs stay as history)")
     return out
+
+
+# ---- acceptance (F23) ----------------------------------------------------------------------------
+# The owner's word, 2026-09-25 (synchronization over Anthropic's ART harness, 2026-09-23: 949 sessions, and no worker
+# ever accepted its own task — a supervisor did): done by one hand, accepted by another. The other hand is a FRESH
+# session — another chat, another agent, the same model with a clean context (ART ran one model throughout: the
+# independence came from the clean context and the brief, not from another vendor). el launches nobody (the owner's
+# word, 2026-09-22): it prints the brief (`el todo brief N.M`) and records the verdict — who, and whether the session was
+# another. A self-acceptance passes only as the owner's word. Two errors, two guards (research/work-machine.md): the
+# acceptor catches «done is not what was expected»; «expected is not what the owner meant» only the owner catches.
+SESSION_ENVS = ("EL_SESSION", "CLAUDE_CODE_SESSION_ID")
+SESSION_WORDS = {"another": ("another session", "другая сессия"), "same": ("same session", "та же сессия"),
+                 "unknown": ("session not given", "сессия не указана"), "owner": ("the owner's word", "слово владельца")}
+ACCEPTOR_RE = re.compile(r"[A-Za-z][\w.-]{0,23}")
+RETURN_RE = re.compile(r"^(.+?) возвращ(?:ён|ены) в работу — ")
+# three returns and the item is stuck — Order says so. ART stalled a task after ten revisions with no human in the loop;
+# a case the owner leads sees the pattern sooner, and the line is shown, never refused (the number is a first guess,
+# to be moved by a live case, like every limit here)
+STALL_RETURNS = 3
+RULE_TWO_HANDS_RE = re.compile(r"^- rule: two hands", re.M)
+RULE_TWO_HANDS = "rule: two hands — the owner agrees each phase's scope, a fresh session accepts each done item"
+
+
+def session_id() -> str:
+    """The session this command runs in, as the agent's harness says it (EL_SESSION first; Claude Code sets
+    CLAUDE_CODE_SESSION_ID) — 8 chars, or "" when nothing says. Provenance, not proof: a subagent shares its
+    parent's session, and a variable can be set by hand — so the record says what el saw, never more."""
+    for key in SESSION_ENVS:
+        val = re.sub(r"[^A-Za-z0-9]", "", os.environ.get(key) or "")
+        if val:
+            return val[:8]
+    return ""
+
+
+def _session_word(status: str, lang: str = "en") -> str:
+    return SESSION_WORDS[status][0 if lang == "en" else 1]
+
+
+def _acceptor(by: Optional[str], ref: str, verb: str) -> str:
+    """The one word naming who checked — codex · claude · gemini · subagent · owner. `self` is refused at accept."""
+    by = (by or "").strip()
+    if not by:
+        raise StoreError(f"{verb} by whom? name the session that checked: el todo {verb} {ref} --by codex \"…\" "
+                         f"(codex · claude · gemini · subagent · owner)", 2)
+    if verb == "accept" and by.lower() in ("self", "me", "myself", "doer"):
+        raise StoreError(f"a self-acceptance is not an acceptance (F23): a fresh session accepts — el todo brief {ref} prints its "
+                         f"prompt (a new chat, another agent, a subagent with a clean context) — or the owner's word: "
+                         f"el todo accept {ref} --by owner \"what the owner looked at\"", 2)
+    if not ACCEPTOR_RE.fullmatch(by):
+        raise StoreError(f"--by takes one word naming who checked (codex · claude · gemini · subagent · owner), not `{by}`", 2)
+    return by.lower()
+
+
+def _result_names(text: str, ref: str) -> bool:
+    """Does `RESULT · 2.1, 2.3: …` speak of `ref`? Only the refs before the first colon count."""
+    head = text.split(":", 1)[0]
+    return ref in re.findall(r"\d+\.\d+", head)
+
+
+def _doer_session(journal: grammar.Journal, phase: grammar.Phase, item: grammar.Item) -> str:
+    """The session under the newest `done` RESULT of the item (the `session:` body line), "" when none was given."""
+    ref = f"{phase.n}.{item.m}"
+    for e in journal.entries:  # newest first
+        for ev in e.events:
+            if ev.type != "RESULT" or not _result_names(ev.text, ref) or re.match(r"^[^:]+: fact — ", ev.text):
+                continue
+            return next((b[len("session: "):].strip() for b in ev.body if b.startswith("session: ")), "")
+    return ""
+
+
+def _session_status(journal: grammar.Journal, phase: grammar.Phase, item: grammar.Item, who: str) -> str:
+    if who == "owner":
+        return "owner"
+    mine, doer = session_id(), _doer_session(journal, phase, item)
+    if not mine or not doer:
+        return "unknown"
+    return "same" if mine == doer else "another"
+
+
+def todo_accept(case: Path, ref: str, text: str, by: Optional[str]) -> Outcome:
+    """`el todo accept N.M --by codex "what was checked and how"` — the second hand (F23). Only a done item is accepted;
+    the verdict goes under it as `accepted: <who> · <another session | same session | session not given | the owner's
+    word> · <date>` (el's line) and into the journal as `DECISION · принято N.M: …`. The return is `el todo reopen N.M
+    --by <who> "…"`. A range or a list takes one verdict for all."""
+    out = Outcome()
+    who = _acceptor(by, ref, "accept")
+    text = " ".join(text.split())
+    if not text:
+        raise StoreError(f"accept needs what was checked and how: el todo accept {ref} --by {who} \"re-ran the tests, opened the file: …\" — "
+                         f"these words are what the owner reads instead of re-checking", 2)
+    todo = _todo(case, out)
+    phase, items = _select_items(todo, ref)
+    open_ = [it for it in items if not it.done]
+    if open_:
+        raise StoreError(f"{_refs(phase, open_)} not done — nothing to accept yet; the doer ends it first: "
+                         f"el todo done {phase.n}.{open_[0].m} <kind> \"what came out\"", 4)
+    journal = _journal(case, out)
+    date, _ = _now()
+    status = _session_status(journal, phase, items[0], who)
+    for it in items:
+        it.accepted = f"{who} · {_session_word(_session_status(journal, phase, it, who))} · {date}"
+    out.absorb(_write_todo(case, todo))
+    refs = _refs(phase, items)
+    out.lines += log(case, "DECISION", f"принято {refs}: {who} · {_session_word(status, 'ru')} — {text}", f"p{phase.n}").lines
+    out.say(f"accepted: {refs} by {who} ({_session_word(status)}) → TODO.md (accepted: line) · DECISION in the journal")
+    if status == "same":
+        out.warn(f"same session as the doer — a subagent of that session, or the doer itself: el cannot tell which. A fresh session "
+                 f"is a new chat, another agent, another terminal: el todo brief {ref} prints its prompt")
+    elif status == "unknown":
+        out.say("  session not given — recorded as reported (EL_SESSION, or the harness's own session id, tells more)")
+    return out
+
+
+def _context_goal(readme_body: str) -> str:
+    """The case goal in the owner's words: the first Context line that is not a case rule."""
+    parsed = grammar.parse_readme(readme_body)
+    for ln in parsed.sections.get("Context", []) if not parsed.errors else []:
+        t = ln.strip()
+        if t and not t.startswith("- rule:"):
+            return t[2:].strip() if t.startswith("- ") else t
+    return ""
+
+
+def _proof_for_brief(case: Path, kind: str, proof: str) -> str:
+    """A proof as the acceptor meets it: a file by its path from the project folder, the rest as recorded."""
+    if kind == "file":
+        path = (case / _link_path(proof)).resolve()
+        try:
+            return f"file: {path.relative_to(_project_root(case).resolve())}  (open it)"
+        except ValueError:
+            return f"file: {path}  (open it)"
+    if kind == "run":
+        return f"run: {proof}  (re-run it if it is safe — el recorded it, nobody repeated it)"
+    if kind == "ref":
+        return f"ref: {proof}  (follow it if you can reach it)"
+    return "owner  (the owner's word — ask the owner if it matters)"
+
+
+def todo_brief(case: Path, ref: str) -> Outcome:
+    """`el todo brief N.M` — the prompt for a FRESH session that accepts or returns the item (F23; the owner's word,
+    2026-09-25: «no second agent here? print the prompt I paste into a new chat»). Drawn from the case, never typed:
+    the case goal, the phase goal, the item with the owner's `why`, the promise written before the work (`expect`),
+    what the doer says came out, the proofs as paths from the project folder, the inputs it rests on, and the two
+    verdict commands. el prints; the owner or the agent's harness decides who runs it. Read-only."""
+    out = Outcome()
+    todo = _todo(case, out)
+    phase, items = _select_items(todo, ref)
+    open_ = [it for it in items if not it.done]
+    if open_:
+        raise StoreError(f"{_refs(phase, open_)} is open — a brief is for accepting done work; the doer ends it first: "
+                         f"el todo done {phase.n}.{open_[0].m} <kind> \"what came out\"", 4)
+    project = _project_root(case)
+    readme_body = _readme_text(case)
+    by_ref = {f"{it.n}.{it.m}": it for it in _all_items(todo)}
+    name = case.name
+    out.say(f"brief · acceptance of {_refs(phase, items)} — for a FRESH session: a new chat, another agent, a subagent with a clean "
+            f"context. Paste everything below the line.", "---",
+            "You accept or return work done in an Elephant case. You were not in the session that did it: judge by the things, "
+            "not by the words.",
+            f"project folder: {project}  ·  case: {os.path.relpath(case, project)}")
+    goal = _context_goal(readme_body)
+    if goal:
+        out.say(f"case goal (the owner's words): {goal}")
+    pgoal = _phase_goal(case, phase)
+    out.say(f"phase {phase.n} {phase.name}: {pgoal or phase.summary or '(no goal)'}")
+    for it in items:
+        out.say(f"item {phase.n}.{it.m}: {it.text}")
+        if it.why:
+            out.say(f"  why (the owner's words): {it.why}")
+        out.say(*(f"  note: {n}" for n in it.notes))
+        anchor = "`why`" if it.why else "the item text and the phase goal"
+        out.say(f"  expected before the work: {it.expect}" if it.expect else f"  expected before the work: (nothing was written — hold it to {anchor})")
+        out.say(f"  the doer says came out: {it.result or '(no words)'}")
+        if it.evidence:
+            out.say("  proofs:", *(f"    - {_proof_for_brief(case, k, pr)}" for k, pr in it.evidence))
+        else:
+            out.say("  proofs: none recorded")
+        for r in it.after:
+            pre = by_ref.get(r)
+            if pre is not None:
+                proofs = " · ".join(f"{k} {pr}".strip() for k, pr in pre.evidence) or (pre.result or "")
+                out.say(f"  rests on {r} {'✓' if pre.done else 'open'} «{order._short(pre.text, 60)}»" + (f" — {proofs}" if proofs else ""))
+    out.say("How to judge:",
+            "  1. Open every file, re-run every run you safely can, follow every ref you can reach — and say which you could not.",
+            "  2. Hold the result to `why` and to what was expected before the work — not to the doer's words. Words that repeat "
+            "the owner's words prove nothing.",
+            "  3. Something missing, wrong or unproved → return it, naming what exactly. It does what `why` asks and the proofs "
+            "show it → accept, saying what you checked.",
+            "Verdict — run ONE per item from the project folder:")
+    for it in items:
+        out.say(f"  el --case {name} todo accept {phase.n}.{it.m} --by <you: codex|claude|gemini|subagent> \"what you checked and how\"",
+                f"  el --case {name} todo reopen {phase.n}.{it.m} --by <you> \"what is missing or wrong\"")
+    out.say("No `el` where you run? Give the owner the verdict and the reason — the owner records it.")
+    return out
+
+
+def _returns(journal: Optional[grammar.Journal]) -> Dict[str, List[str]]:
+    """item → the reasons it was sent back (`DECISION · N.M возвращён в работу — …`), newest first."""
+    found: Dict[str, List[str]] = {}
+    for e in (journal.entries if journal is not None else []):
+        for ev in e.events:
+            m = RETURN_RE.match(ev.text) if ev.type == "DECISION" else None
+            if m:
+                for r in re.findall(r"\d+\.\d+", m.group(1)):
+                    found.setdefault(r, []).append(ev.text[m.end():])
+    return found
+
+
+def _stalled_lines(todo: grammar.Todo, journal: Optional[grammar.Journal]) -> List[str]:
+    """Order (F23): an open item sent back STALL_RETURNS times or more is stuck — ART stalled such a task instead of
+    letting it loop. Every exit is honest: finish it, cut it smaller, or cancel it with the reason."""
+    counts = _returns(journal)
+    lines = []
+    for p in todo.phases:
+        if p.done:
+            continue
+        for it in p.items:
+            ref = f"{it.n}.{it.m}"
+            k = len(counts.get(ref, []))
+            if not it.done and k >= STALL_RETURNS:
+                lines.append(f"{ref} returned {k} times — stuck: cut it into smaller items (el todo add {p.n} \"…\" · el todo note {ref} \"…\") "
+                             f"· or cancel it with the reason: el todo cancel {ref} \"why\" · or finish it: el todo done {ref} <kind> \"…\"; "
+                             f"the reasons: el todo show {ref}")
+    return lines
+
+
+LATER_BOUNDARIES = 3  # three closes passed it by: take it or let it go (F24) — shown, never refused
+
+
+def _thread_line(case: Path, todo: grammar.Todo, readme_body: str) -> Optional[str]:
+    """`thread: goal «…» → phase N Name «goal» → item N.M «…» (why: …) → next: «…»` — the first line of the entry (the
+    owner's word, 2026-09-25: an agent with no memory reads everything and must see what is subordinate to what — the big
+    goal, the stage, where it stands, what it works on, and that its result moves the goal). Rendered from the case,
+    never typed: Context, the phase in flight, its first item one can take (not held, not blocked), State `next:`."""
+    parts = []
+    goal = _context_goal(readme_body)
+    if goal:
+        parts.append(f"goal «{order._short(goal, 70)}»")
+    phase = _flying(case, todo) or todo.current()
+    if phase is None:
+        parts.append("no phase yet: el phase open 1 \"Name\" --goal \"…\"" if not todo.phases else "every phase ended: el done \"…\"")
+    else:
+        pgoal = _phase_goal(case, phase) or (phase.summary or "")
+        parts.append(f"phase {phase.n} {phase.name}" + (f" «{order._short(pgoal, 60)}»" if pgoal else "")
+                     + ("" if _phase_file(case, phase.n, phase.name).exists() else " (planned)"))
+        blocked = _blocking(case, todo)
+        open_items = [it for it in phase.items if not it.done]
+        ready = [it for it in open_items if not it.held and f"{it.n}.{it.m}" not in blocked]
+        if ready:
+            it = ready[0]
+            parts.append(f"item {it.n}.{it.m} «{order._short(it.text, 60)}»" + (f" (why: {order._short(it.why, 60)})" if it.why else ""))
+        elif phase.items and not open_items:
+            parts.append(f"every item ended: el phase close {phase.n} \"…\"")
+        elif open_items:
+            parts.append(f"{len(open_items)} open item(s), none free — held or blocked: see unblocked:")
+        else:
+            parts.append(f"no items: el todo add {phase.n} \"…\"")
+    m = re.search(r"^- next: (.+)$", readme_body, re.M)
+    if m:
+        parts.append(f"next: «{order._short(m.group(1).strip(), 70)}»")
+    return "thread: " + " → ".join(parts) if parts else None
+
+
+def _later_lines(todo: grammar.Todo, journal: Optional[grammar.Journal]) -> List[str]:
+    """Order (F24): a thought in the general list has a moment of return — every phase boundary; one that lay through
+    LATER_BOUNDARIES closes is asked about by name (the owner's word, 2026-09-25; the old fear, 2026-09-15: «a backlog
+    eats thoughts» — here every boundary is a return, and the counter says which thought was never taken)."""
+    if journal is None or not todo.later:
+        return []
+    closes = [e.date for e in journal.entries for ev in e.events if ev.type == "PHASE" and "закрыта" in ev.text]
+    lines = []
+    for it in todo.later:
+        k = sum(1 for d in closes if it.since and d > it.since)
+        if k >= LATER_BOUNDARIES:
+            lines.append(f"L{it.m} «{order._short(it.text, 50)}» lay through {k} phase closes — take it into a phase: el todo move L{it.m} N "
+                         f"· or cancel it with the reason: el todo cancel L{it.m} \"why\"")
+    return lines
+
+
+def _later_boundary_line(todo: grammar.Todo) -> Optional[str]:
+    """Said at `phase close` — the boundary is the moment the general list is looked at (F24)."""
+    if not todo.later:
+        return None
+    first = todo.later[0].m
+    shown = ", ".join(f"L{it.m} «{order._short(it.text, 40)}»" for it in todo.later[:5]) + (f" … +{len(todo.later) - 5}" if len(todo.later) > 5 else "")
+    return (f"general list (Later) — {len(todo.later)} line(s) wait for this boundary: {shown} → into the next phase: "
+            f"el todo move L{first} N · not needed: el todo cancel L{first} \"why\" · kept: it counts the boundaries it lies through")
+
+
+def _two_hands(readme_body: str) -> bool:
+    """The case rule «two hands» — a Context line `- rule: two hands …` (opt-in, like «items link their material»):
+    here a fresh session accepts every done item of a running phase, and the owner agrees each phase's scope."""
+    return RULE_TWO_HANDS_RE.search(readme_body) is not None
+
+
+def _unaccepted_lines(case: Path, todo: grammar.Todo, readme_body: str) -> List[str]:
+    if not _two_hands(readme_body):
+        return []
+    items = [it for p in _running_phases(case, todo) for it in p.items if it.done and not it.accepted]
+    if not items:
+        return []
+    first = f"{items[0].n}.{items[0].m}"
+    shown = ", ".join(f"{it.n}.{it.m}" for it in items[:6]) + (f" … +{len(items) - 6}" if len(items) > 6 else "")
+    same = [it for it in items if it.n == items[0].n]
+    many = (f"; many at once: el todo accept {items[0].n}.{min(it.m for it in same)}-{items[0].n}.{max(it.m for it in same)} --by owner \"…\""
+            if len(same) > 1 else "")
+    return [f"{len(items)} done item(s) not accepted — {shown} → a fresh session accepts or returns: el todo brief {first} "
+            f"(this case's rule: two hands; the owner's word instead: el todo accept {first} --by owner \"…\"{many})"]
+
+
+def _acceptance_line(todo: grammar.Todo, readme_body: str, journal: Optional[grammar.Journal]) -> Optional[str]:
+    """`acceptance: 3 of 7 done accepted — another session 2 · the owner's word 1 · returned by an acceptor 1` on entry,
+    when the case asks for two hands or anything was accepted or returned by an acceptor."""
+    done = [it for p in todo.phases if not p.done for it in p.items if it.done]
+    acc = [it for it in done if it.accepted]
+    open_refs = {f"{it.n}.{it.m}" for p in todo.phases if not p.done for it in p.items}
+    by_acceptor = sum(1 for e in (journal.entries if journal is not None else []) for ev in e.events
+                      if ev.type == "DECISION" and RETURN_RE.match(ev.text) and "(приёмка: " in ev.text
+                      and set(re.findall(r"\d+\.\d+", RETURN_RE.match(ev.text).group(1))) & open_refs)
+    if not (_two_hands(readme_body) or acc or by_acceptor):
+        return None
+    kinds: Dict[str, int] = {}
+    for it in acc:
+        parts = [x.strip() for x in it.accepted.split(" · ")]
+        word = parts[1] if len(parts) > 1 else "?"
+        kinds[word] = kinds.get(word, 0) + 1
+    tail = " · ".join(f"{w} {n}" for w, n in kinds.items())
+    return (f"acceptance: {len(acc)} of {len(done)} done accepted" + (f" — {tail}" if tail else "")
+            + (f" · returned by an acceptor {by_acceptor}" if by_acceptor else "")
+            + " — a fresh session's prompt: el todo brief N.M")
 
 
 def todo_resume(case: Path, ref: str) -> Outcome:
@@ -1551,7 +2066,8 @@ def todo_drop(case: Path, ref: str) -> Outcome:
     out.absorb(_write_todo(case, todo))
     # the numbers of the others are kept (N.M is for life) — and said aloud, so the next command in a
     # batch is aimed at a number the caller has just been shown (feedback 2026-09-03)
-    out.say(f"dropped: {ref} «{item.text}» — numbers kept, phase {phase.n} now reads {_number_ranges(phase)} "
+    where = "the general list" if phase.n == 0 else f"phase {phase.n}"
+    out.say(f"dropped: {ref} «{item.text}» — numbers kept, {where} now reads {_number_ranges(phase)} "
             f"(git keeps the history; a decision behind it → el log DECISION)")
     return out
 
@@ -1569,9 +2085,10 @@ def todo_cancel(case: Path, ref: str, why: str) -> Outcome:
     for it in items:
         phase.items.remove(it)
     out.absorb(_write_todo(case, todo))
-    named = ", ".join(f"{phase.n}.{it.m} «{it.text}»" for it in items)
-    out.lines += log(case, "DECISION", f"снято {named} — {why}", f"p{phase.n}").lines
-    out.say(f"cancelled: {named} — out of TODO, the reason is in the journal; phase {phase.n} now reads {_number_ranges(phase)}")
+    named = ", ".join(f"{_ref(phase, it)} «{it.text}»" for it in items)
+    out.lines += log(case, "DECISION", f"снято {named} — {why}", _phase_of(todo, case) if phase.n == 0 else f"p{phase.n}").lines
+    where = "the general list" if phase.n == 0 else f"phase {phase.n}"
+    out.say(f"cancelled: {named} — out of TODO, the reason is in the journal; {where} now reads {_number_ranges(phase)}")
     return out
 
 
@@ -1751,6 +2268,43 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
     return out
 
 
+SCOPE_RE = re.compile(r"^объём фазы (\d+) утверждён владельцем")
+
+
+def _scope_agreed(journal: grammar.Journal, n: int) -> bool:
+    return any(ev.type == "DECISION" and (m := SCOPE_RE.match(ev.text)) and int(m.group(1)) == n
+               for ev in _events_for_phase(journal, f"p{n}"))
+
+
+def phase_agree(case: Path, n: int, text: str) -> Outcome:
+    """`el phase agree N "the owner's words"` — the owner agreed the scope of phase N (the owner's word, 2026-09-25:
+    «the agent proposes the phases, I agree the scope of the next one, then it plans»). A DECISION under the phase, in the
+    owner's words; planned or open. A changed scope is a new agree — the journal keeps both. The agent writes the record,
+    so this is the owner's word as reported — like `owner` evidence."""
+    out = Outcome()
+    text = " ".join(text.split())
+    if not text:
+        raise StoreError(f"agree needs the owner's words: el phase agree {n} \"what the owner agreed to, in the owner's words\"", 2)
+    todo = _todo(case, out)
+    phase = todo.phase(n)
+    if phase is None:
+        raise StoreError(f"no phase {n} in TODO.md — plan it first: el phase plan {n} \"Name\" --goal \"…\"", 4)
+    if phase.done:
+        raise StoreError(f"phase {n} {phase.name} is closed — its scope is history; the next one: el phase plan N \"Name\"", 4)
+    out.lines += log(case, "DECISION", f"объём фазы {n} утверждён владельцем: «{text}»", f"p{n}").lines
+    state = "open" if _phase_file(case, n, phase.name).exists() else "planned"
+    out.say(f"agreed: phase {n} {phase.name} ({state}) — «{text}» → DECISION in the journal (a changed scope is a new agree)")
+    return out
+
+
+def _scope_lines(case: Path, todo: grammar.Todo, readme_body: str, journal: Optional[grammar.Journal]) -> List[str]:
+    """Order under the rule «two hands»: a running phase whose scope the owner never agreed (F24)."""
+    if journal is None or not _two_hands(readme_body):
+        return []
+    return [f"phase {p.n} {p.name} runs without the owner's agreed scope → el phase agree {p.n} \"the owner's words\" "
+            f"(this case's rule: two hands)" for p in _running_phases(case, todo) if not _scope_agreed(journal, p.n)]
+
+
 def phase_note(case: Path, n: int, text: str, edit: Optional[int] = None, drop: Optional[int] = None) -> Outcome:
     """`el phase note N "…"` — what the phase has to know before and while it runs (F22): a permit that
     expires, a service to call, a problem seen one stage earlier. Parked under a planned phase it waits in
@@ -1806,7 +2360,11 @@ def _parked_line(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journ
     return ("parked: " + " · ".join(parts) + " (surfaces when the phase opens)") if parts else None
 
 
-def phase_open(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
+def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional[str] = None) -> Outcome:
+    """Open phase N. One phase in flight (P8); the gates of the last closed phase below hold. A planned phase below that
+    never opened is skipped only with a reason (`--why`, F24; the owner's word, 2026-09-25: «a hidden blocker found —
+    the fifth before the third»): it stays planned — a draft whose order the boundary decides — and a DECISION says
+    what made N come first. Cancelling it to get past it would call a needed phase «not needed»."""
     out = Outcome()
     todo = _todo(case, out)
     existing = todo.phase(n)
@@ -1822,19 +2380,26 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     if existing and not existing.done and pf.exists():
         out.say(f"phase {n} {existing.name} is already open — nothing changed")
         return out
-    prev = max((p for p in todo.phases if p.n < n), key=lambda p: p.n, default=None)
-    if prev is not None:
-        journal = _journal(case, out)
-        if prev.done:
-            missing = _closing_checks(case, prev, journal)
-        elif _phase_file(case, prev.n, prev.name).exists():
-            missing = [f"phase {prev.n} {prev.name} is still open — close it first (P8): el phase close {prev.n} \"…\" "
-                       f"· or cancel it: el phase cancel {prev.n} \"why\"", ALONGSIDE_HINT]
-        else:  # planned, never opened: phases run in order — the plan below has to open or go
-            missing = [f"phase {prev.n} {prev.name} is planned and not opened — phases run in order: "
-                       f"el phase open {prev.n} · or, if it is not needed: el phase cancel {prev.n} \"why\"", ALONGSIDE_HINT]
-        if missing:
-            raise StoreError("cannot open phase %d:\n  " % n + "\n  ".join(missing), 4)
+    below = [p for p in todo.phases if p.n < n]
+    skipped = sorted((p for p in below if not p.done and not _phase_file(case, p.n, p.name).exists()), key=lambda p: p.n)
+    why = " ".join((why or "").split())
+    missing: List[str] = []
+    for f in (p for p in todo.phases if not p.done and p.n != n and _phase_file(case, p.n, p.name).exists()):
+        # one phase in flight, wherever it stands in the numbering (P8)
+        missing.append(f"phase {f.n} {f.name} is still open — close it first (P8): el phase close {f.n} \"…\" "
+                       f"· or cancel it: el phase cancel {f.n} \"why\"")
+    if skipped and not why:  # planned, never opened: phases run in order — unless something found says otherwise
+        s0 = skipped[-1]
+        missing.append(f"phase {s0.n} {s0.name} is planned and not opened — phases run in order: el phase open {s0.n} · or, if it is "
+                       f"not needed: el phase cancel {s0.n} \"why\" · or, when something found makes {n} come first: "
+                       f"el phase open {n} --why \"what was found\" (the plan below stays a plan)")
+    if missing:
+        missing.append(ALONGSIDE_HINT)
+    last_closed = max((p for p in below if p.done), key=lambda p: p.n, default=None)
+    if last_closed is not None:
+        missing = _closing_checks(case, last_closed, _journal(case, out)) + missing
+    if missing:
+        raise StoreError("cannot open phase %d:\n  " % n + "\n  ".join(missing), 4)
     renamed = None
     if existing is not None and not pf.exists() and name != existing.name:
         # a planned phase may be re-planned at opening (P8 align): the name follows the owner's word
@@ -1859,19 +2424,31 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
     opened = f"{name} открыта" + (f" (запланирована была как «{renamed}»)" if renamed else "")
-    out.lines = log(case, "PHASE", opened, f"p{n}").lines + out.lines
-    out.say(f"phase {n} {name} is open → TODO.md, README.md State")
+    early = []
+    if skipped and why:  # the order was changed by something found: said once, with the reason, under this phase
+        early = log(case, "DECISION", f"фаза {n} раньше запланированных {', '.join(str(p.n) for p in skipped)} — {why}", f"p{n}").lines
+    out.lines = early + log(case, "PHASE", opened, f"p{n}").lines + out.lines
+    out.say(f"phase {n} {name} is open → TODO.md, README.md State"
+            + (f" · before the planned {', '.join(str(p.n) for p in skipped)} — they stay planned; the next boundary decides their order"
+               if skipped and why else ""))
+    if _two_hands(_readme_text(case)) and not _scope_agreed(_journal(case), n):
+        out.warn(f"phase {n} opened without the owner's agreed scope (this case's rule: two hands) → el phase agree {n} \"the owner's words\"")
     hints.attach(out, "phase_open", rel=f"phases/{pf.name}", n=n,
                  promised=[_slot(k, w) for k, w in grammar.expected_kinds(_phase_goal(case, todo.phase(n)))],
                  covered=[_slot(k, w) for (k, w), st, _ in _goal_coverage(todo.phase(n), _phase_goal(case, todo.phase(n))) if st != "uncovered"])
     return out
 
 
-def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None, align: Optional[str] = None) -> Outcome:
+def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None, align: Optional[str] = None,
+                rest: Optional[str] = None) -> Outcome:
     """Close a phase. `--reflect "…"` and `--align "…"` log the two DECISION events P8 asks for in the same
     command (feedback 2026-09-16: three shell round trips for one close added friction, not rigour) — the
-    record is identical, the gates are the same, and nothing is logged if another gate refuses the close."""
+    record is identical, the gates are the same, and nothing is logged if another gate refuses the close.
+    `--rest later` closes early by the owner's word (F24, 2026-09-25: a dead end, a hidden blocker): the open items
+    go to the general list with their pockets instead of holding the phase — nothing is lost, the boundary re-forms."""
     out = Outcome()
+    if rest is not None and rest.strip().lower() not in LATER_WORDS:
+        raise StoreError(f"--rest takes `later`: the open items go to the general list; to another phase: el todo move N.M K", 2)
     todo = _todo(case, out)
     phase = todo.phase(n)
     if phase is None:
@@ -1880,7 +2457,13 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
         out.say(f"phase {n} {phase.name} is already closed — nothing changed")
         return out
     pf = _phase_file(case, n, phase.name)
-    open_items = [f"{it.n}.{it.m}" for it in phase.items if not it.done]
+    rest_items = [it for it in phase.items if not it.done] if rest is not None else []
+    if rest_items:
+        moving = {f"{it.n}.{it.m}" for it in rest_items}
+        waiting = [f"{it.n}.{it.m}" for it in _all_items(todo) if f"{it.n}.{it.m}" not in moving and set(it.after) & moving]
+        if waiting:
+            raise StoreError(f"--rest later: {', '.join(waiting)} wait for items that would leave — rewire them first (el todo after N.M <refs|none>)", 4)
+    open_items = [f"{it.n}.{it.m}" for it in phase.items if not it.done and it not in rest_items]
     alongside = None  # (the earlier phase, its state) when this planned phase ended out of turn
     if not pf.exists():
         prev = max((p for p in todo.phases if p.n < n), key=lambda p: p.n, default=None)
@@ -1902,8 +2485,8 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
                              f"it closes from the plan once every item ended, and it has {what}: "
                              f"el todo done N.M <kind> \"what came out\" · el todo cancel N.M \"why\" · not needed at all: "
                              f"el phase cancel {n} \"why\"\n  {ALONGSIDE_HINT}", 4)
-        cur = todo.current()  # the phase in flight, if any — that is what this one ran alongside
-        running = cur if cur is not None and cur.n != n and _phase_file(case, cur.n, cur.name).exists() else None
+        cur = _flying(case, todo)  # the phase in flight, if any — that is what this one ran alongside
+        running = cur if cur is not None and cur.n != n else None
         alongside = (prev, state, running)
     journal = _journal(case, out)
     reflect = " ".join((reflect or "").split())
@@ -1930,8 +2513,23 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     if open_items:  # F20: a phase closes only when every item ended — done with evidence, or cancelled with a reason
         missing.append(f"phase {n}: open items {', '.join(open_items)} — each must end one of two ways: "
                        f"el todo done N.M <kind> \"what came out\" · el todo cancel N.M \"why\" (or cancel the phase: el phase cancel {n} \"why\")")
+    unaccepted = [f"{it.n}.{it.m}" for it in phase.items if it.done and not it.accepted]
+    if unaccepted and _two_hands(_readme_text(case)):  # F23: this case asked for two hands — the close waits for the second
+        missing.append(f"phase {n}: done items not accepted — {', '.join(unaccepted)} (this case's rule: two hands): a fresh session "
+                       f"accepts or returns — el todo brief {unaccepted[0]} · or the owner's word: el todo accept {unaccepted[0]} --by owner \"…\"")
     if missing:
         raise StoreError("cannot close phase %d:\n  " % n + "\n  ".join(missing), 4)
+    if rest_items:  # every gate held: the rest leaves for the general list now, in the same write as the close
+        k0, moved = _next_later(case, todo), []
+        for i, it in enumerate(rest_items):
+            phase.items.remove(it)
+            old_ref = f"{it.n}.{it.m}"
+            it.n, it.m, it.since = 0, k0 + i, _now()[0]
+            it.due, it.after, it.held, it.hold_reason = "", [], False, ""
+            todo.later.append(it)
+            moved.append(f"{old_ref} → L{it.m}")
+        out.lines += log(case, "DECISION", f"остаток фазы {n} → общий список: {', '.join(moved)}", f"p{n}").lines
+        out.say(f"the rest of phase {n} → the general list: {', '.join(moved)} (with their pockets; the boundary decides where they go)")
     for tag, val in (("reflect", reflect), ("align", align)):
         if val:  # every other gate held: the two events are written now, then the close proceeds on them
             out.lines += log(case, "DECISION", f"{tag}: {val}", f"p{n}").lines
@@ -1976,6 +2574,9 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
                else " (закрыта до своей очереди, без открытия)")
     out.lines = log(case, "PHASE", f"{phase.name} закрыта{ran} → {summary}", f"p{n}").lines + out.lines
     out.say(f"closed: phase {n} {phase.name} → TODO.md (collapsed), {rel} (result), README.md State")
+    later = _later_boundary_line(todo)
+    if later:
+        out.say(later)
     hints.attach(out, "phase_close", n=n, events=evs_here)
     if alongside:
         out.say(f"closed from the plan, out of turn — phase {alongside[0].n} {alongside[0].name} is still {alongside[1]}, "
@@ -2439,7 +3040,7 @@ def project_new(root: Path, name: str, goal: str) -> Outcome:
 def spawn(root: Path, parent: Path, name: str, goal: str) -> Outcome:
     out = Outcome()
     todo = _todo(parent, out)
-    cur = todo.current()
+    cur = _flying(parent, todo) or todo.current()
     if cur is None:
         raise StoreError("parent has no open phase — spawn happens inside a phase (P11)", 4)
     into = root if parent == store.project_case(root) else parent
@@ -3078,6 +3679,10 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_expect_gap_lines(case, todo_now))            # an item of a running phase with no expectation (F22)
         lines.extend(_running_order_lines(case, todo_now))         # the phase in flight is held to the current form
         lines.extend(_refuted_lines(todo_now))                     # a fact resting on a refuted one (the fact chain)
+        lines.extend(_stalled_lines(todo_now, journal))            # an item sent back again and again is stuck (F23)
+        lines.extend(_later_lines(todo_now, journal))              # a thought the boundaries keep passing by (F24)
+        lines.extend(_scope_lines(case, todo_now, readme_body, journal))  # a running phase without the owner's scope (F24)
+        lines.extend(_unaccepted_lines(case, todo_now, readme_body))  # done by one hand, not yet accepted by another (F23)
     except StoreError:
         pass
     lines.extend(order.people_lines(root))  # L10: a card every case reads before calling that person
@@ -3122,6 +3727,9 @@ def entry(root: Path, case: Path) -> Outcome:
             out.say("TODO refreshed: open phase lines follow their phase files (goal · path)")
         except StoreError as e:
             out.warn(f"TODO not refreshed — {e}")
+    thread = _thread_line(case, todo, readme_body) if not todo.errors else None
+    if thread:
+        out.say(thread, "")  # what is subordinate to what — the goal, the phase, the item and why, the next step (F24)
     if todo.errors:  # silence is not «nothing due»: what could not be counted says so (feedback 2026-09-22)
         out.say(f"dates · unblocked · evidence NOT counted — TODO.md is not parsable ({len(todo.errors)} error(s)) → el check", "")
     dates = _dates_line(todo, readme_body) if not todo.errors else None
@@ -3133,6 +3741,10 @@ def entry(root: Path, case: Path) -> Outcome:
     evidence = _evidence_line(todo) if not todo.errors else None
     if evidence:
         out.say(evidence, "")  # what the done items stand on (F20): file · ref · run · owner — counted, never nagged
+    journal0 = grammar.parse_journal(store.read(case, "JOURNAL.md"))
+    acceptance = _acceptance_line(todo, readme_body, journal0 if not journal0.errors else None) if not todo.errors else None
+    if acceptance:
+        out.say(acceptance, "")  # done by one hand, accepted by another (F23) — counted; the gaps are Order lines
     facts_line = _facts_line(case, todo, None) if not todo.errors else None
     if facts_line:
         out.say(facts_line, "")  # the fact chain in numbers; the chain itself: el facts
@@ -3191,7 +3803,7 @@ def _closed_phase_items(case: Path, p: grammar.Phase) -> List[grammar.Item]:
             text, _, after = _split_suffixes(text)
             items.append(grammar.Item(p.n, int(m.group(1)), m.group(2) == "✓", text, 0, after=after))
             continue
-        pocket = re.fullmatch(r"  - (why|note|expect|result|fact): (.+)", ln)
+        pocket = re.fullmatch(r"  - (why|note|expect|result|fact|accepted): (.+)", ln)
         if pocket and items:
             setattr(items[-1], pocket.group(1) if pocket.group(1) != "note" else "notes",
                     pocket.group(2) if pocket.group(1) != "note" else items[-1].notes + [pocket.group(2)])
