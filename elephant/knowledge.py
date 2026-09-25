@@ -34,6 +34,46 @@ ONBOARDING = """start here — no `.cases/` from this folder upwards
 then: `el` shows where the case stands · `el help start` — how a day goes · `el help where` — what goes where"""
 
 TOPICS = {
+    "philosophy": """philosophy — why Elephant exists and what every change and every report is weighed against
+(the owner's word; the tool carries it to every machine it runs on — a report written in these words is fixed in one pass)
+
+What it is: the memory of WORK, not of text. Work is done by agents with no memory between sessions, and everything given
+them instead of memory grew until nobody read it. A case is a folder: a goal in the owner's words, the now (README), the
+plan (TODO), the history (JOURNAL) — and the TOOL keeps their shape, not the agent's discipline. Success: any agent on any
+machine enters a case in one screen and continues instead of starting over; the owner opens README and TODO and sees where
+the work stands, without being in the session.
+
+Proof from the bottom up (the blueprint of a formal proof: a statement is proved when every statement it imports is):
+work is one tree — case · phase · item, one node shape at three sizes. A leaf ends one of two ways: done with evidence
+someone other than the writer can check, or cancelled with a reason. A parent never types its own status — it is
+assembled from its children. The tool is the auditor at every step: a crooked step is refused with the command that does
+it right; an unclear one is an Order line with its fix. Structure does what intelligence alone does not: many agents,
+one work.
+
+Every report and every change is weighed against four holes — name the one you see:
+- proof from the bottom up — something ended below and is not visible above, or there is no legal move up
+- the tool keeps the order — the order of the work is held by the agent's discipline, not by the tool
+- the record does not lie — a line says more or less than is true: «done» on the cancelled, a cut text, a dead pointer
+- knowledge in doses — the agent does not get what it needs at the moment it needs it
+
+The principles a fix is held to:
+- the tool keeps the form, the agent the content; a limit is a refusal, and its number comes from a live case
+- every printed line resolves and has an honest fix — a line closable only by spoiling good work teaches to skip it
+- every record has an edit through the same door (edit · touch · plan again · reopen · relink · cancel)
+- rendered, not written: nothing about children is typed at the parent; a rendered line is whole, never counted, never cut
+- refuse the structure, show the content: the tool cannot judge meaning — it names it and gives the ways out
+- a rule lives at the write door: it holds the record written now, never the history (the phase you work in IS the door)
+- evidence is a thing, not a phrase: a file anyone opens · a trace a person checks · a run a machine repeats · the owner's word
+- an action is not an event: the journal grows only from what changes the next reader's knowledge
+- two ends for every branch — done with evidence or cancelled with a reason — and a way back with a reason (reopen)
+- instructions do not retell the tool: knowledge lives in `el help`, a project carries one short block (el onboarding)
+- the system grows only from live use: a report from a real case → a principle → a change → a measurement → a test
+
+A report is not a spec: it is weighed against these, and the fix goes to the hole, not to the symptom — sometimes as an
+honest alternative to what was asked. Decided not to do: an external database or JSONL as the source of truth · hidden
+node ids in TODO · reading dates or dependencies out of free text · deleting files by the tool · reminders before a live
+check · a second copy of the stamp.""",
+
     "model": """the model — work is a graph the tool can check (F18–F21; concept of 2026-09-04)
 - one node shape at three sizes: case · phase · item. Each has a statement (Context / `goal:` /
   the item text), a status the tool computes, evidence when done, and edges to other nodes. An item
@@ -441,7 +481,8 @@ forge the record (no `done` on a cancelled item, no path written as text) — re
   --actual       what el printed or wrote, verbatim, with the exit code — what happened, not what you feared
   --expected     what should have happened instead
   --repro        the commands in order, from a clean case, so the reader can replay it
-  --why          which principle it breaks: the record lies · a line with no honest fix · a wall with no honest way through
+  --why          which hole it shows, in the words of `el help philosophy`: proof from the bottom up · the tool keeps the
+                 order · the record does not lie · knowledge in doses — and the principle it breaks
   --acceptance   how to see it is fixed — a check someone can run; it becomes the test
 Title, --actual and --expected are required; the other three are what makes the report fixable in one pass.
 The pool travels through git into a shared repository: no business data — no names of projects, clients,
@@ -449,7 +490,7 @@ people, internal APIs or endpoints, no ticket, case or request numbers, addresse
 («an item with an endpoint path and a flag name, 103 chars»), invent a neutral example of the same form.
 Valuable to the reader: the exact output and exit code · the source line you read (`commands.py:NN`) · what you
 did instead · Actual checked against the live case (a fear written as a fact is the first thing that fails).
-A report is not a spec: it is weighed against the principles (`el help model`) and may get an honest alternative.
+A report is not a spec: it is weighed against the principles (`el help philosophy`) and may get an honest alternative.
 Where it lands: `<elephant-cli clone>/feedback/<date-time-title>.md` (the title transliterated like a case
 name; a second report in the same minute gets `-2`, never overwrites), its header carrying the date and the el
 version — nothing else from your environment, not even the case name. It travels with git: commit and
@@ -753,6 +794,8 @@ ALIASES = {
     "onboard": "onboarding", "instructions": "onboarding", "claude.md": "onboarding", "agents.md": "onboarding",
     "backlog": "later", "pool": "later", "general": "later", "triage": "later", "boundary": "later", "thread": "model",
     "machine": "model", "agree": "phases", "scope": "phases",
+    "why": "philosophy", "principles": "philosophy", "principle": "philosophy", "idea": "philosophy", "direction": "philosophy",
+    "holes": "philosophy", "hole": "philosophy",
     "person": "people", "who": "people", "contact": "people", "contacts": "people", "participants": "people", "team": "people",
 }
 

@@ -120,5 +120,24 @@ class TheScreenNeverCutsALink(unittest.TestCase):
         self.assertIn("[k6 report](evidence/k6.txt)", cut)
 
 
+
+class ThePhilosophyTravelsWithEl(unittest.TestCase):
+    """The owner's question of 2026-09-25: an agent on another machine — how does it know our philosophy, to write a report
+    the way we weigh it? CLAUDE.md is local and gitignored; what travels is what el prints."""
+
+    def test_the_dose_answers_under_the_words_an_agent_has(self):
+        from elephant import knowledge
+        for word in ("philosophy", "why", "principles", "holes"):
+            dose = knowledge.resolve(word)
+            self.assertIsNotNone(dose, word)
+            for hole in ("proof from the bottom up", "the tool keeps the order", "the record does not lie", "knowledge in doses"):
+                self.assertIn(hole, dose)
+
+    def test_the_feedback_dose_asks_for_the_hole_in_those_words(self):
+        from elephant import knowledge
+        dose = knowledge.resolve("feedback")
+        self.assertIn("el help philosophy", dose)
+        self.assertIn("the record does not lie", dose)
+
 if __name__ == "__main__":
     unittest.main()
