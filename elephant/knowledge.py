@@ -664,8 +664,10 @@ records the verdict.
   meant» only the owner catches — at the start, when the agent retells the task (el help practice: RETELLING).
 - stuck: an open item returned 3 times → an Order line with three honest exits: cut it smaller · cancel it with the
   reason · finish it; `el todo show N.M` lists the reasons.
-- the case rule (opt-in): `el readme add context "rule: two hands — the owner agrees each phase's scope, a fresh
-  session accepts each done item"` → the entry counts `acceptance: k of n done accepted`, Order names the done items
+- the case rule — a new case is born with it (`case new` writes the Context line; feedback 2026-09-25: opt-in meant one
+  hand always); an older case takes it by the same line: `el readme add context "rule: two hands — the owner agrees each
+  phase's scope, a fresh session accepts each done item"`; the owner drops it with `el readme drop context k`. It makes
+  the entry count `acceptance: k of n done accepted`, Order names the done items
   nobody accepted and a running phase whose scope the owner never agreed (`el phase agree N "…"`), and `phase close`
   refuses over an unaccepted item — a fresh session accepts, or the owner's word.""",
 

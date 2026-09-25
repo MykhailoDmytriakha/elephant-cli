@@ -305,6 +305,9 @@ def run(argv=None) -> int:
                 return 0
             case = commands.case_new(root, args.name, args.goal)
             print(f"created: {case.relative_to(root.parent)} — now `el phase open 1 <Name> --goal \"…\"`")
+            if commands._default_rules():  # the case was born with two hands: said at the moment it begins
+                print("this case asks two hands: a fresh session accepts each done item (el todo brief N.M), the owner agrees "
+                      "each phase's scope (el phase agree N) — el help acceptance; the owner may drop the rule: el readme drop context 1")
             if onboarding.enabled() and not onboarding.scan(root.parent):  # the first case: the agent's file learns the rhythm
                 print(*onboarding.write(root.parent), sep="\n")
             if hints.enabled():  # something to imitate: a model imitates the form it sees (2026-09-16)
