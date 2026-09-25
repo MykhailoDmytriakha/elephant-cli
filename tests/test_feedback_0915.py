@@ -107,15 +107,16 @@ class ClosedLineIsEls(Base):
         run("phase", "close", "1", "Phase done")
         return run("done", summary)
 
-    def test_long_summary_is_shortened_and_no_warning_about_els_own_line(self):
+    def test_long_summary_is_whole_and_no_warning_about_els_own_line(self):
+        # the owner's word 2026-09-25 reverses the shortening of 2026-09-15: el's own line is written whole, never cut
         code, out, err = self.close_case(self.LONG)
         self.assertEqual(code, 0, err)
         self.assertNotIn("F2", err, "el does not warn about a line it wrote itself")
-        self.assertIn("closed: shortened to the pointer limit (150 chars, F2) — the whole summary is in the journal (PHASE)", out)
+        self.assertNotIn("shortened", out)
         readme = (self.case("t") / "README.md").read_text(encoding="utf-8")
         line = next(ln for ln in readme.splitlines() if ln.startswith("- closed: "))
-        self.assertLessEqual(grammar.visible_len(line), grammar.README_POINTER_CHARS)
-        self.assertTrue(line.endswith("…"))
+        self.assertIn(" ".join(self.LONG.split()), line)
+        self.assertFalse(line.endswith("…"))
         journal = (self.case("t") / "JOURNAL.md").read_text(encoding="utf-8")
         self.assertIn("all services healthy", journal, "the whole summary lives in the journal")
         self.assertEqual(order.child_status(self.case("t"))[0], "closed")

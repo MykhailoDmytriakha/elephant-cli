@@ -113,15 +113,16 @@ class PhaseCloseInOneCommand(Base):
         self.assertIn("el writes the `reflect:` prefix", err)
 
 
-class LongOutcomeIsShortenedNotRefused(Base):
-    def test_result_line_shortened_journal_whole_item_limit_stands(self):
+class LongOutcomeIsWholeNotRefused(Base):
+    def test_result_line_whole_journal_whole_item_limit_stands(self):
+        # 2026-09-16 shortened el's `result:` line with «…»; the owner's word 2026-09-25: el cuts nothing the owner reads
         run("todo", "add", "1", "x")
         long = "о" * 151
         code, out, err = run("todo", "done", "1.1", "owner", long)
         self.assertEqual(code, 0, err)
-        self.assertIn("result: line shortened to 150 chars in TODO (F22, el's line) — the whole outcome is in the journal RESULT", out)
+        self.assertNotIn("shortened", out)
         todo = self.read("TODO.md")
-        self.assertIn("    - result: " + "о" * 149 + "…\n", todo)
+        self.assertIn("    - result: " + long + "\n", todo)
         self.assertIn(long, self.read("JOURNAL.md"))
         self.assertEqual(run("check")[0], 0)
         code, out, err = run("todo", "add", "1", "Identify Partner Pricing Disc API APP00000001 architecture, endpoints, repos, ownership, and contracts")

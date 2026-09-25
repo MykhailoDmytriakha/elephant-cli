@@ -677,8 +677,9 @@ TODO: ≤ 200 lines (100 before 0.20: a rollout through five environments × 17 
   path stays, the filler goes); a refusal cuts at the last boundary of meaning (— ; : · ,) and offers the rest
   as the item's note in a ready command (`el todo add N '…' --note '…'`); no boundary fits → rephrase;
   pockets (F22): `why:` / `note:` ≤ 150 visible chars each and they count in the 200 lines; `result:` and the
-  proof lines under it are el's — reported, not counted; the words of `done` longer than 150 are shortened with
-  «…» on the `result:` line, the journal RESULT keeps them whole;
+  proof lines under it are el's — reported, not counted, and written whole: el cuts nothing in README, TODO or a phase
+  file (the owner's word, 2026-09-25 — a cut part is lost to the reader; `result:`, `closed:`, `last:`, Links, the TODO
+  phase line and the Digest carry the whole text);
   phase name — English, 1–3 words; no items deeper than N.M.
 JOURNAL: event headline ≤ 200 chars (soft 180 — said once, by `el log`, for the line you just wrote); long text
   splits automatically into headline + up to 5 body lines of ≤ 160 chars; body beyond that → put the story in
@@ -687,7 +688,8 @@ The machine (F23, F24): an open item returned 3 times → Order «stuck»; a Lat
   Order asks by name — both shown, never refused; the numbers are a first guess, moved by a live case.
 Warnings are about THIS write: a command warns only about lines it introduced; history is `check`'s business,
   and `check` says it once per rule («F2 · pointer line over 150 — lines 14, 15, 18 (3 lines)»).
-Lower layer (shown, not refused): file `summary:` ≤ 120 chars; a file over 24 KB → split by summary
+Lower layer (shown, not refused): file `summary:` ≤ 120 chars — over it, an Order line asks to rephrase line 2 of the
+  file (Links shows it whole, never cut: a limit asks the source, it never cuts the copy); a file over 24 KB → split by summary
   or trim; two files where ≥ 50 % of the smaller one's phrasing is verbatim in the other → duplicate.
   No folder total (dropped in 0.11): a byte count cannot tell deliverables from water.
 Why limits exist: they keep the entry screen readable and squeeze water out — the detail belongs
