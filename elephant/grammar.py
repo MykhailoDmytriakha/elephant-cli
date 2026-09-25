@@ -47,6 +47,12 @@ BODY_RE = re.compile(r"^    (.+)$")
 PHASE_LINE_RE = re.compile(r"^- \[( |x)\] (\d+) (.+?)(?: — (.+))?$")
 PHASE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*(?: [A-Za-z0-9-]+){0,2}$")  # F13: English, 1–3 words
 ITEM_RE = re.compile(r"^  - \[( |x|~)\] (\d+)\.(\d+) (.+)$")  # `~` = on hold
+# F24 — the general list (the owner's word, 2026-09-25: «what is not for this phase goes to the general list; the next
+# phase is formed from it»): a `## Later` section after the phases, one open line per thought with its own number for
+# life and the date it was put there — the boundary counter reads it
+LATER_HEAD = "## Later"
+LATER_RE = re.compile(r"^  - \[ \] L(\d+) (.+)$")
+SINCE_SUFFIX = " — since: "
 AFTER_REF_RE = re.compile(r"\d+\.\d+|[A-Za-z0-9][\w-]*")  # F19: an item N.M or a nested case name
 LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 EVIDENCE_RE = re.compile(r"^(.*) — (file|ref|run|owner)(?:: (.+))?$")  # the evidence suffix of a done item
@@ -71,9 +77,9 @@ def visible_len(text: str) -> int:
 DEEP_ITEM_RE = re.compile(r"^\s+- \[( |x)\] \d+\.\d+\.\d+")
 WAITS_RE = re.compile(r"^  - waits: (\S+)$")
 PHASE_NOTE_RE = re.compile(r"^  - note: (.+)$")                      # F22: a note under a phase line
-POCKET_RE = re.compile(r"^    - (why|note|expect|result|fact):(?: (.+))?$")  # F22: an item's pockets
+POCKET_RE = re.compile(r"^    - (why|note|expect|result|fact|accepted):(?: (.+))?$")  # F22: an item's pockets; F23: accepted
 EVIDENCE_LINE_RE = re.compile(r"^(?:    |      )- (file|ref|run|owner)(?:: (.+))?$")  # F20: one line per proof
-POCKET_KINDS = ("why", "note", "expect", "result", "fact")
+POCKET_KINDS = ("why", "note", "expect", "result", "fact")  # the agent's pockets; `accepted:` is el's (F23)
 # F22 `expect:` — what done will look like, written BEFORE the work; the proofs it names stand in brackets,
 # `[file: docs/x.md] [run: k6 → p95] [owner]`, so `done` can hold the record to its own promise.
 EXPECT_SLOT_RE = re.compile(r"\[(file|ref|run|owner)(?::\s*([^\]]*))?\]")
@@ -237,6 +243,10 @@ class Item:
     # F20 — the evidence of a done item: (kind, proof) per line, kinds file · ref · run · owner; several allowed.
     # An item ticked before 1.5.0 has none ("untyped"); an item done before 1.10.0 carried one as a tail.
     evidence: List[Tuple[str, str]] = field(default_factory=list)
+    # F23 — who accepted the done item and from which session: `codex · another session · 2026-09-25` — written by
+    # `el todo accept` only (the owner's word, 2026-09-25: done by one hand, accepted by another); `reopen` clears it
+    accepted: str = ""
+    since: str = ""  # F24: a Later line only — the date it was put into the general list (written by el)
 
     @property
     def kind(self) -> str:
@@ -263,6 +273,7 @@ class Phase:
 @dataclass
 class Todo(Result):
     phases: List[Phase] = field(default_factory=list)
+    later: List[Item] = field(default_factory=list)  # F24: the general list — items with no phase yet, n = 0, `Lm`
 
     def phase(self, n: int):
         return next((p for p in self.phases if p.n == n), None)
@@ -279,13 +290,15 @@ def parse_todo(text: str) -> Todo:
     lines = _frame(text, r)
     # F4 counts what the agent writes — phase and item lines, notes, why, waits. Lines el renders from
     # `done` (`result:` and the evidence under it) are named, not counted: the agent cannot shorten them.
-    rendered = sum(1 for ln in lines if EVIDENCE_LINE_RE.match(ln) or (POCKET_RE.match(ln) and ln.startswith("    - result:")))
+    rendered = sum(1 for ln in lines if EVIDENCE_LINE_RE.match(ln)
+                   or (POCKET_RE.match(ln) and ln.startswith(("    - result:", "    - accepted:"))))
     own = len(lines) - rendered
     if own > TODO_MAX_LINES:
         aside = f" (plus {rendered} result lines el renders, not counted)" if rendered else ""
         r.error("F4", 0, f"TODO is {own} lines of your text, limit {TODO_MAX_LINES}{aside}")
     phase, item, seen = None, None, set()
     in_result = False  # after `    - result:` the evidence nests one level deeper
+    in_later, later_seen = False, set()  # F24: after `## Later` only Later lines and their pockets
 
     def finish(it: Optional[Item]):
         """The item's lines are all read. A done item with no proof line under it may carry the tail form
@@ -307,6 +320,32 @@ def parse_todo(text: str) -> Todo:
             continue
         if DEEP_ITEM_RE.match(raw):
             r.error("F13", i, "no items deeper than N.M — third level belongs in the phase file")
+            continue
+        if raw == LATER_HEAD:
+            if in_later:
+                r.error("F24", i, "`## Later` appears twice")
+            finish(item)
+            in_later, phase, item, in_result = True, None, None, False
+            continue
+        m = LATER_RE.match(raw)
+        if m and in_later:
+            finish(item)
+            k, txt = int(m.group(1)), m.group(2).strip()
+            since = ""
+            if SINCE_SUFFIX in txt:
+                txt, since = txt.rsplit(SINCE_SUFFIX, 1)
+                since = since.strip()
+                if not DATE_RE.fullmatch(since):
+                    r.error("F24", i, f"L{k}: `since:` must be YYYY-MM-DD, got `{since}`")
+            if k in later_seen:
+                r.error("F24", i, f"L{k} appears twice")
+            later_seen.add(k)
+            item, in_result = Item(0, k, False, txt.strip(), i), False
+            item.since = since
+            r.later.append(item)
+            continue
+        if in_later and (PHASE_LINE_RE.match(raw) or ITEM_RE.match(raw)):
+            r.error("F24", i, "phases and their items come before `## Later` — the general list is the last section of TODO")
             continue
         m = PHASE_LINE_RE.match(raw)
         if m:
@@ -385,6 +424,14 @@ def parse_todo(text: str) -> Todo:
                 r.error("F22", i, f"`{m.group(1)}:` under no item — a pocket line belongs under `  - [ ] N.M …`")
                 continue
             pocket, val = m.group(1), (m.group(2) or "").strip()
+            if pocket == "accepted":  # F23: el's line, written by `el todo accept` over a done item only
+                if not item.done:
+                    r.error("F23", i, f"item {item.n}.{item.m} is open and carries `accepted:` — only a done item is accepted, "
+                                      f"or the tick is missing")
+                if item.accepted:
+                    r.error("F23", i, f"item {item.n}.{item.m} has two `accepted:` lines — one acceptance per item, the journal keeps the rest")
+                item.accepted, in_result = val, False
+                continue
             if pocket == "result":
                 if not item.done:
                     r.error("F20", i, f"item {item.n}.{item.m} is open and carries `result:` — the result comes with `done`, or the tick is missing")
@@ -441,7 +488,8 @@ def parse_todo(text: str) -> Todo:
             item, in_result = None, False
             continue
         r.error("F4", i, "unparsable line: expected `- [ ] N Name`, `  - [ ] N.M text`, `  - note: …` (phase), "
-                         "`    - why: | note: | expect: | result: | fact: …` (item, F22), `      - <kind>: <proof>` (evidence, F20) or `  - waits: <case>`")
+                         "`    - why: | note: | expect: | result: | accepted: | fact: …` (item, F22, F23), `      - <kind>: <proof>` (evidence, F20), `  - waits: <case>`, "
+                         "or after `## Later`: `  - [ ] Lk text — since: YYYY-MM-DD` (F24)")
     finish(item)
     return r
 

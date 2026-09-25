@@ -43,6 +43,10 @@ EXAMPLES = """examples
   el relink docs/old.md none            gone for good, or an example written as a link: the links become literal text
   el todo hold 3.2 "ждём ответа заказчика" · el todo resume 3.2
   el todo reopen 3.1 "the databases drifted — the result no longer holds"   a tick taken back: DECISION in the journal, the RESULT stays
+  el todo brief 2.3                     the prompt for a FRESH session that accepts or returns 2.3 — a new chat, Codex, a clean subagent (el help acceptance)
+  el todo accept 2.3 --by codex "re-ran k6, opened k6.txt: p95 820 ms" · el todo reopen 2.3 --by codex "cold cache: 1400 ms"   the second hand (F23)
+  el todo add later "cache warm-up on deploy" · el todo move L3 5 · el todo move 4.7 later   the general list: not for this phase, formed at the boundary (F24)
+  el phase open 5 --why "the pipeline blocks the migration" · el phase close 4 "…" --rest later · el phase agree 5 "only the cache"   order found late · a dead end · the owner's scope
   el readme set next "call the customer" · el readme set пауза "" (removes the line) · el readme add links "docs/contacts.md — кто есть кто"
   el phase open 3 "CLI core" --goal "single write door with tests"
   el phase plan 4 "Rollout" --goal "first users on the new build"   name the NEXT phase now, park items under it (todo add 4), open it later
@@ -139,7 +143,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--phase", help="p1, 1 or a unique phase name (default: the open phase); e.g. `el log --phase p1 DECISION \"…\"`")
 
     s = sub.add_parser("todo", help="add · done · edit · move · drop · hold · resume items — N.M is an item's number for life: drop and move never renumber", allow_abbrev=False)
-    s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note", "expect", "fact", "show"])
+    s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note", "expect", "fact", "show",
+                                      "accept", "brief"])
     s.add_argument("ref", help="phase number for add (N), item for the rest (N.M); done/reopen/cancel also take a range N.A-N.B or a list \"N.A, N.B\"")
     s.add_argument("text", nargs="*", default=[], help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: the KIND of evidence, then what came out — file:<path> · ref:<trace> · run:\"<command → outcome>\" · owner (el help evidence); for cancel/reopen: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
     s.add_argument("--before", help="add only: put the new item before N.K instead of at the end (numbers never change, positions do)")
@@ -149,14 +154,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--fact", help="add: the fact this item is expected to establish (or `-`: none); done: the verdict — `confirmed`, the fact as it turned out, or `-`")
     s.add_argument("--edit", type=int, metavar="K", help="note only: rewrite note K in place")
     s.add_argument("--drop", type=int, metavar="K", help="note only: remove note K")
+    s.add_argument("--by", help="accept / reopen: who checked — codex · claude · gemini · subagent · owner (F23); `self` is not an acceptance")
 
     s = sub.add_parser("phase", help="plan · open · close a phase (plan = name the next one without opening it, repeat it to sharpen the goal; close needs RESULT, reflect:, align:)", allow_abbrev=False)
-    s.add_argument("action", choices=["plan", "open", "close", "cancel", "note"])
+    s.add_argument("action", choices=["plan", "open", "close", "cancel", "note", "agree"])
     s.add_argument("n", type=int)
     s.add_argument("text", nargs="?", default="", help="name for plan/open (open takes it from the plan when omitted), summary for close, why for cancel, the note for note")
     s.add_argument("--goal", help="one line; required for a new phase unless it was planned with one")
     s.add_argument("--reflect", help="close only: the lesson about how you worked — logged as `DECISION · reflect: …` in the same command (P8)")
     s.add_argument("--align", help="close only: what changes in the next plan — logged as `DECISION · align: …` in the same command (P8)")
+    s.add_argument("--why", help="open only: what was found that makes this phase run before the planned ones below — they stay planned (F24)")
+    s.add_argument("--rest", help="close only: `later` — close early by the owner's word; the open items go to the general list (F24)")
     s.add_argument("--edit", type=int, metavar="K", help="note only: rewrite note K in place")
     s.add_argument("--drop", type=int, metavar="K", help="note only: remove note K")
 
@@ -320,6 +328,9 @@ def run(argv=None) -> int:
                     ref += " " + parts.pop(0)
                 args.ref = ref
                 text = " ".join(parts)
+                refusal = commands.later_refusal(args.ref, args.action)
+                if refusal is not None:  # a line of the general list takes words and pockets; the rest after it is in a phase
+                    raise refusal
                 if args.action == "add":
                     out = commands.todo_add(case, args.ref, text, args.before, why=args.why or "", notes=args.note or [],
                                             expect=args.expect or "", fact=args.fact or "")
@@ -353,7 +364,11 @@ def run(argv=None) -> int:
                 elif args.action == "resume":
                     out = commands.todo_resume(case, args.ref)
                 elif args.action == "reopen":
-                    out = commands.todo_reopen(case, args.ref, text)
+                    out = commands.todo_reopen(case, args.ref, text, by=args.by)
+                elif args.action == "accept":
+                    out = commands.todo_accept(case, args.ref, text, args.by)
+                elif args.action == "brief":
+                    out = commands.todo_brief(case, args.ref)
                 elif args.action == "cancel":
                     out = commands.todo_cancel(case, args.ref, text)
                 elif args.action == "due":
@@ -364,7 +379,9 @@ def run(argv=None) -> int:
                     out = commands.todo_drop(case, args.ref)
             elif args.cmd == "phase":
                 if args.action == "open":
-                    out = commands.phase_open(case, args.n, args.text, args.goal)  # name may come from the plan
+                    out = commands.phase_open(case, args.n, args.text, args.goal, why=args.why)  # name may come from the plan
+                elif args.action == "agree":
+                    out = commands.phase_agree(case, args.n, args.text)
                 elif args.action == "plan":
                     if not args.text:
                         raise StoreError("phase plan needs a name: `el phase plan 3 \"Rollout\" --goal \"one line\"`", 2)
@@ -376,7 +393,7 @@ def run(argv=None) -> int:
                 else:
                     if not args.text:
                         raise StoreError("phase close needs a summary: `el phase close 3 \"what it delivered\"`", 2)
-                    out = commands.phase_close(case, args.n, args.text, reflect=args.reflect, align=args.align)
+                    out = commands.phase_close(case, args.n, args.text, reflect=args.reflect, align=args.align, rest=args.rest)
             elif args.cmd == "readme":
                 if args.action == "set":
                     if not args.a or args.b is None:
