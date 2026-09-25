@@ -74,6 +74,7 @@ EXAMPLES = """examples
   el doctor                            read-only diagnostics, changes nothing
   el --case connect-database check     check one case only
   el onboarding                        the Elephant block in the file your agent reads (CLAUDE.md · AGENTS.md): where it is — refreshed; nowhere — el finds the place; --show prints it
+  el help philosophy                   why Elephant exists, the four holes every report is weighed against, the principles of every fix
   el help model                        how it all fits: nodes, rendered lines, edges, two ends, what is refused vs shown
   el help <topic>                      topics are listed at the bottom of this help
 options: --case <name or suffix> (or EL_CASE) picks the case; exit codes 0 ok · 1 error · 2 usage · 3 rule violation · 4 precondition
