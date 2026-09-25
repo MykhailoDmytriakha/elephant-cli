@@ -6,3 +6,6 @@ __pycache__/
 *.pyc
 CLAUDE.md
 INSTALL.md
+# reports the owner carries in by hand (anyone may clone, few may push): the folder stays, the files do not travel
+feedback/*
+!feedback/.gitkeep
