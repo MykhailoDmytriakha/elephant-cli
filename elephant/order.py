@@ -194,8 +194,17 @@ def child_status(child: Path) -> Tuple[str, str, str, str, str]:
     from . import store, stamp  # local: store imports order for the README render
     try:
         text = store.read(child, "README.md")
-    except Exception:  # noqa: BLE001 — missing or unreadable README = broken, never silent
-        return ("broken", "", "", "", "")
+    except Exception:  # noqa: BLE001 — no README: el's case that lost it is broken; a folder el never stamped is from before el
+        # (a live project, 2026-09-25: 27 folders from before el with a journal.md and no README were drawn as 27 «BROKEN» lines)
+        stamped = False
+        for name in store.FILES:
+            p = store.file_path(child, name)
+            if p.exists():
+                try:
+                    stamped = stamped or stamp.verify(p.read_text(encoding="utf-8", errors="replace"))[1] != "missing"
+                except OSError:
+                    stamped = True
+        return ("broken" if stamped else "legacy", "", "", "", "")
     body, _ = stamp.split(text)
     parsed = grammar.parse_readme(body)
     if parsed.errors:

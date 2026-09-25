@@ -708,7 +708,11 @@ lines → items (long ones trimmed; a phase with all items done is closed, its p
 `migrated from legacy` and P8 gates skip it) · JOURNAL → not converted: guessing types would be
 lying; the new journal opens with one PHASE event pointing at the archive — re-enter what still
 matters with `el log`.
-After apply: `el` (Order shows what to rewrite), `el readme set next "…"`, `el check`.""",
+After apply: `el` (Order shows what to rewrite), `el readme set next "…"`, `el check`.
+A case from before el in hand — the one touched last — is named, not shown: the entry prints what it is and `el migrate`,
+plus el's own open cases (`el case use <name>`); its files stay on disk as they are (a live project, 2026-09-25: the raw
+README and TODO filled 27 KB). A folder with no README where el stamped nothing is from before el too: `el case list`
+counts it with the legacy ones and `--all` names it — BROKEN is only a case el wrote that broke since.""",
 
     "errors": """exit codes and what to do
 0 — done. 1 — internal error. 2 — wrong usage: the message names what is missing, prints the command's

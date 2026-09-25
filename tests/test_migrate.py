@@ -12,7 +12,7 @@ from tests.test_commands import run
 LEGACY_README = """# ABCDE-12345 SRE SDK ingestion
 
 ## Goal
-Ingest SRE SDK results into the estimator and validate them against LNP.
+Ingest SRE SDK results into the calculator and validate them against PRF.
 Owner: platform team.
 
 ## Evidence
@@ -46,7 +46,7 @@ Notes: schema mapping reviewed by the data team.
 
 ## Phase SIT NC
 - [x] load 2026-08-27 batch
-- [ ] validate latest LNP SRE results
+- [ ] validate latest PRF SRE results
 - [ ] sign-off from NC
 """
 
@@ -85,7 +85,7 @@ class LegacyCase(unittest.TestCase):
 
     def test_every_write_refuses_with_the_exact_recovery_and_changes_nothing(self):
         before = self.snapshot()
-        for argv in (("log", "RESULT", "validated latest LNP SRE results"),
+        for argv in (("log", "RESULT", "validated latest PRF SRE results"),
                      ("readme", "--file", str(self.case / "README.md")),
                      ("todo", "add", "1", "x"),
                      ("readme", "set", "next", "x")):
@@ -149,7 +149,7 @@ class LegacyCase(unittest.TestCase):
         journal = (self.case / "JOURNAL.md").read_text()
         self.assertIn("PHASE · дело перенесено из legacy формата", journal)
         # every write door now opens
-        code, out, err = run("log", "RESULT", "validated latest LNP SRE results")
+        code, out, err = run("log", "RESULT", "validated latest PRF SRE results")
         self.assertEqual(code, 0, err)
         code, out, err = run("readme", "set", "next", "sign-off from NC")
         self.assertEqual(code, 0, err)

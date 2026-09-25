@@ -70,7 +70,7 @@ class AcceptanceIsItems(Base):
         # the baseline run on 1.3 proved nothing of the promise: three runs exist, one criterion is proved
         run("todo", "done", "1.2", "run:curl router -> discountAmount 12.40, discountPercentage 22.0", "non-zero")
         run("todo", "add", "1", "rerun", "--expect", "[run: rerun shows the changed rate]")
-        run("todo", "done", "1.4", "run:curl router again -> memberLiability 43.60 (was 56.00)", "changed")
+        run("todo", "done", "1.4", "run:curl router again -> totalDueAmount 43.60 (was 56.00)", "changed")
         code, out, err = run("phase", "close", "1", "discount applied")
         self.assertEqual(code, 0, err)
         pf = self.read("phases/1-discount.md")

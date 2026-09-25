@@ -94,7 +94,7 @@ class LegacyCasesFold(Base):
 
 
 class ClosedLineIsEls(Base):
-    LONG = ("All phases complete: forceDebugLogs successfully disabled across DEV, SIT, UAT, LNP, STG, and PROD; "
+    LONG = ("All phases complete: forceDebugLogs successfully disabled across DEV, SIT, UAT, PRF, STG, and PROD; "
             "Redis instances restarted; log hygiene restored; all services healthy")
 
     def close_case(self, summary: str):

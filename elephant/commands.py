@@ -2943,10 +2943,12 @@ def _slug(name: str) -> str:
 
 
 def _case_folder(name: str) -> str:
-    """`YYYY-MM-DD-<slug>`. A date already present in the name is used, not doubled (feedback 2026-08-31)."""
-    m = store.DATE_PREFIX_RE.match(name.strip())
+    """`YYYY-MM-DD-<slug>`. A date already present in the name is used, not doubled (feedback 2026-08-31) — whatever
+    follows it: a hyphen, a space, an underscore (a live project, 2026-09-25: «2026-08-31 prod release» became
+    `2026-08-31-2026-08-31-prod-release`)."""
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})[\s_:–—-]+(?=\S)", name.strip())
     if m:
-        date, name = name.strip()[:10], name.strip()[11:]
+        date, name = m.group(1), name.strip()[m.end():]
     else:
         date, _ = _now()
     folder = f"{date}-{_slug(name)}"
@@ -3782,11 +3784,15 @@ def _rules_pointer(root: Path) -> str:
 def entry(root: Path, case: Path) -> Outcome:
     out = Outcome()
     names = store.chain(case, root)
+    legacy_here = store.legacy_files(case)
+    if legacy_here:  # a case el cannot read yet: named, not poured onto the screen (a live project, 2026-09-25: 27 KB)
+        return _legacy_entry(root, case, names, legacy_here)
     out.say(f"el · case in hand: {' › '.join(names)}", "")
     refreshed = onboarding.refresh(_project_root(case))  # the block in CLAUDE.md / AGENTS.md follows the one el ships
     if refreshed:
         out.say(*refreshed, "")
-    others = [c.name for c in store.all_cases(root) if store.is_open(c) and c != case]
+    others = [c.name + (" (from before el)" if store.legacy_files(c) else "")
+              for c in store.all_cases(root) if store.is_open(c) and c != case]
     if others:
         out.say("other open cases: " + " · ".join(others) + " — switch: `el case use <name>`", "")
     readme_body = _refresh_readme(case, out)
@@ -3853,6 +3859,32 @@ def entry(root: Path, case: Path) -> Outcome:
         room = max(MAX_SCREEN - len("\n".join(tail)) - 120, 0)
         body = "\n".join(out.lines[:cut])[:room]
         out.lines = [body, "", f"[body truncated at {room} chars — README/TODO/JOURNAL are on disk]", ""] + tail
+    return out
+
+
+def _legacy_entry(root: Path, case: Path, names: List[str], legacy: List[tuple]) -> Outcome:
+    """The entry when the case in hand is from before el (a live project, 2026-09-25: the case touched last was one el
+    cannot read, and the entry poured its raw README and TODO — 27 KB — while Order said «migrate»). The files stay on
+    disk as they are; the screen says what the case is, the one way in (`el migrate`), and el's own open cases."""
+    out = Outcome()
+    out.say(f"el · case in hand: {' › '.join(names)} — from before el: el reads it only after migration", "")
+    out.say(f"legacy file(s) outside Elephant's grammar, never stamped: {', '.join(n for n, _ in legacy)} → {store.MIGRATE_HINT}")
+    readme = store.file_path(case, "README.md")
+    title = ""
+    if readme.exists():
+        first = next((ln for ln in readme.read_text(encoding="utf-8", errors="replace").split("\n") if ln.strip()), "")
+        title = first.lstrip("# ").strip()
+    count = sum(1 for p in case.rglob("*") if p.is_file())
+    out.say(f"  what it is: «{order._short(title or case.name, 80)}» · {count} file(s) in the folder — not shown, they stay as they are", "")
+    others = [(c, order.child_status(c)) for c in store.all_cases(root) if c != case and store.is_open(c)]
+    live = [(c, st) for c, st in others if st[0] == "open"]
+    if live:
+        out.say("el's open cases — switch: el case use <name>",
+                *(f"  {c.name} — {order.case_desc(st)}" for c, st in live[:6]), "")
+    pre = [c for c, st in others if st[0] == "legacy"]
+    if pre:
+        out.say(f"other cases from before el, open: {', '.join(c.name for c in pre[:6])} — el --case <name> migrate", "")
+    out.say(f"how to work: el help migrate · el help start · every case here: el case list")
     return out
 
 

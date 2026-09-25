@@ -22,14 +22,14 @@ class Feedback(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_date_in_name_is_not_doubled(self):
-        code, out, err = run("case", "new", "2026-08-31-mle-prod-release-redis", "--goal", "g")
+        code, out, err = run("case", "new", "2026-08-31-app-prod-release-redis", "--goal", "g")
         self.assertEqual(code, 0, err)
         names = [p.name for p in self.root.iterdir() if p.is_dir()]
-        self.assertEqual(names, ["2026-08-31-mle-prod-release-redis"])
+        self.assertEqual(names, ["2026-08-31-app-prod-release-redis"])
 
     def test_case_new_with_long_goal_leaves_a_valid_journal(self):
-        goal = "проверить владение Redis и объём релиза MLE " * 8  # ~350 chars
-        code, out, err = run("case", "new", "mle prod release", "--goal", goal)
+        goal = "проверить владение Redis и объём релиза APP " * 8  # ~350 chars
+        code, out, err = run("case", "new", "app prod release", "--goal", goal)
         self.assertEqual(code, 0, err)
         case = next(p for p in self.root.iterdir() if p.is_dir())
         j = grammar.parse_journal((case / "JOURNAL.md").read_text())
