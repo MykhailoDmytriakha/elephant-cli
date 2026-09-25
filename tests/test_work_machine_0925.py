@@ -170,8 +170,7 @@ class TwoHandsRule(Base):
     def test_order_names_the_done_items_nobody_accepted(self):
         self.done("a1")
         out = run()[1]
-        self.assertIn("1 done item(s) not accepted — 1.1", out)
-        self.assertIn("el todo brief 1.1", out)
+        self.assertIn("every item ended (1 done), 1 not accepted → a fresh session accepts first: el todo brief 1.1", out)
 
     def test_close_refuses_over_an_unaccepted_item_then_passes(self):
         self.done("a1")

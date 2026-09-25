@@ -1974,7 +1974,9 @@ def _thread_line(case: Path, todo: grammar.Todo, readme_body: str) -> Optional[s
             it = ready[0]
             parts.append(f"item {it.n}.{it.m} «{order._short(it.text, 60)}»" + (f" (why: {order._short(it.why, 60)})" if it.why else ""))
         elif phase.items and not open_items:
-            parts.append(f"every item ended: el phase close {phase.n} \"…\"")
+            unaccepted = [it for it in phase.items if not it.accepted] if _two_hands(readme_body) else []
+            parts.append(f"every item ended, {len(unaccepted)} not accepted: el todo brief {phase.n}.{unaccepted[0].m}" if unaccepted
+                         else f"every item ended: el phase close {phase.n} \"…\"")
         elif open_items:
             parts.append(f"{len(open_items)} open item(s), none free — held or blocked: see unblocked:")
         else:
@@ -2020,7 +2022,8 @@ def _two_hands(readme_body: str) -> bool:
 def _unaccepted_lines(case: Path, todo: grammar.Todo, readme_body: str) -> List[str]:
     if not _two_hands(readme_body):
         return []
-    items = [it for p in _running_phases(case, todo) for it in p.items if it.done and not it.accepted]
+    items = [it for p in _running_phases(case, todo) if any(not it.done for it in p.items)  # a finished phase: its own line
+             for it in p.items if it.done and not it.accepted]
     if not items:
         return []
     first = f"{items[0].n}.{items[0].m}"
@@ -2983,7 +2986,7 @@ def case_new(root: Path, name: str, goal: str, parent: Optional[Path] = None) ->
     links = [f"- parent: {parent.name} · фаза {_phase_of(store.todo_of(parent))[1:]}"] if parent else []
     d, t = _now()
     readme_text = "\n".join([
-        f"# {title}", "", "## Context", goal, "", "## State", "- progress: (no phases yet)",
+        f"# {title}", "", "## Context", goal, *_default_rules(), "", "## State", "- progress: (no phases yet)",
         "- next: open phase 1 — `el phase open 1 <Name> --goal \"…\"`", f"- as of: {d} {t} · p0 (1 event)", "",
         "## Decisions", "", "## Problems", "", "## Links", *links, ""])
     store_write_fresh(case, "README.md", readme_text)
@@ -2991,6 +2994,13 @@ def case_new(root: Path, name: str, goal: str, parent: Optional[Path] = None) ->
     event_lines, _ = _render_event("PHASE", f"дело открыто: {goal}")
     store_write_fresh(case, "JOURNAL.md", "\n".join([f"# JOURNAL — {title}", "", f"- {d} {t} · p0", *event_lines]) + "\n")
     return case
+
+
+def _default_rules() -> List[str]:
+    """The Context rules a new case is born with (feedback 2026-09-25, hole «the tool keeps the order»: two hands opt-in by a
+    line nobody writes meant one hand always). The line lives in the case, where the owner sees it and may drop it
+    (`el readme drop context k`); an old case without it is left as it is. `EL_TWO_HANDS=0` — born without."""
+    return [f"- {RULE_TWO_HANDS}"] if os.environ.get("EL_TWO_HANDS", "1") != "0" else []
 
 
 def store_write_fresh(case: Path, name: str, body: str):
@@ -3092,7 +3102,7 @@ def project_new(root: Path, name: str, goal: str) -> Outcome:
     goal = " ".join(goal.split())
     d, t = _now()
     store_write_fresh(project, "README.md", "\n".join([
-        f"# {title}", "", "## Context", goal, "", "## State", "- progress: (no phases yet)",
+        f"# {title}", "", "## Context", goal, *_default_rules(), "", "## State", "- progress: (no phases yet)",
         "- next: open phase 1 — `el phase open 1 <Name> --goal \"…\"`", f"- as of: {d} {t} · p0 (1 event)", "",
         "## Decisions", "", "## Problems", "", "## Links", ""]))
     store_write_fresh(project, "TODO.md", f"# TODO — {title}\n")
@@ -3716,7 +3726,7 @@ def _refresh_readme(case: Path, out: Outcome) -> str:
     return body
 
 
-def _ended_phase_lines(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal]) -> List[str]:
+def _ended_phase_lines(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal], readme_body: str = "") -> List[str]:
     """A phase whose every item ended is ready to end itself — the moment the owner decides: close it,
     or add what is still missing. The tool forces the downward rule (an open item holds its phase);
     the upward one is shown here (feedback 2026-09-14: phase 4 stood open over one [x] item and
@@ -3738,6 +3748,15 @@ def _ended_phase_lines(case: Path, todo: grammar.Todo, journal: Optional[grammar
         flags = ((" --reflect \"…\" --align \"…\"" if any("reflect:" in n or "align:" in n for n in needs) else "")
                  + (" --howto \"…\"" if ask_howto else ""))
         one = f" · or in one command: el phase close {p.n} \"…\"{flags}" if flags else ""
+        unaccepted = [it for it in p.items if not it.accepted] if _two_hands(readme_body) else []
+        if unaccepted:  # two hands: the second hand before the close (feedback 2026-09-25: Order used to say «close it»)
+            first = f"{p.n}.{unaccepted[0].m}"
+            ms = sorted(it.m for it in unaccepted)
+            many = f"{p.n}.{ms[0]}-{p.n}.{ms[-1]}" if len(ms) > 1 else first
+            lines.append(f"phase {p.n} {p.name}: every item ended ({len(p.items)} done), {len(unaccepted)} not accepted → a fresh session "
+                         f"accepts first: el todo brief {first} (the owner's word instead: el todo accept {many} --by owner \"…\"); "
+                         f"then close: el phase close {p.n} \"what came out\"" + (f" — also: {' · '.join(needs)}{one}" if needs else ""))
+            continue
         lines.append(f"phase {p.n} {p.name}: every item ended ({len(p.items)} done) → close it: el phase close {p.n} \"what came out\""
                      + (f" — first: {' · '.join(needs)}{one}" if needs else "")
                      + f" · or add what is missing: el todo add {p.n} \"…\"")
@@ -3754,7 +3773,7 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_until_lines(readme_body))                # a workaround past its until date (F3)
         lines.extend(_blind_items(todo_now, readme_body))    # an item with nowhere to go (case rule)
         lines.extend(_gone_lines(case, todo_now))              # waiting for something that no longer exists (F19)
-        lines.extend(_ended_phase_lines(case, todo_now, journal))  # every item ended: the phase is ready to end (F20)
+        lines.extend(_ended_phase_lines(case, todo_now, journal, readme_body))  # every item ended: accept, then close (F20, F23)
         lines.extend(_promise_lines(case, todo_now))               # a promised proof nobody works towards (F12)
         lines.extend(_expect_gap_lines(case, todo_now))            # an item of a running phase with no expectation (F22)
         lines.extend(_running_order_lines(case, todo_now))         # the phase in flight is held to the current form
