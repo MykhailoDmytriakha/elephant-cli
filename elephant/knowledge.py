@@ -11,6 +11,23 @@ EXEMPLAR = """a well-led item looks like this — pockets in the owner's words, 
     - note: the numbers come from [Menuka](../people/menuka-perera.md) — read her card before the call
     - expect: the chosen DB with its case [file: docs/db-choice.md] · load on a prototype [run: k6 → p95] · budget and horizon [owner]"""
 
+# The block an agent's instruction file carries (CLAUDE.md · AGENTS.md · GEMINI.md) — one source: `el onboarding` writes it
+# between marks with a fingerprint, the entry keeps it fresh, ONBOARDING.md shows the same text (a test holds them equal).
+# The owner's word, 2026-09-25: a strong push is not a long one — why, the rhythm in three moments, one IMPORTANT line.
+ONBOARDING_BLOCK = """## Elephant — память работы в `.cases/`
+
+Ты начинаешь без памяти, и следующий агент — тоже ты. Чего нет в `el` — сделанного, решений, причин, — для него не существует. Форму держит `el`: порядок, отказы, подсказки; содержание — ты.
+
+**Начало — `el`.** Первая строка `thread:` — цель → фаза → пункт → шаг. Перескажи владельцу не его словами: что из этого следует, чего он не сказал (помечай «вывожу»), что спросишь. Его же слова в ответ — эхо, а не понимание.
+
+**Работа — пункт за пунктом.** **IMPORTANT: закончил пункт — сразу `el todo done N.M <вид> "что вышло"`, не в конце сессии** (вид — `file:путь` · `ref:след` · `run:"команда → исход"` · `owner`). Решение — `el log DECISION "что · вместо чего · почему"`. Упёрся — сначала `grep -ril "<слова ошибки>" .howto/`, решил — `el log PROBLEM`. Не для этой фазы — `el todo add later "…"`.
+
+**Конец — снова `el`.** Order чист, State правдив: `el readme set next "…"`, а если всё верно — `el readme touch`. Сделанное принимает свежая сессия: `el todo brief N.M` печатает для неё задание.
+
+README, TODO, JOURNAL — только через `el`: правку руками ловит отпечаток. Строки `hint:` и `Order` — команды тебе, с номером: сделай или скажи, почему нет. Знание дозами: `el help start`, потом `el help <тема>`.
+
+Нет `el` → `git clone https://github.com/MykhailoDmytriakha/elephant-cli`, затем `./elephant-cli/install.sh`."""
+
 ONBOARDING = """start here — no `.cases/` from this folder upwards
   el case new "name" --goal "goal in the owner's words"        a case folder under .cases/
   el case new --root "name" --goal "…"                          or: this folder IS the project (root mode)
@@ -62,7 +79,8 @@ TOPICS = {
    README Links is rendered from those lines, so the map never rots (F14).
 4. Stuck? First search the knowledge base: grep -ril "<error words>" .howto/ — maybe it is solved.
    Solved a problem yourself → `el log PROBLEM "problem → root cause → fix"` AND write a recipe
-   file into .howto/ (first line `when: <error words>`).
+   file into .howto/ (first line `when: <error words>`). The phase close asks for it anyway: a PROBLEM of the phase
+   no recipe answers → `--howto .howto/<verb>.md` or `--howto "none: why"` (el help phases).
 5. Finished a piece → `el todo done N.M <kind> "what came out"` — the kind of evidence first:
    file:<path> · ref:<trace> · run:"<command → outcome>" · owner (`el help evidence`); not needed after all → `el todo cancel N.M "why"`;
    a phase → `el help phases`; the case → `el done "…"`. Done by you is accepted by another hand: `el todo brief N.M`
@@ -73,7 +91,9 @@ TOPICS = {
 7. An old case? Its closed phases are history — leave them. The phase you work in is held to the
    current form: Order names what it lacks (a promise in the goal, expect on items, a kind on ticks).
 8. Never edit README.md / TODO.md / JOURNAL.md by hand — Elephant is the only write door; hand edits
-   are detected by the stamp and moved aside.""",
+   are detected by the stamp and moved aside.
+9. The Elephant block in CLAUDE.md / AGENTS.md is el's: `el onboarding` writes it where your agent reads, `el` keeps it
+   current after every update (el help onboarding).""",
 
     "order": """order — the case keeps itself tidy (F14, F15, S5, P12)
 Every `el` entry ends with `## Order`: each line = one thing out of place + the command that fixes it.
@@ -339,6 +359,11 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   proved — [run: …] by 2.3 · not proved: [run: …]`. A baseline, an HTTP 200, a manual computation are steps —
   RESULT events and notes — not the criterion (feedback 2026-09-16: a phase closed on a baseline, `check` 0).
   The expectation lives at every size of the node: Context for the case, `goal:` for the phase, `expect:` for the item.
+- the recipe question (P8; the owner's word, 2026-09-25 — 48 PROBLEM events and four recipes on the tool's own case):
+  a phase that logged a PROBLEM no recipe answers closes with `--howto .howto/<verb>.md` (the file exists, its first line
+  is `when: <the error words>` — grep finds it next time; logged as a link) or `--howto "none: why nothing repeats"`;
+  a PROBLEM that names `.howto/…` is answered already; a phase without PROBLEM is not asked. `el done` asks once for the
+  PROBLEMs no phase close answered. The close door only: a phase closed before the rule is never asked again.
 - `el phase close N "what it delivered" --reflect "the lesson" --align "what changes next"` — the two DECISIONs
   P8 asks for and the close in one command; the gates are the same, nothing is logged if another gate refuses.
 - `el phase note N "…"` (`--edit k` · `--drop k`) — what the phase has to know: a permit that expires, a
@@ -380,7 +405,8 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
     "where": """what goes where
 - read / ran / edited a line            → nowhere, git holds it
 - fact needed to continue the case      → README State or Decisions (via `el readme`)
-- solved a problem                      → `el log PROBLEM` + a recipe in .howto/ (when: line)
+- solved a problem                      → `el log PROBLEM` + a recipe in .howto/ (when: line); the phase close asks
+                                           once for every PROBLEM no recipe answers: --howto .howto/<verb>.md · "none: why"
 - a way to do a frequent operation      → .howto/<task-verb>.md; its script → scripts/
 - received a file / doc / log / meeting → a case folder by kind, `summary:` as its line 2;
                                           Links picks it up by itself (folder line is yours)
@@ -601,6 +627,24 @@ records the verdict.
   nobody accepted and a running phase whose scope the owner never agreed (`el phase agree N "…"`), and `phase close`
   refuses over an unaccepted item — a fresh session accepts, or the owner's word.""",
 
+    "onboarding": """onboarding — the block your agent's instruction file carries (S6; the owner's word, 2026-09-25)
+An agent starts with no memory; what it reads first is its instruction file — CLAUDE.md (Claude Code), AGENTS.md (Codex,
+Cursor, Copilot and most others), GEMINI.md. The Elephant block there is the push: why (you have no memory, the next agent
+is you), the rhythm in three moments (start with `el` and retell with surplus · tick each item at once · end with `el`),
+one IMPORTANT line. The rest el says itself, in the moment: `thread:`, Order, `hint:`.
+- `el onboarding` — where the block is, it is refreshed there; where it is nowhere, el picks the file the running agent
+  reads (CLAUDE.md under Claude Code, else an instruction file that exists, else AGENTS.md) and adds the block at the end.
+  Your own text is never touched; a link (CLAUDE.md → AGENTS.md) is one file.
+- `el case new` in a project without the block writes it the same way — the first case teaches the agent's file the rhythm.
+- the block sits between marks with a fingerprint of its text: `<!-- elephant onboarding 1.25.0 · 3f2a9c1b7d20 … -->` …
+  `<!-- /elephant onboarding -->`. After `git pull` brings a new el, the next `el` refreshes a stale copy itself
+  («onboarding refreshed in CLAUDE.md»); a release that leaves the text as it was changes nothing.
+- edited by hand inside the marks → not overwritten: an Order line, and `el onboarding` rewrites it (keep your own lines
+  outside the marks); a block pasted by hand (the heading, no marks) → an Order line, `el onboarding` takes it under marks
+  in place.
+- `el onboarding --show` prints the block and writes nothing — to paste it where el does not look (.cursor/rules/, a
+  global ~/.claude/CLAUDE.md). `EL_ONBOARDING=0` switches the automatic part off.""",
+
     "later": """later — the general list and the phase boundary (F24; the owner's word, 2026-09-25)
 What is not for the running phase does not break it: it goes to the general list, and the next phase is formed from
 that list at the boundary — when a phase closes, or earlier by the owner's word. Not a backlog that eats thoughts:
@@ -700,6 +744,7 @@ ALIASES = {
     "fact": "facts", "chain": "facts", "knowledge": "facts",
     "accept": "acceptance", "accepted": "acceptance", "brief": "acceptance", "review": "acceptance", "reviewer": "acceptance",
     "verdict": "acceptance", "hands": "acceptance", "supervisor": "acceptance", "return": "acceptance", "stuck": "acceptance",
+    "onboard": "onboarding", "instructions": "onboarding", "claude.md": "onboarding", "agents.md": "onboarding",
     "backlog": "later", "pool": "later", "general": "later", "triage": "later", "boundary": "later", "thread": "model",
     "machine": "model", "agree": "phases", "scope": "phases",
     "person": "people", "who": "people", "contact": "people", "contacts": "people", "participants": "people", "team": "people",

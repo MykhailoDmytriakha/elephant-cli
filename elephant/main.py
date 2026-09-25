@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from . import __version__, commands, hints, knowledge, store
+from . import __version__, commands, hints, knowledge, onboarding, store
 from .store import StoreError
 
 EXAMPLES = """examples
@@ -53,6 +53,7 @@ EXAMPLES = """examples
   el log DECISION "reflect: …"  ·  el log DECISION "align: …"   (both before closing)
   el phase close 3 "parsers, stamp and commands work, 55 tests" --reflect "ask why before going" --align "phase 4 loses the 2024 items"   one command: the two DECISIONs and the close
   el phase close 4 "…"                 a planned phase out of turn whose every item ended closes from the plan; own clock next time: el spawn
+  el phase close 3 "…" --reflect "…" --align "…" --howto .howto/restart-redis.md   a PROBLEM in the phase → its recipe (first line `when:`) or --howto "none: why"
   el readme add decisions "2026-09-05 · X over Y — why" · el readme drop decisions 2 · el readme drop state пауза
   el readme edit decisions 3 "2026-09-05 · X over Y — why"   line 3 in place, order kept (context · decisions · problems · links)
   el readme touch                      State read and still true after new RESULTs: moves `as of` only (Order: State is behind)
@@ -72,6 +73,7 @@ EXAMPLES = """examples
   el check --all                       every case in the workspace (a legacy case = one line per file, not its error dump)
   el doctor                            read-only diagnostics, changes nothing
   el --case connect-database check     check one case only
+  el onboarding                        the Elephant block in the file your agent reads (CLAUDE.md · AGENTS.md): where it is — refreshed; nowhere — el finds the place; --show prints it
   el help model                        how it all fits: nodes, rendered lines, edges, two ends, what is refused vs shown
   el help <topic>                      topics are listed at the bottom of this help
 options: --case <name or suffix> (or EL_CASE) picks the case; exit codes 0 ok · 1 error · 2 usage · 3 rule violation · 4 precondition
@@ -165,6 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--align", help="close only: what changes in the next plan — logged as `DECISION · align: …` in the same command (P8)")
     s.add_argument("--why", help="open only: what was found that makes this phase run before the planned ones below — they stay planned (F24)")
     s.add_argument("--rest", help="close only: `later` — close early by the owner's word; the open items go to the general list (F24)")
+    s.add_argument("--howto", help="close: the recipe question when the phase logged a PROBLEM — .howto/<verb>.md (first line `when:`) or \"none: why\" (P8)")
     s.add_argument("--edit", type=int, metavar="K", help="note only: rewrite note K in place")
     s.add_argument("--drop", type=int, metavar="K", help="note only: remove note K")
 
@@ -196,6 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("done", help="close the case in hand (all phases must be closed)", allow_abbrev=False)
     s.add_argument("summary")
+    s.add_argument("--howto", help="the recipe question for PROBLEMs no phase close answered — .howto/<verb>.md or \"none: why\" (P8)")
 
     s = sub.add_parser("feedback", help="report an Elephant problem or wish — lands in the elephant-cli clone's feedback/ pool", allow_abbrev=False)
     s.add_argument("title")
@@ -211,6 +215,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--apply", action="store_true", help="archive legacy files under legacy/<date-time>/ and write the canonical files")
     s = sub.add_parser("check", help="the case in hand against the rules (violations → exit 3); --all: every case in the workspace", allow_abbrev=False)
     s.add_argument("--all", action="store_true", help="every case here, legacy ones included (one line each); default: the case in hand")
+    s = sub.add_parser("onboarding", help="write the Elephant block into the file your agent reads (CLAUDE.md · AGENTS.md · GEMINI.md) — where it is, it is refreshed; where it is nowhere, el finds the place", allow_abbrev=False)
+    s.add_argument("--show", action="store_true", help="print the block, write nothing")
     sub.add_parser("facts", help="the fact chain of the case in hand — established · expected · under question · dead branches; rendered from the fact: lines", allow_abbrev=False)
     sub.add_parser("doctor", help="read-only diagnostics: what el sees from here; changes nothing", allow_abbrev=False)
     sub.add_parser("status", help="where the case stands — the same screen as bare `el` (git/oc/cf habit)", allow_abbrev=False)
@@ -228,7 +234,7 @@ SHELL_TRACES = (
     (re.compile(r"(?:^|\s)\.\d"), "an orphan decimal like `.72`"),
     (re.compile(r"^\s"), "a leading space"),  # a trailing one is too often innocent (`"x " * n`) to refuse
 )
-TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact")
+TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact", "howto")
 
 
 def shell_trace(args) -> Optional[str]:
@@ -272,6 +278,16 @@ def run(argv=None) -> int:
             out = commands.feedback(args.title, args.expected, args.actual, args.why, args.acceptance, args.repro)
             print("\n".join(out.lines))
             return 0
+        if args.cmd == "onboarding":  # the project is the folder that holds .cases/ — or here, before the first case
+            if args.show:
+                print("\n".join(onboarding.marked()))
+                return 0
+            try:
+                project = store.find_root().parent
+            except StoreError:
+                project = Path.cwd()
+            print("\n".join(onboarding.write(project)))
+            return 0
         if args.cmd == "doctor":
             out = commands.doctor()
             print("\n".join(out.lines))
@@ -283,9 +299,13 @@ def run(argv=None) -> int:
             if args.root:
                 out = commands.project_new(root, args.name, args.goal)
                 print("\n".join(out.lines))
+                if onboarding.enabled() and not onboarding.scan(root.parent):
+                    print(*onboarding.write(root.parent), sep="\n")
                 return 0
             case = commands.case_new(root, args.name, args.goal)
             print(f"created: {case.relative_to(root.parent)} — now `el phase open 1 <Name> --goal \"…\"`")
+            if onboarding.enabled() and not onboarding.scan(root.parent):  # the first case: the agent's file learns the rhythm
+                print(*onboarding.write(root.parent), sep="\n")
             if hints.enabled():  # something to imitate: a model imitates the form it sees (2026-09-16)
                 print("", knowledge.EXEMPLAR, sep="\n")
                 tip = hints.pick("case_new", root=root)
@@ -393,7 +413,8 @@ def run(argv=None) -> int:
                 else:
                     if not args.text:
                         raise StoreError("phase close needs a summary: `el phase close 3 \"what it delivered\"`", 2)
-                    out = commands.phase_close(case, args.n, args.text, reflect=args.reflect, align=args.align, rest=args.rest)
+                    out = commands.phase_close(case, args.n, args.text, reflect=args.reflect, align=args.align, rest=args.rest,
+                                               howto=args.howto)
             elif args.cmd == "readme":
                 if args.action == "set":
                     if not args.a or args.b is None:
@@ -434,7 +455,7 @@ def run(argv=None) -> int:
             elif args.cmd == "spawn":
                 out = commands.spawn(root, case, args.name, args.goal)
             elif args.cmd == "done":
-                out = commands.done(root, case, args.summary)
+                out = commands.done(root, case, args.summary, howto=args.howto)
             else:  # pragma: no cover
                 parser.print_usage()
                 return 2

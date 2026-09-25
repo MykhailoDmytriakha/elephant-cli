@@ -250,7 +250,7 @@ class DigestAtClose(Base):
         run("log", "RESULT", "ходатайство подано 18.09")
         run("log", "DECISION", "reflect: спрашивать «зачем» до похода")
         run("log", "DECISION", "align: к заседанию подготовить копии")
-        code, out, err = run("phase", "close", "1", "подано, заседание 24.09")
+        code, out, err = run("phase", "close", "1", "подано, заседание 24.09", "--howto", "none: секретарь один, рецепт не нужен")
         self.assertEqual(code, 0, err)
         pf = self.read("phases/1-court.md")
         self.assertIn("result: подано, заседание 24.09\n\n## Digest\n- items: 2 done\n- notes (1):\n  - секретарь принимает по вторникам\n"
@@ -259,7 +259,8 @@ class DigestAtClose(Base):
         self.assertNotIn("proofs:", pf, "two items, two distinct proofs — nothing to count")
         self.assertIn("- problems (1):\n  - секретарь не отвечает по телефону → ходить лично\n", pf)
         self.assertIn("- decisions (1):\n  - ходатайство подаём до заседания, не после\n", pf)
-        self.assertIn("- reflect: спрашивать «зачем» до похода\n- align: к заседанию подготовить копии\n", pf)
+        self.assertIn("- reflect: спрашивать «зачем» до похода\n- align: к заседанию подготовить копии\n"
+                      "- howto: none: секретарь один, рецепт не нужен\n", pf)
         self.assertIn("\n## Notes\n", pf)
         self.assertIn("## Items at close\n- 1.1 ✓ оплатить пошлину\n  - why: без оплаты вернут\n  - result: оплачено\n"
                       "    - file: [receipt.pdf](../evidence/receipt.pdf)\n- 1.2 ✓ согласовать дату — [адвокат](../docs/permit.pdf)\n"
