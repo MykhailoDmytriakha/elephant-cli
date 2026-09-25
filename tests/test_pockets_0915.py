@@ -134,11 +134,11 @@ class SeveralProofs(Base):
         self.assertEqual(run("check")[0], 0)
 
     def test_outcome_is_one_line_and_reopen_keeps_the_pockets(self):
-        # 1.12.0 (feedback 2026-09-16): the `result:` line is el's — shortened like `closed:`, never refused; the journal keeps the words
+        # the `result:` line is el's — never refused; whole since the owner's word of 2026-09-25 (shortened 2026-09-16…25)
         code, out, err = run("todo", "done", "1.1", "owner", "о" * 151)
         self.assertEqual(code, 0, err)
-        self.assertIn("result: line shortened to 150 chars in TODO", out)
-        self.assertIn("    - result: " + "о" * 149 + "…\n", self.read("TODO.md"))
+        self.assertNotIn("shortened", out)
+        self.assertIn("    - result: " + "о" * 151 + "\n", self.read("TODO.md"))
         run("todo", "reopen", "1.1", "again")
         run("todo", "note", "1.1", "чек в синей папке")
         run("todo", "done", "1.1", "owner", "оплачено")
@@ -334,7 +334,7 @@ class WorkaroundUntil(Base):
         run("readme", "add", "problems", "open · старый костыль · until: 2026-01-01")
         code, out, err = run()
         self.assertEqual(code, 0, err)
-        self.assertIn(f"problem 1 «open · Redis падает после деплоя ·…» until {soon} in 77 days", out)
+        self.assertIn(f"problem 1 «open · Redis падает после деплоя…» until {soon} in 77 days", out)
         self.assertIn("problem 2 «open · старый костыль · until: 2026-01-01» passed its until date 2026-01-01", out)
         self.assertIn("→ fixed: el readme drop problems 2 · still needed: el readme edit problems 2", out)
         run("readme", "drop", "problems", "2")

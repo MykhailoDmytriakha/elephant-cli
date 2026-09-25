@@ -230,9 +230,9 @@ def case_desc(status) -> str:
     if kind == "legacy":
         return "legacy (before el): not read until migrated"
     if kind == "closed":
-        return _short(closed, SUMMARY_CHARS)
+        return closed
     desc = progress + (f" · next: {nxt}" if nxt else "") + (f" · due {due}" if due else "")
-    return _short(desc or "(no State yet)", SUMMARY_CHARS)
+    return desc or "(no State yet)"
 
 
 def _render_cases(case: Path, root_mode: bool) -> List[str]:
@@ -302,11 +302,35 @@ def _classify(line: str, case: Path):
 
 
 def _short(text: str, limit: int) -> str:
+    """A one-line pointer on the SCREEN (`unblocked: 4.7 «…»`, an Order line quoting a text) — the whole text lives in the
+    file it points at. Never used for a line written into README, TODO or a phase file: those are rendered whole (the
+    owner's word, 2026-09-25: «in README nothing is cut — a limit means rephrase, not cut»). It cuts at a space outside
+    `[…]`, `(…)` and backticks — never inside a link or a proof slot (feedback 2026-09-25: `… [file:…`)."""
     text = " ".join(text.split())
     if grammar.visible_len(text) <= limit:
         return text
-    cut = text.rfind(" ", 0, limit - 1)
-    return text[: cut if cut > limit // 2 else limit - 1].rstrip() + "…"
+    square = paren = 0
+    tick = False
+    best = None
+    for i, ch in enumerate(text):
+        if ch == "`":
+            tick = not tick
+        elif not tick:
+            if ch == "[":
+                square += 1
+            elif ch == "]":
+                square = max(0, square - 1)
+            elif ch == "(" and i and text[i - 1] == "]":
+                paren += 1
+            elif ch == ")" and paren:
+                paren -= 1
+        if ch == " " and not tick and not square and not paren:
+            if grammar.visible_len(text[:i]) > limit - 1:
+                break
+            best = i
+    if best is None:  # one token longer than the limit: the pointer shows it whole rather than break it
+        return text
+    return text[:best].rstrip(" ,;:·—") + "…"
 
 
 def render_links(case: Path, root_mode: bool, manual_lines: List[str]) -> Tuple[List[str], Dict[str, str]]:
@@ -380,7 +404,7 @@ def _render_folder(f: Folder, depth: int, folder_desc: Dict[str, str], fallback:
         rendered.add(d.rel)
         summary = d.summary or fallback.get(d.rel)
         if summary:
-            out.append(f"{ind}- [{d.path.name}]({d.rel}) — {_short(summary, SUMMARY_CHARS)}")
+            out.append(f"{ind}- [{d.path.name}]({d.rel}) — {summary}")  # whole: a limit asks the source (Order), never cuts the copy
         else:
             out.append(f"{ind}- [{d.path.name}]({d.rel}) — {PLACEHOLDER_FILE} → add `summary: …` as line 2")
     plain = []
@@ -388,7 +412,7 @@ def _render_folder(f: Folder, depth: int, folder_desc: Dict[str, str], fallback:
         desc = fallback.get(rel)
         if desc:  # described by the agent in Links: a file under work, not an attachment — it
             rendered.add(rel)  # belongs among the folder's documents, before the sub-folders
-            out.append(f"{ind}- [{name}]({rel}) — {_short(desc, SUMMARY_CHARS)}")
+            out.append(f"{ind}- [{name}]({rel}) — {desc}")
         else:
             plain.append(name)
     for s in f.subs:
@@ -411,7 +435,7 @@ def adopt(case: Path, fallback: Dict[str, str]) -> List[str]:
             continue  # a phase file describes itself by goal:/result: (F12) — never touched
         lines = p.read_text(encoding="utf-8").split("\n")
         at = next((i + 1 for i, ln in enumerate(lines[:SUMMARY_SCAN_LINES]) if ln.startswith("# ")), 0)
-        lines.insert(at, f"summary: {_short(desc, SUMMARY_CHARS)}")
+        lines.insert(at, f"summary: {' '.join(desc.split())}")  # the owner's words, whole; over the limit → an Order line asks to rephrase
         p.write_text("\n".join(lines), encoding="utf-8")
         changed.append(rel)
     return changed
@@ -735,6 +759,12 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
                 out.append(f"State is behind: {n} journal entr{'y' if n == 1 else 'ies'} touched since as of {key[0]} {key[1]} "
                            f"({r} RESULT, {p} PHASE) → el readme set next \"…\" · still true as it stands: el readme touch "
                            f"· or el readme --file README.md")
+    long_ = [(d.rel, grammar.visible_len(d.summary)) for f in folders for d in f.all_docs()
+             if d.summary and grammar.visible_len(d.summary) > SUMMARY_CHARS]
+    if long_:  # the limit asks the source to be rephrased; Links shows the summary whole (feedback 2026-09-25)
+        shown = ", ".join(f"{rel} ({n})" for rel, n in long_[:4]) + (f" … +{len(long_) - 4}" if len(long_) > 4 else "")
+        out.append(f"{len(long_)} `summary:` line(s) over {SUMMARY_CHARS} chars — {shown} → rephrase line 2 of the file: the one line "
+                   f"a reader scans in Links (shown whole there, never cut)")
     missing = [d.rel for f in folders for d in f.all_docs() if not d.summary]
     if missing:
         shown = ", ".join(missing[:4]) + (f" … +{len(missing) - 4}" if len(missing) > 4 else "")

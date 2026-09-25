@@ -31,7 +31,7 @@ EVENT_WARN_CHARS = 180
 EVENT_BODY_LINES = 5
 
 README_SECTIONS = ["Context", "State", "Decisions", "Problems", "Links"]
-STATE_OWNED = ("progress", "last", "as of")  # State lines el derives on every write (F3)
+STATE_OWNED = ("progress", "last", "as of", "closed")  # State lines el writes (F3): whole, not the agent's to shorten
 JOURNAL_TYPES = {"PHASE", "DECISION", "PROBLEM", "RESULT"}
 # F20 (2026-09-14, the owner's word): a done item carries the KIND of its evidence — a closed list, on
 # purpose. file = a thing in the case anyone can open · ref = a trace outside the case a person can

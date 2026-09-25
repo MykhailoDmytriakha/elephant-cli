@@ -73,8 +73,15 @@ def _phase_link(file_name: str) -> str:
 
 
 def _link_phase_paths(summary: str) -> str:
-    """A phase line written before 0.18 cites its file as a bare path; every write renders it as a link."""
-    return BARE_PHASE_PATH_RE.sub(lambda m: f"[{m.group(1)}]({m.group(1)})", summary)
+    """A phase line written before 0.18 cites its file as a bare path; every write renders it as a link. A proof slot of
+    the goal (`[file: phases/5-x.md]`) is a promise of a file that may not exist yet, not a link — left as written (found
+    2026-09-25 when the whole goal reached TODO: the promise became a dead link and `check` a violation)."""
+    link = lambda text: BARE_PHASE_PATH_RE.sub(lambda m: f"[{m.group(1)}]({m.group(1)})", text)
+    out, last = [], 0
+    for m in grammar.EXPECT_SLOT_RE.finditer(summary):
+        out += [link(summary[last:m.start()]), m.group(0)]
+        last = m.end()
+    return "".join(out) + link(summary[last:])
 
 
 def _item_block(it: grammar.Item) -> List[str]:
@@ -180,7 +187,7 @@ def _derive_todo(case: Path, todo: grammar.Todo) -> bool:
             continue
         if parsed.errors or not parsed.goal:
             continue
-        tail = f"{order._short(parsed.goal, 110)} · {_phase_link(pf.name)}"
+        tail = f"{' '.join(parsed.goal.split())} · {_phase_link(pf.name)}"  # whole: never cut inside a proof slot (2026-09-25)
         if p.summary != tail:
             p.summary, changed = tail, True
     return changed
@@ -295,12 +302,20 @@ def _derive_readme(case: Path, body: str) -> str:
         pass
     try:
         journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
-        last = next((ev.text for e in journal.entries for ev in e.events if ev.type == "RESULT"), None)
-        if last:
-            text = _set_state_line(text, "last: ", order._short(last, grammar.README_POINTER_CHARS - 10))
+        last = next((ev for e in journal.entries for ev in e.events if ev.type == "RESULT"), None)
+        if last:  # the whole RESULT — headline and body — never cut (the owner's word, 2026-09-25)
+            text = _set_state_line(text, "last: ", _event_words(last))
     except StoreError:
         pass
     return _blank_before_headings(text)
+
+
+def _event_words(ev: grammar.Event) -> str:
+    """An event as one line of words: the headline without its «there is a body» mark, then the body — the provenance
+    lines el adds (`session: …`) left out. What README shows of the journal is the whole event, not a cut of it."""
+    head = ev.text[:-2].rstrip() if ev.text.endswith(" …") else ev.text
+    body = [b for b in ev.body if not b.startswith("session: ")]
+    return " ".join([head, *body]).strip()
 
 
 def _blank_before_headings(text: str) -> str:
@@ -746,9 +761,9 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     if not outcome:
         raise StoreError(f"done needs what came out (F20): el todo done {ref} {' '.join(tokens)} \"what came out\" — "
                          f"nothing came out? then it was not done: el todo cancel {ref} \"why\"", 2)
-    # the `result:` line is el's (rendered from done): it obeys el's own pointer limit by shaping, like `closed:`
-    # and `last:` — the journal RESULT keeps the whole outcome (feedback 2026-09-16: a 151-char outcome aborted a chain)
-    shown_outcome = order._short(outcome, grammar.POCKET_CHARS)
+    # the `result:` line is el's (rendered from done) and it is whole: not counted in any limit, never cut (the owner's word,
+    # 2026-09-25 — it reverses 2026-09-16, when el shortened it with «…»: the part cut off was lost to the owner reading TODO)
+    shown_outcome = outcome
     fact = " ".join(fact.split()) if fact is not None else None
     expected_facts = [it for it in items if it.fact and not it.done]
     if expected_facts and fact is None:  # an expected fact asks for its verdict: confirmed, changed, or none
@@ -796,8 +811,6 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
         out.say(f"done: {_refs(phase, fresh)} {fresh[0].text} → TODO.md (result + {len(proofs)} proof line(s)) · RESULT in the journal · evidence: {shown}")
     elif fresh:
         out.say(f"done: {_refs(phase, fresh)} ({len(fresh)} items) → TODO.md · one RESULT in the journal · evidence: {shown}")
-    if shown_outcome != outcome:
-        out.say(f"result: line shortened to {grammar.POCKET_CHARS} chars in TODO (F22, el's line) — the whole outcome is in the journal RESULT")
     out.say(*expect_lines)  # after `done:` — the promise, then what arrived
     for it in items:
         if it.fact:
@@ -824,7 +837,7 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
         words = ""
         if outcome and outcome != it.result:
             words = f" · result renewed (was: «{it.result or '—'}»)"
-            it.result = order._short(outcome, grammar.POCKET_CHARS)
+            it.result = outcome
         out.say(f"{phase.n}.{it.m} was already done — evidence now: "
                 f"{' · '.join(f'{k} {pr}'.strip() for k, pr in it.evidence)} (was: {before}){words}")
     out.absorb(_write_todo(case, todo))
@@ -2663,7 +2676,7 @@ def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]
     what bit and what was decided (PROBLEM, DECISION), reflect and align — all from the journal events of
     this phase and its items. Poor journal, poor digest: it shows the record as it is."""
     def rel(text: str) -> str:
-        return _rewrite_links(order._short(text, 160), case, new_base=pf.parent)[0]
+        return _rewrite_links(" ".join(text.split()), case, new_base=pf.parent)[0]  # the Digest is a file: whole
 
     def bucket(label: str, texts: List[str]) -> List[str]:
         return [f"- {label} ({len(texts)}):", *(f"  - {t}" for t in texts)] if texts else []
@@ -3123,10 +3136,9 @@ def spawn(root: Path, parent: Path, name: str, goal: str) -> Outcome:
 
 
 def _closed_line(value: str):
-    """The `- closed:` State line is el's (written by `done` / `case cancel`, never typed): it obeys el's own
-    pointer limit like `last:` does — the summary is shortened with «…», the whole text lives in the journal.
-    Feedback 2026-09-15: a 140-char summary made el warn about a 192-char line it had written itself."""
-    return value, order._short(value, grammar.README_POINTER_CHARS - len("- closed: "))
+    """The `- closed:` State line is el's (written by `done` / `case cancel`, never typed): whole, like `last:` — not counted
+    in any limit, never cut (the owner's word, 2026-09-25). Returns (the value, the value) for its old callers."""
+    return value, value
 
 
 def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> Outcome:
@@ -3158,8 +3170,6 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> O
     text = _set_state_line(text, "next: ", None)  # a closed case has no next step — the line would be a lie (2026-09-14)
     _write_readme(case, text, out, anchor=True)
     out.lines = log(case, "PHASE", f"дело закрыто → {summary}").lines + out.lines
-    if shown != closed:
-        out.say(f"closed: shortened to the pointer limit ({grammar.README_POINTER_CHARS} chars, F2) — the whole summary is in the journal (PHASE)")
     parent = store.parent_case(case, root)
     if parent is not None:
         ptodo = _todo(parent, out)
