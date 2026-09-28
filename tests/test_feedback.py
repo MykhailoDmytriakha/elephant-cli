@@ -119,7 +119,8 @@ class FeedbackCommand(unittest.TestCase):
 
     def test_writes_artifact_and_prints_path(self):
         code, out, err = run("feedback", "log rejects names", "--actual", "exit 2 on visible name",
-                             "--expected", "resolve or hint", "--repro", "el log --phase 'Release validation' …")
+                             "--expected", "resolve or hint", "--repro", "el log --phase 'Release validation' …",
+                             "--onboarding", "enough")
         self.assertEqual(code, 0, err)
         self.assertIn("feedback written: ", out)
         path = Path(out.split("feedback written: ", 1)[1].strip())

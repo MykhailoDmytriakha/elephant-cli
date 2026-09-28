@@ -64,7 +64,7 @@ EXAMPLES = """examples
   el case use connect-database         switch the hand (like `cf target` / `oc project`)
   el spawn "db unreachable from server" --goal "server cannot reach the database, cause unknown"
   el done "database connected and validated"
-  el feedback "done refuses run: with spaces" --actual "exit 2: …" --expected "…" --repro "el todo done 3.1 run:'make → OK' ok"   el is wrong or in the way? report it, never forge the record (el help feedback)
+  el feedback "done refuses run: with spaces" --actual "exit 2: …" --expected "…" --onboarding "enough"   el is wrong or in the way? report it, never forge the record (el help feedback)
   el order                             what is out of order in the case in hand + the fix for each line
   el order --adopt                     move file descriptions from README Links into the files as `summary:`
   el migrate                           legacy case (files el never stamped): dry run — what maps where, nothing changes
@@ -210,6 +210,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--why", default="")
     s.add_argument("--acceptance", default="")
     s.add_argument("--repro", default="")
+    s.add_argument("--onboarding", default="")
 
     s = sub.add_parser("order", help="what is out of order in the case in hand, with the fix for each line", allow_abbrev=False)
     s.add_argument("--adopt", action="store_true", help="write `summary:` into files from their README Links descriptions")
@@ -277,7 +278,8 @@ def run(argv=None) -> int:
             print(f"\ntopics (open at the moment of need): el help <{knowledge.topic_list()}> — singular forms and common words work too (phase, item, proof, hint)")
             return 0
         if args.cmd == "feedback":
-            out = commands.feedback(args.title, args.expected, args.actual, args.why, args.acceptance, args.repro)
+            out = commands.feedback(args.title, args.expected, args.actual, args.why, args.acceptance, args.repro,
+                                    args.onboarding)
             print("\n".join(out.lines))
             return 0
         if args.cmd == "onboarding":  # the project is the folder that holds .cases/ — or here, before the first case

@@ -20,7 +20,7 @@ ONBOARDING_BLOCK = """## Elephant — память работы в `.cases/`
 
 **Начало — `el`.** Первая строка `thread:` — цель → фаза → пункт → шаг. Перескажи владельцу не его словами: что из этого следует, чего он не сказал (помечай «вывожу»), что спросишь. Его же слова в ответ — эхо, а не понимание.
 
-**Работа — пункт за пунктом.** **IMPORTANT: закончил пункт — сразу `el todo done N.M <вид> "что вышло"`, не в конце сессии** (вид — `file:путь` · `ref:след` · `run:"команда → исход"` · `owner`). Решение — `el log DECISION "что · вместо чего · почему"`. Упёрся — сначала `grep -ril "<слова ошибки>" .howto/`, решил — `el log PROBLEM`. Не для этой фазы — `el todo add later "…"`.
+**Работа — пункт за пунктом.** **IMPORTANT: закончил пункт — сразу `el todo done N.M <вид> "что вышло"`, не в конце сессии** (вид — `file:путь` · `ref:след` · `run:"команда → исход"` · `owner`). Решение — `el log DECISION "что · вместо чего · почему"`. `.howto/` — что здесь уже умеют, по рецепту на задачу: берёшься за задачу — открой её рецепт, упёрся — `grep -ril "<слова ошибки>" .howto/`; решил новое — `el log PROBLEM` и рецепт `.howto/<глагол>.md` с первой строкой `when: <слова беды>`, чтобы следующий не решал заново. Не для этой фазы — `el todo add later "…"`.
 
 **Конец — снова `el`.** Order чист, State правдив: `el readme set next "…"`, а если всё верно — `el readme touch`. Сделанное принимает свежая сессия: `el todo brief N.M` печатает для неё задание; `[/]` в TODO — сделано, ждёт приёмки. Ты — вторая рука: перезапусти каждое `run:` и принеси, что вышло сейчас — `el todo accept N.M --by <ты> --run "команда → исход" "…"`.
 
@@ -118,7 +118,8 @@ check · a second copy of the stamp.""",
 2. Work as usual. When something is worth remembering — `el log <TYPE> "…"`.
 3. Every new file in docs/ research/ … starts with `summary: <one line>` right under its title —
    README Links is rendered from those lines, so the map never rots (F14).
-4. Stuck? First search the knowledge base: grep -ril "<error words>" .howto/ — maybe it is solved.
+4. .howto/ is what this project already knows how to do, one recipe per task — the `howto:` line of the entry names
+   them: taking a task, open its recipe first. Stuck? grep -ril "<error words>" .howto/ — maybe it is solved.
    Solved a problem yourself → `el log PROBLEM "problem → root cause → fix"` AND write a recipe
    file into .howto/ (first line `when: <error words>`). The phase close asks for it anyway: a PROBLEM of the phase
    no recipe answers → `--howto .howto/<verb>.md` or `--howto "none: why"` (el help phases).
@@ -467,7 +468,7 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
 - a file moves or gets renamed          → `el mv old new` — links in README/TODO/JOURNAL and
                                           the documents are rewritten; Order names broken links
 - cause unknown or work too big         → `el spawn` — a nested case
-- el itself misbehaves                → `el feedback "title" --actual … --expected …`""",
+- el itself misbehaves                → `el feedback "title" --actual … --expected … --onboarding …`""",
 
     "stamp": """stamp — the write-door fingerprint
 - The last line of the three files is `stamp: <hash>` over everything above it. Only el writes it.
@@ -479,7 +480,7 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
     "feedback": """feedback — telling Elephant it is wrong (the door when the tool does not let you through honestly)
 el refused what the work needs, a printed line has no honest fix, a kind or a form is missing? Do not
 forge the record (no `done` on a cancelled item, no path written as text) — report it and go on by a workaround.
-  el feedback "short title" --actual "…" --expected "…" [--repro "…"] [--why "…"] [--acceptance "…"]
+  el feedback "short title" --actual "…" --expected "…" --onboarding "…" [--repro "…"] [--why "…"] [--acceptance "…"]
   title          what el did wrong, in a few words — it becomes the file name
   --actual       what el printed or wrote, verbatim, with the exit code — what happened, not what you feared
   --expected     what should have happened instead
@@ -487,7 +488,14 @@ forge the record (no `done` on a cancelled item, no path written as text) — re
   --why          which hole it shows, in the words of `el help philosophy`: proof from the bottom up · the tool keeps the
                  order · the record does not lie · knowledge in doses — and the principle it breaks
   --acceptance   how to see it is fixed — a check someone can run; it becomes the test
-Title, --actual and --expected are required; the other three are what makes the report fixable in one pass.
+  --onboarding   a word on the Elephant block in your instruction file (CLAUDE.md · AGENTS.md; `el onboarding --show`
+                 prints it): «enough» · a line it lacks · a line that sent you wrong · a line el already says in the
+                 moment, so the block can drop it — quote the line you mean
+Title, --actual, --expected and --onboarding are required; the other three are what makes the report fixable in one pass.
+Why every report speaks of the block (the owner's word, 2026-09-27): it is the first dose, read before el says anything,
+and only you live with it. Every agent reads it at every start, so it earns a line only for a habit needed before el
+speaks (start with `el`, tick at once, end with `el`); what el can say in the moment belongs in its output — a refusal,
+Order, `hint:` — a report of depth 2, not a line in the block. «enough» is a full answer; a longer block is not a better one.
 Three depths — say which one you bring (feedback 2026-09-25: reports stayed at the first, the tool grew by the third):
   1 a wall    el refused, crashed or printed a line that lies — the exact output is the report
   2 a dose    the way exists, but you could not find it, or the refusal did not teach the fix
@@ -712,7 +720,9 @@ one IMPORTANT line. The rest el says itself, in the moment: `thread:`, Order, `h
   outside the marks); a block pasted by hand (the heading, no marks) → an Order line, `el onboarding` takes it under marks
   in place.
 - `el onboarding --show` prints the block and writes nothing — to paste it where el does not look (.cursor/rules/, a
-  global ~/.claude/CLAUDE.md). `EL_ONBOARDING=0` switches the automatic part off.""",
+  global ~/.claude/CLAUDE.md). `EL_ONBOARDING=0` switches the automatic part off.
+- the block changes from the word of those who start from it: every `el feedback` carries `--onboarding` — «enough», a
+  line it lacks, a line that sent you wrong, a line el already says in the moment (el help feedback).""",
 
     "later": """later — the general list and the phase boundary (F24; the owner's word, 2026-09-25)
 What is not for the running phase does not break it: it goes to the general list, and the next phase is formed from

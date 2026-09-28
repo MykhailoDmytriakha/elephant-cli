@@ -92,7 +92,7 @@ class FeedbackNeverOverwrites(unittest.TestCase):
 
     def test_three_calls_in_one_minute_three_files(self):
         for title in ("лимит длины", "журнал засорён", "лимит длины"):
-            self.assertEqual(run("feedback", title, "--actual", "a", "--expected", "e")[0], 0)
+            self.assertEqual(run("feedback", title, "--actual", "a", "--expected", "e", "--onboarding", "enough")[0], 0)
         names = sorted(p.name for p in (Path(self.tmp.name) / "pool").iterdir())
         self.assertEqual(len(names), 3, names)
         self.assertTrue(any(n.endswith("-limit-dliny.md") for n in names), names)

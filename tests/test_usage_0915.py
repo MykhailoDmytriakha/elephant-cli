@@ -35,7 +35,7 @@ class UsageVoice(unittest.TestCase):
         self.assertIn("ERROR [exit 2]", err)
         self.assertIn("required: title", err, "what is missing is still named")
         self.assertFalse(err.startswith("usage:"), "the library's bare usage line is never the answer")
-        for field in ("--actual", "--expected", "--repro", "--why", "--acceptance"):
+        for field in ("--actual", "--expected", "--repro", "--why", "--acceptance", "--onboarding"):
             self.assertIn(field, err, f"the dose names {field} and what goes into it")
         self.assertIn("Valuable to the reader", err)
         self.assertIn("verbatim, with the exit code", err)
@@ -102,7 +102,7 @@ class UsageVoice(unittest.TestCase):
         self.assertIn("prints its refusal on stdout instead, once", errors)
 
     def test_a_well_formed_feedback_still_writes(self):
-        code, out, err = run("feedback", "title here", "--actual", "a", "--expected", "b")
+        code, out, err = run("feedback", "title here", "--actual", "a", "--expected", "b", "--onboarding", "enough")
         self.assertEqual(code, 0, err)
         self.assertIn("feedback written:", out)
         self.assertEqual(len(list(self.pool.glob("*.md"))), 1)
