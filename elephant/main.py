@@ -136,7 +136,7 @@ class Parser(argparse.ArgumentParser):
 def build_parser() -> argparse.ArgumentParser:
     p = Parser(prog="el", description="the write door for .cases/ — rules: el help files · order · limits",
                epilog=EXAMPLES, formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False)
-    p.add_argument("--case", help="case name or unique suffix (default: EL_CASE or the freshest open case)")
+    p.add_argument("--case", help="case name or unique suffix (default: EL_CASE, the case this session holds, or the freshest open case)")
     p.add_argument("--version", action="version", version=f"elephant {__version__}")
     sub = p.add_subparsers(dest="cmd")
 
@@ -260,6 +260,18 @@ def shell_trace(args) -> Optional[str]:
 
 
 def run(argv=None) -> int:
+    """One command, one change: what a refused or crashed command touched is put back (store.begin/rollback)."""
+    store.begin()
+    try:
+        return _run(argv)
+    except BaseException:
+        store.rollback()
+        raise
+    finally:
+        store.commit()
+
+
+def _run(argv=None) -> int:
     parser = build_parser()
     args = None
     try:
@@ -302,11 +314,13 @@ def run(argv=None) -> int:
             root = _root_or_create()
             if args.root:
                 out = commands.project_new(root, args.name, args.goal)
+                store.hold(root, root.parent)
                 print("\n".join(out.lines))
                 if onboarding.enabled() and not onboarding.scan(root.parent):
                     print(*onboarding.write(root.parent), sep="\n")
                 return 0
             case = commands.case_new(root, args.name, args.goal)
+            store.hold(root, case)  # the session that opened the case holds it (feedback 2026-09-27)
             print(f"created: {case.relative_to(root.parent)} — now `el phase open 1 <Name> --goal \"…\"`")
             if commands._default_rules():  # the case was born with two hands: said at the moment it begins
                 print("this case asks two hands: a fresh session accepts each done item (el todo brief N.M), the owner agrees "
@@ -466,14 +480,19 @@ def run(argv=None) -> int:
             else:  # pragma: no cover
                 parser.print_usage()
                 return 2
+            if store.touched() and args.cmd not in (None, "status", "spawn"):
+                store.hold(root, case)  # the case this session last wrote to stays its hand (spawn holds the child)
         for w in out.warnings:
             print(f"warning: {w}", file=sys.stderr)
         print("\n".join(out.lines))
         return 0
     except StoreError as e:
+        restored = store.rollback()  # the refusal is whole: what this command wrote before it is put back
         lines = [f"el: ERROR [exit {e.code}] {e}"]
         if e.recovery:
             lines.append(f"  recovery: {e.recovery}")
+        if restored:
+            lines.append("  put back as it was: " + " · ".join(_shown(p) for p in restored))
         lines.append(f"  exit {e.code} = {store.EXIT_MEANING.get(e.code, '?')} — `el help errors`")
         if args is not None and args.cmd in (None, "status"):
             # the entry explains itself on stdout (feedback #4) — and only there: printed to both streams,
@@ -484,6 +503,13 @@ def run(argv=None) -> int:
         else:
             print("\n".join(lines), file=sys.stderr)
         return e.code
+
+
+def _shown(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def _root_or_create() -> Path:

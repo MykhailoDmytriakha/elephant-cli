@@ -429,7 +429,10 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   cases from before el (README never stamped, outside the grammar) as one count line — `--all` names
   every closed and legacy one, `el --case <name> migrate` reads a legacy case; current marked *;
   `el case use <name>` — switch the hand.
-- The hand follows the freshest journal; one agent works one case at a time.
+- The hand is the session's: the case it last wrote to or took (case new · spawn · case use), else the freshest
+  journal, which it then holds — another agent writing in the same tree does not move it. `--case <name>` names a case
+  for one command (a write there moves the hand, a look does not). A harness that gives el no session id keeps the
+  freshest journal: set EL_SESSION, or pass --case. One agent works one case at a time.
 - Rule of nesting: know what to do → an item N.M; do NOT know the cause / needs its own research /
   longer than a session → `el spawn "name" --goal "…"` — a nested case of the same shape inside
   the parent. The parent shows one `waits:` line; `el done "outcome"` in the child writes one
@@ -798,14 +801,15 @@ counts it with the legacy ones and `--all` names it — BROKEN is only a case el
     "errors": """exit codes and what to do
 0 — done. 1 — internal error. 2 — wrong usage: the message names what is missing, prints the command's
     examples (for `feedback` its whole dose) and `el help <topic>`; the library's bare `usage:` line is never the answer.
-3 — rule violation: the write was REFUSED, no file was touched; fix the input as the message says.
+3 — rule violation: the write was REFUSED, no file was touched — a command is one change: what it wrote before the
+    refusal is put back byte for byte, and the message names it (`put back as it was: …`); fix the input as it says.
     "outside Elephant's grammar and was never stamped" = a legacy file → `el migrate` (see `el help migrate`).
 4 — precondition not met: no .cases/ from here upwards · every case closed · a case file missing ·
     a phase not ready to open/close. The message names the check and a recovery command.
 Warnings: a write warns only about what it introduced (an old long line is not your business today); `check` shows
     the soft layer once per rule with the line numbers. `violations: N` is what to read; warnings are the lower layer.
 Diagnostics without any writes: `el doctor`. Facts that save an investigation:
-- el never reads or writes AGENTS.md / CLAUDE.md — they only point at el;
+- el writes AGENTS.md / CLAUDE.md only between its onboarding marks, never a byte outside them (el help onboarding);
 - el never changes your shell's cwd (a child process cannot);
 - errors go to stderr; the bare `el` entry prints its refusal on stdout instead, once — it explains itself where it is read.""",
 }

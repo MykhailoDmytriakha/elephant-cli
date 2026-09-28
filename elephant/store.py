@@ -1,9 +1,11 @@
 """Storage layer: find `.cases/`, pick the case in hand, read and write the three files safely.
 
 Rules touched: L1–L3 (layout), S1–S4 (stamp on every write, rebuild on mismatch), C7–C9.
-The case "in hand" is computed, never stored: `--case` flag > EL_CASE env > the open case whose
-JOURNAL.md changed most recently.
+The case "in hand": `--case` flag > EL_CASE env > the case this session holds > the open case whose JOURNAL.md changed
+most recently (and the session holds it from then on). The one thing kept between commands is which case a session
+holds — outside the project, keyed by the session id the harness gives (see `hold`).
 """
+import hashlib
 import os
 import re
 import tempfile
@@ -188,8 +190,63 @@ def resolve_case(root: Path, name: Optional[str]) -> Path:
     raise StoreError(f"no case named `{name}` under {root}", 4, recovery="el case list")
 
 
+# ---- the hand of a session --------------------------------------------------------------------------
+# Feedback 2026-09-27: two sessions in one working tree, each with its own case — session B wrote case b, session A then
+# opened case a, and B's bare `todo done` landed in a: the hand followed the freshest journal, which in a shared tree is
+# another agent's. Many agents on one tree is the model (each writes its own leaf), so the hand belongs to the session:
+# the case it last wrote to, or took (`case new` · `spawn` · `case use`), or first picked up. Kept outside the project,
+# in a temp folder, one line per session and project — not a config, nothing in git, gone with the machine's temp.
+# A harness that gives no session id (EL_SESSION sets one by hand) keeps the old rule: the freshest journal.
+SESSION_ENVS = ("EL_SESSION", "CLAUDE_CODE_SESSION_ID")
+
+
+def session_id() -> str:
+    """The session this command runs in, as the agent's harness says it (EL_SESSION first; Claude Code sets
+    CLAUDE_CODE_SESSION_ID) — 8 chars, or "" when nothing says. Provenance, not proof: a subagent shares its
+    parent's session, and a variable can be set by hand — so the record says what el saw, never more."""
+    for key in SESSION_ENVS:
+        val = re.sub(r"[^A-Za-z0-9]", "", os.environ.get(key) or "")
+        if val:
+            return val[:8]
+    return ""
+
+
+def _hand_file(root: Path) -> Optional[Path]:
+    sid = session_id()
+    if not sid:
+        return None
+    base = os.environ.get("EL_HANDS_DIR") or os.path.join(tempfile.gettempdir(), "elephant-hands")
+    key = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:12]
+    return Path(base) / f"{sid}-{key}"
+
+
+def hold(root: Path, case: Path):
+    """This session takes `case` in hand: its next bare command acts on it, whatever another session writes."""
+    f = _hand_file(root)
+    if f is None:
+        return
+    try:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(os.path.relpath(case.resolve(), root.resolve().parent), encoding="utf-8")
+    except (OSError, ValueError):
+        pass  # a hand that cannot be kept falls back to the freshest journal, as before
+
+
+def held(root: Path) -> Optional[Path]:
+    """The case this session holds, while it is still an open case here."""
+    f = _hand_file(root)
+    if f is None or not f.is_file():
+        return None
+    try:
+        target = (root.resolve().parent / f.read_text(encoding="utf-8").strip()).resolve()
+    except OSError:
+        return None
+    return next((c for c in all_cases(root) if c.resolve() == target and is_open(c)), None)
+
+
 def hand(root: Path, explicit: Optional[str] = None) -> Path:
-    """The case in hand: flag > EL_CASE > open case with the freshest JOURNAL.md (P2, C9)."""
+    """The case in hand: flag > EL_CASE > the case this session holds > open case with the freshest JOURNAL.md,
+    which the session then holds (P2, C9; feedback 2026-09-27)."""
     name = explicit or os.environ.get("EL_CASE")
     if name:
         return resolve_case(root, name)
@@ -205,7 +262,12 @@ def hand(root: Path, explicit: Optional[str] = None) -> Path:
         j = file_path(c, "JOURNAL.md")
         return j.stat().st_mtime if j.exists() else 0
 
-    return max(open_cases, key=freshness)
+    mine = held(root)
+    if mine is not None:
+        return mine
+    picked = max(open_cases, key=freshness)
+    hold(root, picked)  # picked up once: another session's write no longer moves it
+    return picked
 
 
 def stray_files(case: Path) -> List[Path]:
@@ -246,8 +308,71 @@ def parent_case(case: Path, root: Path):
     return None
 
 
+# ---- one command, one change: all or nothing --------------------------------------------------------
+# A refusal says «nothing was written», so nothing may stay written (feedback 2026-09-27: `todo reopen` with a reason
+# too long for the journal answered exit 3 «nothing was written» after TODO had already lost the item's result and
+# proofs — twelve commands wrote a file before they logged). Every file a command touches is remembered as it was
+# before the first touch; a refusal or a crash puts each one back, so a write through two files — or two cases —
+# lands whole or not at all.
+_UNDO: Optional[dict] = None
+
+
+def begin():
+    global _UNDO
+    _UNDO = {}
+
+
+def commit():
+    global _UNDO
+    _UNDO = None
+
+
+def touched() -> bool:
+    """This command has written something so far."""
+    return bool(_UNDO)
+
+
+def remember(path: Path):
+    """Keep the bytes `path` had before this command first touched it (None — it did not exist)."""
+    if _UNDO is None:
+        return
+    path = Path(path)
+    if path not in _UNDO:
+        _UNDO[path] = path.read_bytes() if path.exists() else None
+
+
+def rollback() -> List[Path]:
+    """Put every file this command touched back as it was; returns the files that changed back."""
+    global _UNDO
+    saved, _UNDO = _UNDO or {}, None
+    restored = []
+    for path, data in saved.items():
+        try:
+            if data is None:
+                if path.exists():
+                    path.unlink()
+                    restored.append(path)
+            elif not path.exists() or path.read_bytes() != data:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(data)
+                os.replace(tmp, path)
+                restored.append(path)
+        except OSError:
+            pass
+    return restored
+
+
+def write_file(path: Path, text: str):
+    """A file of the case other than the three (a phase file, a recover file, a document whose links follow a move)."""
+    remember(path)
+    path.write_text(text, encoding="utf-8")
+
+
 # ---- writing with stamp discipline ---------------------------------------------------------------
 def _atomic_write(path: Path, text: str):
+    remember(path)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(text)
@@ -270,7 +395,7 @@ def check_stamp(case: Path, name: str) -> WriteReport:
     _atomic_write(path, rebuilt)
     if removed:
         rec = case / f"{path.name}.recover.md"
-        rec.write_text("\n".join(removed) + "\n", encoding="utf-8")
+        write_file(rec, "\n".join(removed) + "\n")
         report.recovered, report.recovered_lines = rec, len(removed)
     return report
 
@@ -330,7 +455,7 @@ def write(case: Path, name: str, body: str) -> WriteReport:
         _atomic_write(file_path(case, name), rebuilt)
         if removed:
             rec = case / f"{file_path(case, name).name}.recover.md"
-            rec.write_text("\n".join(removed) + "\n", encoding="utf-8")
+            write_file(rec, "\n".join(removed) + "\n")
             report.recovered, report.recovered_lines = rec, len(removed)
         report.warnings = result.warnings
         return report
