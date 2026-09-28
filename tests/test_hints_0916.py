@@ -116,16 +116,19 @@ class Hints(Base):
         code, out, _ = run("todo", "done", "1.2", "file:docs/db-choice.md", "written")
         self.assertNotIn("owner is the word", out)
 
-    def test_problem_hints_a_recipe_until_the_habit_is_there(self):
+    def test_problem_hints_a_recipe_until_it_names_one(self):
         self.open_case()
         code, out, _ = run("log", "PROBLEM", "timeout → pool too small → raised it")
-        self.assertIn("hint: will it bite again? a recipe .howto/<verb>.md", out)
+        self.assertIn("hint: will it bite again? write the recipe now", out)
         howto = Path(self.tmp.name) / ".howto"
         howto.mkdir()
         for i in range(3):
             (howto / f"r{i}.md").write_text("when: x\n", encoding="utf-8")
+        # 2026-09-27: three recipes no longer silence it — five recipes stood over 48 PROBLEMs, one naming .howto/
         code, out, _ = run("log", "PROBLEM", "another one")
-        self.assertNotIn("hint:", out, "three recipes: the habit is there")
+        self.assertIn("hint: will it bite again?", out)
+        code, out, _ = run("log", "PROBLEM", "pool too small again → .howto/r0.md")
+        self.assertNotIn("hint:", out, "a PROBLEM naming its recipe is answered — the close gate does not ask it either")
         code, out, _ = run("log", "DECISION", "chose x")
         self.assertNotIn("hint:", out)
 

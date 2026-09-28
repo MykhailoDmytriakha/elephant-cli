@@ -509,7 +509,7 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: s
         except StoreError as e:
             out.warn(f"README `last:` not refreshed — {e}")
     if typ == "PROBLEM":
-        hints.attach(out, "log", typ=typ, project=_project_root(case))
+        hints.attach(out, "log", typ=typ, text=text, project=_project_root(case))
     return out
 
 
@@ -3356,12 +3356,22 @@ def feedback_dir() -> Path:
     return Path(override) if override else Path(__file__).resolve().parent.parent / "feedback"
 
 
-def feedback(title: str, expected: str, actual: str, why: str, acceptance: str, repro: str) -> Outcome:
+def feedback(title: str, expected: str, actual: str, why: str, acceptance: str, repro: str,
+             onboarding: str = "") -> Outcome:
+    """A report for the maintainer. Every report carries a word on the onboarding block (the owner's word, 2026-09-27):
+    the block is the first dose, read before el says anything, and the reporting agent is the only one who lives with
+    it — every rewrite of the block so far followed the owner's eye or a rule change, none came from an agent telling
+    what the block did to its start, and the last one was never checked by a cold agent. «enough» is a full answer;
+    silence would read as one."""
     out = Outcome()
     title = " ".join(title.split())
-    if not title or not expected or not actual:
-        raise StoreError("feedback needs at least a title, --expected and --actual; add --repro/--why/--acceptance "
-                         "when you can", 2)
+    missing = [name for name, value in (("a title", title), ("--actual", actual), ("--expected", expected),
+                                        ("--onboarding", onboarding.strip())) if not value]
+    if missing:
+        raise StoreError(f"feedback needs {', '.join(missing)} — title, --actual, --expected and --onboarding are required; "
+                         "--onboarding is a word on the Elephant block in your instruction file (el onboarding --show "
+                         "prints it): «enough», or the line to add, change or drop; add --repro/--why/--acceptance "
+                         "when you can", 2, recovery="el help feedback")
     d, t = _now()
     # the title transliterated like a case name, and a file never overwritten (feedback 2026-09-22: two Cyrillic
     # titles in one minute both became `…-feedback.md`, the second silently erased the first)
@@ -3381,7 +3391,7 @@ def feedback(title: str, expected: str, actual: str, why: str, acceptance: str, 
     # (the owner's word 2026-09-22 — a folder name carried a ticket number and an internal API into the pool)
     sections = [f"# {title}", "", f"date: {d} {t} · el {__version__}", ""]
     for heading, text_ in (("Reproduction", repro), ("Actual", actual), ("Expected", expected),
-                           ("Why", why), ("Acceptance", acceptance)):
+                           ("Why", why), ("Acceptance", acceptance), ("Onboarding", onboarding)):
         if text_:
             sections += [f"## {heading}", text_.strip(), ""]
     path.write_text("\n".join(sections), encoding="utf-8")
@@ -3915,6 +3925,9 @@ def entry(root: Path, case: Path) -> Outcome:
     facts_line = _facts_line(case, todo, None) if not todo.errors else None
     if facts_line:
         out.say(facts_line, "")  # the fact chain in numbers; the chain itself: el facts
+    howto = _howto_line(case)
+    if howto:
+        out.say(howto, "")  # what the project already knows how to do — before the task, not only when stuck
     out.say(readme_body.rstrip("\n"), "")
     if not todo.errors:
         shown, collapsed = render_todo_entry(todo, _two_hands(readme_body))
@@ -4058,6 +4071,19 @@ def facts(case: Path, journal: Optional[grammar.Journal] = None) -> Outcome:
         out.say("  no fact lines yet — a done item that established something: el todo fact N.M \"what is now known\"; "
                 "what it is for: el help facts")
     return out
+
+
+def _howto_line(case: Path) -> Optional[str]:
+    """The recipes of the project by name — what it already knows how to do (the owner's word, 2026-09-27: «how-to is how
+    to do things, so you know what you can do»). Rendered, like Links from `summary:`: the block teaches the habit, only el
+    can list this project's recipes. Measured the same day: 30 PROBLEM events in live projects, not one recipe; the entry
+    never named `.howto/`, so a recipe was met only by a grep after the wall. Nothing is said while there are none."""
+    folder = _project_root(case) / ".howto"
+    names = sorted(p.stem for p in folder.glob("*.md")) if folder.is_dir() else []
+    if not names:
+        return None
+    return (f"howto: {len(names)} recipe(s) — what this project already knows how to do: {' · '.join(names)} — "
+            f"taking a task, open its recipe; stuck: grep -ril \"<words>\" .howto/")
 
 
 def _facts_line(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal]) -> Optional[str]:

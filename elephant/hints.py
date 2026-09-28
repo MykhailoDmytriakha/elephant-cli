@@ -12,6 +12,7 @@ agent did. `EL_HINTS=0` silences them for an owner who knows the tool.
 Each rule was born from an observed agent behaviour (CLAUDE.md, «what agents ask for»); a hint nobody acts on
 is measured in the live trial and removed."""
 import os
+import re
 from pathlib import Path
 from typing import List, Optional
 
@@ -83,15 +84,14 @@ def _todo_done(items: List[grammar.Item], proofs, **_) -> Optional[str]:
     return None
 
 
-def _log(typ: str, project: Optional[Path] = None, **_) -> Optional[str]:
-    if typ != "PROBLEM":
+def _log(typ: str, text: str = "", project: Optional[Path] = None, **_) -> Optional[str]:
+    """A PROBLEM that names no recipe is the moment to write one — the same test the phase close asks by (P8). Until
+    2026-09-27 three recipes in the project silenced it as «the habit is there»; measured that day on the tool's own
+    project: five recipes, 48 PROBLEM events, one naming `.howto/` — the count was no sign of the habit."""
+    if typ != "PROBLEM" or re.search(r"\.howto/[\w./-]+\.md", text):
         return None
-    howto = (project / ".howto") if project else None
-    recipes = len(list(howto.glob("*.md"))) if howto and howto.is_dir() else 0
-    if recipes >= 3:
-        return None  # the habit is there
-    return ("will it bite again? a recipe .howto/<verb>.md whose first line is `when: <the error words>` is found by "
-            "grep next time — el help where")
+    return ("will it bite again? write the recipe now, while you remember: .howto/<verb>.md, first line `when: <the error "
+            "words>` — grep finds it next time; the phase close asks for it anyway — el help where")
 
 
 # ---- opening and closing --------------------------------------------------------------------------
