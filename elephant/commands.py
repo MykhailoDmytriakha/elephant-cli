@@ -1745,7 +1745,7 @@ def todo_reopen(case: Path, ref: str, why: str, by: Optional[str] = None) -> Out
 # word, 2026-09-22): it prints the brief (`el todo brief N.M`) and records the verdict — who, and whether the session was
 # another. A self-acceptance passes only as the owner's word. Two errors, two guards (research/work-machine.md): the
 # acceptor catches «done is not what was expected»; «expected is not what the owner meant» only the owner catches.
-SESSION_ENVS = ("EL_SESSION", "CLAUDE_CODE_SESSION_ID")
+SESSION_ENVS = store.SESSION_ENVS
 SESSION_WORDS = {"another": ("another session", "другая сессия"), "same": ("same session", "та же сессия"),
                  "unknown": ("session not given", "сессия не указана"), "owner": ("the owner's word", "слово владельца")}
 ACCEPTOR_RE = re.compile(r"[A-Za-z][\w.-]{0,23}")
@@ -1758,15 +1758,7 @@ RULE_TWO_HANDS_RE = re.compile(r"^- rule: two hands", re.M)
 RULE_TWO_HANDS = "rule: two hands — the owner agrees each phase's scope, a fresh session accepts each done item"
 
 
-def session_id() -> str:
-    """The session this command runs in, as the agent's harness says it (EL_SESSION first; Claude Code sets
-    CLAUDE_CODE_SESSION_ID) — 8 chars, or "" when nothing says. Provenance, not proof: a subagent shares its
-    parent's session, and a variable can be set by hand — so the record says what el saw, never more."""
-    for key in SESSION_ENVS:
-        val = re.sub(r"[^A-Za-z0-9]", "", os.environ.get(key) or "")
-        if val:
-            return val[:8]
-    return ""
+session_id = store.session_id  # one reader of the harness's session id: the hand (store) and acceptance (F23)
 
 
 def _session_word(status: str, lang: str = "en") -> str:
@@ -2334,6 +2326,7 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
     phase.done, phase.name, phase.items, phase.notes = False, name, items, phase_notes
     phase.summary = intent if intent is not None else (old_goal or None)
     if pf.exists():
+        store.remember(pf)
         pf.unlink()  # born closed at cancel, nothing of its own inside (checked above)
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
@@ -2490,7 +2483,7 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
         if parked:
             before = "\n## Before opening\n" + "\n".join(
                 f"- {ev.type} · {_rewrite_links(ev.text, case, new_base=pf.parent)[0]}" for ev in parked) + "\n"
-        pf.write_text(f"# Phase {n} — {name}\ngoal: {' '.join(goal.split())}\nresult:\n{before}\n## Notes\n", encoding="utf-8")
+        store.write_file(pf, f"# Phase {n} — {name}\ngoal: {' '.join(goal.split())}\nresult:\n{before}\n## Notes\n")
         out.say(f"created: {pf.relative_to(case)}" + (f" — {len(parked)} journal event(s) parked here before opening are in it" if parked else ""))
         if existing is not None and existing.notes:
             out.say(f"phase {n} carries {len(existing.notes)} note(s) in TODO — read them; they move into the phase file at close")
@@ -2633,7 +2626,7 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
                     break
     if alongside:  # every gate passed — only now is the file born (a refused close writes nothing)
         pf.parent.mkdir(exist_ok=True)
-        pf.write_text(f"# Phase {n} — {phase.name}\ngoal: {phase.summary or '—'}\nresult:\n\n## Notes\n", encoding="utf-8")
+        store.write_file(pf, f"# Phase {n} — {phase.name}\ngoal: {phase.summary or '—'}\nresult:\n\n## Notes\n")
         out.say(f"created: {pf.relative_to(case)} (from the plan)")
     text = pf.read_text(encoding="utf-8").split("\n")
     text[2] = f"result: {summary}"
@@ -2644,7 +2637,7 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
         text.append("## Items at close")
         for it in phase.items:
             text.extend(_item_block_for_phase_file(case, pf, it))
-    pf.write_text(re.sub(r"\n{3,}", "\n\n", "\n".join(text)).rstrip("\n") + "\n", encoding="utf-8")
+    store.write_file(pf, re.sub(r"\n{3,}", "\n\n", "\n".join(text)).rstrip("\n") + "\n")
     rel = f"phases/{pf.name}"
     phase.done, phase.items, phase.notes = True, [], []
     phase.summary = f"{summary} · {date} · {_phase_link(pf.name)}" if rel not in summary else summary
@@ -2788,14 +2781,14 @@ def _cancel_phase(case: Path, todo: grammar.Todo, phase: grammar.Phase, why: str
     pf = _phase_file(case, phase.n, phase.name)
     if not pf.exists():  # a planned phase: the file is born closed, so the collapsed line has somewhere to point
         pf.parent.mkdir(exist_ok=True)
-        pf.write_text(f"# Phase {phase.n} — {phase.name}\ngoal: {phase.summary or '—'}\nresult:\n\n## Notes\n", encoding="utf-8")
+        store.write_file(pf, f"# Phase {phase.n} — {phase.name}\ngoal: {phase.summary or '—'}\nresult:\n\n## Notes\n")
     lines = pf.read_text(encoding="utf-8").split("\n")
     lines[2] = f"result: снято: {why}"
     if phase.notes:
         lines += ["", "## Notes at cancel", *(f"- note: {_rewrite_links(n, case, new_base=pf.parent)[0]}" for n in phase.notes)]
     if phase.items:
         lines += ["", "## Items at cancel", *(ln for it in phase.items for ln in _item_block_for_phase_file(case, pf, it))]
-    pf.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
+    store.write_file(pf, "\n".join(lines).rstrip("\n") + "\n")
     items = ", ".join(f"{it.n}.{it.m}" for it in phase.items if not it.done)
     waits = ", ".join(phase.waits)
     phase.done, phase.items, phase.waits, phase.notes = True, [], [], []
@@ -3063,7 +3056,7 @@ def _default_rules() -> List[str]:
 
 
 def store_write_fresh(case: Path, name: str, body: str):
-    (case / name).write_text(stamp.apply(body), encoding="utf-8")
+    store.write_file(case / name, stamp.apply(body))
 
 
 def case_list(root: Path, everything: bool = False) -> Outcome:
@@ -3135,7 +3128,8 @@ def case_list(root: Path, everything: bool = False) -> Outcome:
 
 
 def case_use(root: Path, name: str) -> Outcome:
-    """Switch the hand like `cf target`: bump the target's JOURNAL.md mtime — no state file, no content change."""
+    """Switch the hand like `cf target`: this session holds the case (store.hold), and the target's JOURNAL.md mtime is
+    bumped for a harness that gives no session id — no content change."""
     import os as _os
 
     out = Outcome()
@@ -3143,6 +3137,7 @@ def case_use(root: Path, name: str) -> Outcome:
     if not store.is_open(case):
         raise StoreError(f"{case.name} is closed — the hand only holds open cases", 4)
     _os.utime(case / "JOURNAL.md")
+    store.hold(root, case)  # this session's hand; the mtime still moves it for a harness without a session id
     out.say(f"current case: {' › '.join(store.chain(case, root))}")
     return out
 
@@ -3184,7 +3179,7 @@ def spawn(root: Path, parent: Path, name: str, goal: str) -> Outcome:
     child_name = _case_folder(name)
     if (into / child_name).exists():
         raise StoreError(f"{into / child_name} already exists", 4)
-    # Parent first, child last: the hand follows the freshest JOURNAL.md, so the child must be written last.
+    # Parent first, child last: without a session id the hand follows the freshest JOURNAL.md; with one, it is held.
     cur.waits.append(child_name)
     out.absorb(_write_todo(parent, todo))
     text = _readme_text(parent, out)
@@ -3199,6 +3194,7 @@ def spawn(root: Path, parent: Path, name: str, goal: str) -> Outcome:
     _write_readme(parent, "\n".join(lines) + "\n", out)
     out.lines = log(parent, "PROBLEM", f"{goal} · open → {child_name}/").lines + out.lines
     child = case_new(root, name, goal, parent=None if into == root else parent)
+    store.hold(root, child)
     out.say(f"spawned: {child.relative_to(root)} — hand moves to the child; parent waits in phase {cur.n}")
     hints.attach(out, "case_new", root=root)
     return out
@@ -3490,6 +3486,8 @@ def mv(case: Path, old: str, new: str) -> Outcome:
             body = src.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             out.warn(f"{old_rel} is not UTF-8 text — moved as is, links inside it (if any) untouched")
+    store.remember(src)
+    store.remember(dst)
     if body is None:
         src.replace(dst)
     else:
@@ -3608,7 +3606,7 @@ def _follow_links(case: Path, src: Path, dst: Optional[Path], out: Outcome, skip
         text = p.read_text(encoding="utf-8", errors="ignore")
         new_text, n = rewrite(text, p.parent)
         if n:
-            p.write_text(new_text, encoding="utf-8")
+            store.write_file(p, new_text)
             touched.append(f"{rel.as_posix()} ({n})")
     return touched
 

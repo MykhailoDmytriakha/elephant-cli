@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from . import grammar
+from . import grammar, store
 
 SUMMARY_RE = re.compile(r"^summary: (.+)$")
 SUMMARY_SCAN_LINES = 5
@@ -436,7 +436,7 @@ def adopt(case: Path, fallback: Dict[str, str]) -> List[str]:
         lines = p.read_text(encoding="utf-8").split("\n")
         at = next((i + 1 for i, ln in enumerate(lines[:SUMMARY_SCAN_LINES]) if ln.startswith("# ")), 0)
         lines.insert(at, f"summary: {' '.join(desc.split())}")  # the owner's words, whole; over the limit → an Order line asks to rephrase
-        p.write_text("\n".join(lines), encoding="utf-8")
+        store.write_file(p, "\n".join(lines))
         changed.append(rel)
     return changed
 
