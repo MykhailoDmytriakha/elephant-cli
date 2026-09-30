@@ -95,7 +95,8 @@ def _item_block(it: grammar.Item, two_hands: bool = False) -> List[str]:
     # F23: in a case that asks two hands a done item owes its acceptance — `[/]` until a second hand accepts it, then `[x]`
     mark = ("/" if two_hands and not it.accepted else "x") if it.done else ("~" if it.held else " ")
     suffix = ((f" — after: {', '.join(it.after)}" if it.after else "") + (f" — due: {it.due}" if it.due else "")
-              + (f" — hold: {it.hold_reason}" if it.held and it.hold_reason else ""))
+              + (f" — hold: {it.hold_reason}" if it.held and it.hold_reason else "")
+              + (f" — check: {it.hold_check}" if it.held and it.hold_reason and it.hold_check else ""))
     lines = [f"  - [{mark}] {it.n}.{it.m} {it.text}{suffix}"]
     if it.why:
         lines.append(f"    - why: {it.why}")
@@ -1739,10 +1740,13 @@ def _put_to_later(case: Path, todo: grammar.Todo, phase: grammar.Phase, item: gr
     return out
 
 
-def todo_hold(case: Path, ref: str, reason: str) -> Outcome:
+def todo_hold(case: Path, ref: str, reason: str, check: Optional[str] = None) -> Outcome:
     """An item that cannot be done now, and why: most often it waits for the outside — a ticket in another team's
     queue, an approval, a reply (feedback 2026-09-30: `[ ]` read «do me now», and a hold with no reason read «broken»).
-    The reason is required, like cancel's and reopen's: a silent hold is the lie; the thread names it on entry."""
+    The reason is required, like cancel's and reopen's: a silent hold is the lie; the thread names it on entry.
+    `--check "<command>"` (L4, a live wall 2026-09-30): the command that tells whether the wait is over — the next
+    agent comes without memory and must be able to test the wall, not guess or ask. el never runs it; the entry names
+    it. A hold again without `--check` keeps the command; `--check none` takes it away."""
     out = Outcome()
     reason = " ".join(reason.split())
     if not reason:
@@ -1752,10 +1756,17 @@ def todo_hold(case: Path, ref: str, reason: str) -> Outcome:
     phase, item = _find_item(todo, ref)
     if item.done:
         raise StoreError(f"item {ref} is done — nothing to hold", 4)
+    if check is not None:
+        check = " ".join(check.split())
+        if not check:
+            raise StoreError(f"--check takes the command that tells the wait is over, or `none` to take it away: "
+                             f"el todo hold {ref} \"…\" --check './check-port.sh'", 2)
+        item.hold_check = "" if check.lower() in ("none", "-", "—") else check
     item.held, item.hold_reason = True, reason
     out.absorb(_write_todo(case, todo))
-    out.say(f"on hold: {ref} — «{reason}»; the entry's thread names the wait, held items sit at the end of the phase; "
-            f"it came → el todo resume {ref}")
+    test = (f"; is it over? `{item.hold_check}` — el never runs it, you do" if item.hold_check
+            else f"; a command that tells it is over: el todo hold {ref} \"…\" --check '…'")
+    out.say(f"on hold: {ref} — «{reason}»{test}; the entry's thread names the wait; it came → el todo resume {ref}")
     return out
 
 
@@ -2135,7 +2146,8 @@ def _waiting_step(phase: grammar.Phase, open_items: List[grammar.Item], blocked:
         it = held[0]
         more = f" (+{len(held) - 1} more held)" if len(held) > 1 else ""
         why = f" «{order._short(it.hold_reason, 60)}»" if it.hold_reason else ""
-        return f"waiting: {it.n}.{it.m}{why}{more} — it came: el todo resume {it.n}.{it.m}"
+        check = f" — is it over? `{it.hold_check}`" if it.hold_check else ""  # the agent runs it; el never does (L4)
+        return f"waiting: {it.n}.{it.m}{why}{more}{check} — it came: el todo resume {it.n}.{it.m}"
     ref = next(f"{it.n}.{it.m}" for it in open_items if f"{it.n}.{it.m}" in blocked)
     on = ", ".join(r + ("" if st == "open" else f" ({st})") for r, st in blocked[ref])
     return f"blocked: {ref} after {on} — finish that first, or rewire: el todo after {ref} none"
@@ -2234,9 +2246,10 @@ def todo_resume(case: Path, ref: str) -> Outcome:
     if not item.held:
         out.say(f"item {ref} is not on hold — nothing changed")
         return out
-    item.held, item.hold_reason = False, ""
+    check = item.hold_check
+    item.held, item.hold_reason, item.hold_check = False, "", ""
     out.absorb(_write_todo(case, todo))
-    out.say(f"resumed: {ref} {item.text} → TODO.md")
+    out.say(f"resumed: {ref} {item.text} → TODO.md" + (f" — the wait had its check: `{check}`" if check else ""))
     return out
 
 

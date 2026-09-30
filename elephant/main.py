@@ -41,7 +41,7 @@ EXAMPLES = """examples
   el mv docs/old.md docs/notes/new.md   move a file; every link to it is rewritten (README/TODO/JOURNAL and the documents)
   el relink docs/old.md docs/notes/new.md   the file already moved without el: the links follow now (journal included)
   el relink docs/old.md none            gone for good, or an example written as a link: the links become literal text
-  el todo hold 3.2 "waiting for: ticket REQ-1, network team's queue" · el todo resume 3.2   the outside keeps it: [~], the thread names the wait
+  el todo hold 3.2 "waiting for: ticket REQ-1, network team's queue" --check './check-port.sh' · el todo resume 3.2   the outside keeps it: [~], the thread names the wait and its check (el never runs it)
   el todo reopen 3.1 "the databases drifted — the result no longer holds"   a tick taken back: DECISION in the journal, the RESULT stays
   el todo brief 2.3                     the prompt for a FRESH session that accepts or returns 2.3 — a new chat, Codex, a clean subagent (el help acceptance)
   el todo accept 2.3 --by codex --run "k6 → p95 810 ms" "opened k6.txt too" · el todo reopen 2.3 --by codex "cold cache: 1400 ms"   the second hand re-runs each run: proof (F23)
@@ -157,6 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--fact", help="add: the fact this item is expected to establish (or `-`: none); done: the verdict — `confirmed`, the fact as it turned out, or `-`")
     s.add_argument("--edit", type=int, metavar="K", help="note only: rewrite note K in place")
     s.add_argument("--drop", type=int, metavar="K", help="note only: remove note K")
+    s.add_argument("--check", help="hold only: the command that tells whether the wait is over — el never runs it, the entry names it; `none` takes it away (L4)")
     s.add_argument("--by", help="accept / reopen: who checked — codex · claude · gemini · subagent · owner (F23); `self` is not an acceptance")
     s.add_argument("--run", action="append", help="accept: one per `run:` proof of the item — the command re-run by the second hand and what came out now, joined by → (F23)")
 
@@ -237,7 +238,7 @@ SHELL_TRACES = (
     (re.compile(r"(?:^|\s)\.\d"), "an orphan decimal like `.72`"),
     (re.compile(r"^\s"), "a leading space"),  # a trailing one is too often innocent (`"x " * n`) to refuse
 )
-TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact", "howto", "run")
+TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact", "howto", "run", "check")
 
 
 def shell_trace(args) -> Optional[str]:
@@ -401,7 +402,7 @@ def _run(argv=None) -> int:
                         raise StoreError("usage: el todo move N.M N.K", 2)
                     out = commands.todo_move(case, args.ref, text)
                 elif args.action == "hold":
-                    out = commands.todo_hold(case, args.ref, text)
+                    out = commands.todo_hold(case, args.ref, text, check=args.check)
                 elif args.action == "resume":
                     out = commands.todo_resume(case, args.ref)
                 elif args.action == "reopen":
