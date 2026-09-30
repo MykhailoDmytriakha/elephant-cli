@@ -1774,7 +1774,7 @@ def _acceptor(by: Optional[str], ref: str, verb: str) -> str:
     if verb == "accept" and by.lower() in ("self", "me", "myself", "doer"):
         raise StoreError(f"a self-acceptance is not an acceptance (F23): a fresh session accepts — el todo brief {ref} prints its "
                          f"prompt (a new chat, another agent, a subagent with a clean context) — or the owner's word: "
-                         f"el todo accept {ref} --by owner \"what the owner looked at\"", 2)
+                         f"el todo accept {ref} --by owner \"the owner's words, as said\"", 2)
     if not ACCEPTOR_RE.fullmatch(by):
         raise StoreError(f"--by takes one word naming who checked (codex · claude · gemini · subagent · owner), not `{by}`", 2)
     return by.lower()
@@ -1814,7 +1814,12 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
     out = Outcome()
     who = _acceptor(by, ref, "accept")
     text = " ".join(text.split())
+    if who == "owner":  # the owner's word is recorded as the owner's words, quoted — not the agent's account of them
+        text = _unwrap_quote(text)
     if not text:
+        if who == "owner":
+            raise StoreError(f"accept --by owner needs the owner's words, as said: el todo accept {ref} --by owner \"all good, close "
+                             f"it\" — el writes them as a quote; one word for many items is one quote for them all (a range)", 2)
         raise StoreError(f"accept needs what was checked and how: el todo accept {ref} --by {who} \"re-ran the tests, opened the file: …\" — "
                          f"these words are what the owner reads instead of re-checking", 2)
     todo = _todo(case, out)
@@ -1839,7 +1844,8 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
     out.absorb(_write_todo(case, todo))
     refs = _refs(phase, items)
     body = "".join(f"\nre-run: {r}" for r in reruns[:4]) + (f"\nre-run: … +{len(reruns) - 4} more" if len(reruns) > 4 else "")
-    out.lines += log(case, "DECISION", f"принято {refs}: {who} · {_session_word(status, 'ru')} — {text}{body}", f"p{phase.n}").lines
+    said = f": «{text}»" if who == "owner" else f" — {text}"
+    out.lines += log(case, "DECISION", f"принято {refs}: {who} · {_session_word(status, 'ru')}{said}{body}", f"p{phase.n}").lines
     out.say(f"accepted: {refs} by {who} ({_session_word(status)}) → TODO.md (accepted: line) · DECISION in the journal")
     if status == "same":
         out.warn(f"same session as the doer — a subagent of that session, or the doer itself: el cannot tell which. A fresh session "
@@ -1851,6 +1857,24 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
                  f"is a return: el todo reopen {phase.n}.{it.m} --by {who} \"now: {_outcome(r)}\" (the same thing in other words? "
                  f"then the acceptance stands)")
     return out
+
+
+def _unwrap_quote(text: str) -> str:
+    """One quote pair that wraps the WHOLE text is taken off — el adds its own. `«yes» and «no»` is two phrases, not a
+    wrapper, and stays as typed (the Codex review, 2026-09-29)."""
+    for a, b in (("«", "»"), ("“", "”"), ('"', '"'), ("'", "'")):
+        if len(text) < 2 or not (text.startswith(a) and text.endswith(b)):
+            continue
+        inner = text[1:-1]
+        if a == b:
+            return text if a in inner else inner.strip()
+        depth = 0
+        for ch in inner:
+            depth += (ch == a) - (ch == b)
+            if depth < 0:  # the first quote closed before the end: separate phrases
+                return text
+        return inner.strip() if depth == 0 else text
+    return text
 
 
 def _outcome(run: str) -> str:
@@ -2097,15 +2121,31 @@ def _acceptance_line(todo: grammar.Todo, readme_body: str, journal: Optional[gra
                       and set(re.findall(r"\d+\.\d+", RETURN_RE.match(ev.text).group(1))) & open_refs)
     if not (_two_hands(readme_body) or acc or by_acceptor):
         return None
+    return (f"acceptance: {_acceptance_tally(done)}" + (f" · returned by an acceptor {by_acceptor}" if by_acceptor else "")
+            + " — a fresh session's prompt: el todo brief N.M")
+
+
+RERAN_RE = re.compile(r"\bre-ran (\d+) of \d+")
+
+
+def _acceptance_tally(items: List[grammar.Item]) -> str:
+    """How the done items were accepted, by kind — `3 of 4 done accepted — another session 2 · the owner's word 1 ·
+    re-ran 2 of 4 run proof(s)`. One counter for every size the work rises to: the entry (running phases), the Digest of
+    a phase, the `closed:` line of a case, which its parent draws (feedback 2026-09-29: sixteen items accepted on one
+    blanket word of the owner read ✓ everywhere above the item, the same as a re-run). Counted like the kinds of evidence,
+    beside the mark, not in it: the box says the state, the tally says how it was reached."""
+    done = [it for it in items if it.done]
+    acc = [it for it in done if it.accepted]
     kinds: Dict[str, int] = {}
     for it in acc:
         parts = [x.strip() for x in it.accepted.split(" · ")]
         word = parts[1] if len(parts) > 1 else "?"
         kinds[word] = kinds.get(word, 0) + 1
     tail = " · ".join(f"{w} {n}" for w, n in kinds.items())
-    return (f"acceptance: {len(acc)} of {len(done)} done accepted" + (f" — {tail}" if tail else "")
-            + (f" · returned by an acceptor {by_acceptor}" if by_acceptor else "")
-            + " — a fresh session's prompt: el todo brief N.M")
+    runs = sum(1 for it in done for k, _ in it.evidence if k == "run")
+    reran = sum(int(m.group(1)) for it in acc for m in [RERAN_RE.search(it.accepted)] if m)
+    return (f"{len(acc)} of {len(done)} done accepted" + (f" — {tail}" if tail else "")
+            + (f" · re-ran {reran} of {runs} run proof(s)" if runs else ""))
 
 
 def todo_resume(case: Path, ref: str) -> Outcome:
@@ -2744,6 +2784,8 @@ def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]
         shared = max(set(proofs), key=proofs.count)
         head += f" · proofs: {distinct} distinct for {done_n} items ({rel(shared)} ×{proofs.count(shared)})"
     lines = [head]
+    if any(it.accepted for it in phase.items):  # F23: how the phase was accepted rises with it (feedback 2026-09-29)
+        lines.append(f"- acceptance: {_acceptance_tally(phase.items)}")
     coverage = _goal_coverage(phase, goal)
     if coverage:  # the phase's own promise (its goal), decomposed into its items and their proofs
         proved = [(sl, ref) for sl, st, ref in coverage if st == "proved"]
@@ -3206,6 +3248,37 @@ def _closed_line(value: str):
     return value, value
 
 
+def _child_item_check(root: Path, case: Path, text: str, words: str, what: str, retry: str) -> None:
+    """A nested case awaited by its parent ends as an item of the parent (F13 counts its text) — held before any
+    write and said in the words the agent typed. Feedback 2026-09-29: the refusal spoke of «item 1.7 is 328 chars»,
+    an item the agent never wrote, and the child's folder name el appended ate a third of the budget. The item is
+    the agent's words only now; the child is named by the item's proof line, which el writes and nobody counts."""
+    parent = store.parent_case(case, root)
+    if parent is None:
+        return
+    ptodo = _todo(parent, Outcome())
+    phase = next((p for p in ptodo.phases if case.name in p.waits), None)
+    n = grammar.visible_len(text)
+    if phase is None or n <= grammar.TODO_ITEM_CHARS:
+        return
+    ref = f"{phase.n}.{_next_number(parent, ptodo, phase)}"
+    budget = grammar.TODO_ITEM_CHARS - (n - grammar.visible_len(words))
+    own = f" («{text[:len(text) - len(words)].strip()}» is el's word, the rest is yours)" if text != words else ""
+    raise StoreError(f"the {what} becomes item {ref} of the parent {parent.name} — an item holds {grammar.TODO_ITEM_CHARS} "
+                     f"visible chars{own}: yours is {grammar.visible_len(words)}, at most {budget} fit. Rephrase it, do not "
+                     f"cut it: the outcome first, the filler out; the case is named by the item's proof line, not counted. "
+                     f"Nothing was written: {retry}", 3)
+
+
+def _case_tally(case: Path, todo: grammar.Todo, out: Outcome) -> str:
+    """How the whole case was accepted, read back from its phase files — for its `closed:` line, at either end (done or
+    cancelled); "" when nothing was done, or the case neither asks for two hands nor accepted anything."""
+    items = [it for p in todo.phases for it in _closed_phase_items(case, p)]
+    if not any(it.done for it in items):
+        return ""
+    return _acceptance_tally(items) if _two_hands(_readme_text(case, out)) or any(it.accepted for it in items) else ""
+
+
 def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> Outcome:
     out = Outcome()
     howto_text = _howto_text(case, howto) if howto else None
@@ -3218,6 +3291,9 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> O
     if live:  # F20: a parent closes only when every child is done or cancelled; BROKEN holds it open (F18)
         raise StoreError("cannot close the case: nested cases still open — " + ", ".join(live) +
                          " → close each (el --case <name> done \"…\") or cancel it with a reason", 4)
+    words = " ".join(summary.split())
+    _child_item_check(root, case, words, words, "summary", f"el done \"<the outcome in at most "
+                      f"{grammar.TODO_ITEM_CHARS} chars>\"")
     journal = _journal(case, out)
     by_phase: Dict[str, List[grammar.Event]] = {}
     for e in journal.entries:
@@ -3230,7 +3306,9 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> O
     if howto_text:
         out.lines += log(case, "DECISION", f"howto: {howto_text}").lines
     date, _ = _now()
-    closed, shown = _closed_line(f"{date} · {summary}")
+    tally = _case_tally(case, todo, out)
+    # the case's own line carries how its work was accepted; the parent draws its line about the child from it
+    closed, shown = _closed_line(f"{date} · {summary}" + (f" · acceptance: {tally}" if tally else ""))
     text = _set_state_line(_readme_text(case, out), "closed: ", shown)
     text = _set_state_line(text, "next: ", None)  # a closed case has no next step — the line would be a lie (2026-09-14)
     _write_readme(case, text, out, anchor=True)
@@ -3246,7 +3324,7 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> O
                 m = _next_number(parent, ptodo, p)
                 # the child's outcome lands at the parent as a done item whose evidence is the child itself
                 # (F20: the tool does not write a tick without a kind): file → the child's README
-                p.items.append(grammar.Item(p.n, m, True, f"{summary} · {case.name}/", 0,
+                p.items.append(grammar.Item(p.n, m, True, summary, 0,  # the agent's words only; the proof line names the case
                                             evidence=[("file", _child_readme_link(parent, case))]))
         out.absorb(_write_todo(parent, ptodo))
         _write_readme(parent, _set_state_line(_readme_text(parent, out), "ждёт: ", None), out)
@@ -3256,6 +3334,8 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> O
                          (f"закрыто → {summary} · {case.name}/" if awaited else f"дело закрыто → {summary} · {case.name}/")).lines
         out.say(f"parent updated: {parent.name} — hand returns to the parent")
     out.say(f"closed: {case.name}")
+    if tally:
+        out.say(f"acceptance: {tally} → the closed: line, drawn at the parent")
     return out
 
 
@@ -3272,12 +3352,15 @@ def case_cancel(root: Path, case: Path, why: str) -> Outcome:
     live = [f"{k.name} ({order.child_status(k)[0]})" for k in order.child_cases(case, _is_project(case)) if order.child_status(k)[0] != "closed"]
     if live:
         raise StoreError("cannot cancel the case: nested cases still open — " + ", ".join(live) + " → close or cancel each first", 4)
+    _child_item_check(root, case, f"снято: {why}", why, "reason", "el case cancel \"<the reason, shorter>\"")
     for p in todo.phases:
         if not p.done:
             out.lines += log(case, "DECISION", _cancel_phase(case, todo, p, why, out), f"p{p.n}").lines
     out.absorb(_write_todo(case, todo))
     date, _ = _now()
-    text = _set_state_line(_readme_text(case, out), "closed: ", _closed_line(f"{date} · снято: {why}")[1])
+    tally = _case_tally(case, todo, out)  # the work done before the cancel was accepted somehow — the line says how
+    text = _set_state_line(_readme_text(case, out), "closed: ",
+                           _closed_line(f"{date} · снято: {why}" + (f" · acceptance: {tally}" if tally else ""))[1])
     text = _set_state_line(text, "next: ", None)  # nothing is next for a cancelled case
     _write_readme(case, text, out, anchor=True)
     out.lines = log(case, "DECISION", f"дело снято → {why}").lines + out.lines
@@ -3288,7 +3371,7 @@ def case_cancel(root: Path, case: Path, why: str) -> Outcome:
             if case.name in p.waits:
                 p.waits.remove(case.name)
                 m = _next_number(parent, ptodo, p)
-                p.items.append(grammar.Item(p.n, m, True, f"снято: {why} · {case.name}/", 0,
+                p.items.append(grammar.Item(p.n, m, True, f"снято: {why}", 0,
                                             evidence=[("file", _child_readme_link(parent, case))]))
         out.absorb(_write_todo(parent, ptodo))
         _write_readme(parent, _set_state_line(_readme_text(parent, out), "ждёт: ", None), out)
@@ -4001,9 +4084,10 @@ def _closed_phase_items(case: Path, p: grammar.Phase) -> List[grammar.Item]:
             continue
         m = re.fullmatch(rf"- {p.n}\.(\d+) ([✓✗]) (.*)", ln)
         if m:
-            text, _, _ = grammar.split_evidence(m.group(3))
+            text, kind, proof = grammar.split_evidence(m.group(3))  # an item closed before 1.10.0 keeps its proof inline
             text, _, after = _split_suffixes(text)
-            items.append(grammar.Item(p.n, int(m.group(1)), m.group(2) == "✓", text, 0, after=after))
+            items.append(grammar.Item(p.n, int(m.group(1)), m.group(2) == "✓", text, 0, after=after,
+                                      evidence=[(kind, proof)] if kind else []))
             continue
         pocket = re.fullmatch(r"  - (why|note|expect|result|fact|accepted): (.+)", ln)
         if pocket and items:
