@@ -64,6 +64,7 @@ def _flying(case: Path, todo: grammar.Todo) -> Optional[grammar.Phase]:
 
 # ---- TODO rendering (machine-owned text) ---------------------------------------------------------
 BARE_PHASE_PATH_RE = re.compile(r"(?<![\w/(\[`])(phases/\d+-[a-z0-9-]+\.md)(?![\w)`])")
+BARE_WAITS_RE = re.compile(r"^  - waits: [^\[]", re.M)  # the bare case name el wrote before 1.31.0 (F6)
 
 
 def _phase_link(file_name: str) -> str:
@@ -117,7 +118,7 @@ def _owes_acceptance(todo: grammar.Todo, two_hands: bool) -> bool:
     return two_hands and any(it.done and not it.accepted for p in todo.phases if not p.done for it in p.items)
 
 
-def render_todo(todo: grammar.Todo, two_hands: bool = False) -> str:
+def render_todo(todo: grammar.Todo, two_hands: bool = False, root_mode: bool = False) -> str:
     out = [f"# {todo.title}", ""] + ([grammar.LEGEND, ""] if _owes_acceptance(todo, two_hands) else [])
     for p in sorted(todo.phases, key=lambda x: x.n):
         mark = "x" if p.done else " "
@@ -129,7 +130,7 @@ def render_todo(todo: grammar.Todo, two_hands: bool = False) -> str:
         for it in [i for i in p.items if not i.held] + [i for i in p.items if i.held]:
             out += _item_block(it, two_hands and not p.done)  # a closed phase is history: the rule has no force there
         for w in p.waits:
-            out.append(f"  - waits: {w}")
+            out.append(f"  - waits: {_case_link(w, root_mode)}")
     out += _later_section(todo)
     return "\n".join(out) + "\n"
 
@@ -146,7 +147,7 @@ def _later_section(todo: grammar.Todo) -> List[str]:
     return ["", grammar.LATER_HEAD] + [ln for it in todo.later for ln in _later_block(it)]
 
 
-def render_todo_entry(todo: grammar.Todo, two_hands: bool = False) -> Tuple[str, int]:
+def render_todo_entry(todo: grammar.Todo, two_hands: bool = False, root_mode: bool = False) -> Tuple[str, int]:
     """TODO as the ENTRY shows it: open items with their pockets (what to do, why, what is expected), done items
     collapsed to their line and their `fact:` — the result and the proofs are history the file keeps (TODO.md), not
     what the next agent needs to continue. Found on the tool's own case (2026-09-17): 25 done items with pockets
@@ -171,7 +172,7 @@ def render_todo_entry(todo: grammar.Todo, two_hands: bool = False) -> Tuple[str,
             else:
                 out += _item_block(it, two_hands and not p.done)
         for w in p.waits:
-            out.append(f"  - waits: {w}")
+            out.append(f"  - waits: {_case_link(w, root_mode)}")
     out += _later_section(todo)
     return "\n".join(out) + "\n", collapsed
 
@@ -201,7 +202,7 @@ def _derive_todo(case: Path, todo: grammar.Todo) -> bool:
 def _write_todo(case: Path, todo: grammar.Todo):
     """The one door for TODO writes: derived lines first (F18), then the stamp door."""
     _derive_todo(case, todo)
-    return store.write(case, "TODO.md", render_todo(todo, _case_two_hands(case)))
+    return store.write(case, "TODO.md", render_todo(todo, _case_two_hands(case), _is_project(case)))
 
 
 def _case_two_hands(case: Path) -> bool:
@@ -261,7 +262,7 @@ def _set_state_line(readme: str, prefix: str, value: Optional[str]) -> str:
                 add_line()
                 done = True
             in_state = ln == "## State"
-        if in_state and ln.startswith(f"- {prefix}"):
+        if in_state and ln.startswith(f"- {prefix}") and not grammar.DRAWN_WAIT_RE.match(ln):  # el's line (F6), not set here
             if value is not None and not done:
                 out.append(f"- {prefix}{value}")
             done = True  # replaced or removed
@@ -305,12 +306,13 @@ def _derive_readme(case: Path, body: str) -> str:
     parsed = grammar.parse_readme(body)
     if parsed.errors:
         return body
-    links, _ = order.render_links(case, _is_project(case), parsed.sections.get("Links", []))
+    links, _ = order.render_links(case, _is_project(case), [_parent_line(case, ln) for ln in parsed.sections.get("Links", [])])
     text = _replace_section(body, "Links", links)
     try:
         todo = grammar.parse_todo(store.read(case, "TODO.md"))
         if not todo.errors:
             text = _set_state_line(text, "progress: ", progress_line(todo, case))
+            text = _draw_waits(case, text, [w for p in todo.phases for w in p.waits])
     except StoreError:
         pass
     try:
@@ -321,6 +323,57 @@ def _derive_readme(case: Path, body: str) -> str:
     except StoreError:
         pass
     return _blank_before_headings(text)
+
+
+def _draw_waits(case: Path, readme: str, waits: List[str]) -> str:
+    """The State line `- ждёт: [<case>](<case>/README.md)` for every nested case a phase waits for (F6) — drawn from
+    TODO on every README write, like `progress:`, never typed (feedback 2026-09-30: written once as a bare name, it did
+    not click, and the patch that removed it at the child's close removed every `ждёт:` line — the agent's own too).
+    A drawn line keeps its place; one whose case no longer waits goes; a new one goes at the end of State. The bare
+    name el wrote before 1.31.0 is el's line as well when it names a case of this one, and is drawn as a link."""
+    root_mode = _is_project(case)
+    kids = {k.name for k in order.child_cases(case, root_mode)}
+    lines = readme.rstrip("\n").split("\n")
+    out: List[str] = []
+    drawn, in_state = set(), False
+
+    def add_missing():
+        k = len(out)
+        while k > 0 and out[k - 1] == "":
+            k -= 1
+        out[k:k] = [f"- ждёт: {_case_link(w, root_mode)}" for w in waits if w not in drawn]
+        drawn.update(waits)
+
+    for ln in lines:
+        if ln.startswith("## "):
+            if in_state:
+                add_missing()
+            in_state = ln == "## State"
+        elif in_state:
+            m = grammar.DRAWN_WAIT_RE.match(ln) or OLD_WAIT_LINE_RE.match(ln)
+            if m and (ln.startswith("- ждёт: [") or m.group(1) in waits or m.group(1) in kids):
+                name = m.group(1)
+                if name in waits and name not in drawn:
+                    out.append(f"- ждёт: {_case_link(name, root_mode)}")
+                    drawn.add(name)
+                continue
+        out.append(ln)
+    if in_state:
+        add_missing()
+    return "\n".join(out) + "\n"
+
+
+OLD_WAIT_LINE_RE = re.compile(r"^- ждёт: (\d{4}-\d{2}-\d{2}-[A-Za-z0-9-]+)$")  # the bare name `spawn` wrote before 1.31.0
+OLD_PARENT_LINE_RE = re.compile(r"^- parent: ([^\s\[]+)( · .*)?$")
+
+
+def _parent_line(case: Path, line: str) -> str:
+    """The child's Links line about its parent, as a link to the parent's README (feedback 2026-09-30: the bare folder
+    name did not click). The bare line el wrote before 1.31.0 is drawn as a link on the next write; anything else as is."""
+    m = OLD_PARENT_LINE_RE.match(line)
+    if not m or not store.is_case_dir(case.parent) or m.group(1) != case.parent.name:
+        return line
+    return f"- parent: [{m.group(1)}](../README.md){m.group(2) or ''}"
 
 
 def _event_words(ev: grammar.Event) -> str:
@@ -3015,9 +3068,13 @@ def readme_drop(case: Path, section: str, ref: str) -> Outcome:
         prefix = ref.rstrip(":")
         if prefix.lower() in STATE_OWNED:
             raise StoreError(f"`- {prefix}:` is held by el (derived on every write) — it does not get removed (F3)", 2)
-        at = next((i for i, ln in enumerate(parsed.sections.get("State", [])) if ln.startswith(f"- {prefix}:")), None)
+        state = parsed.sections.get("State", [])
+        at = next((i for i, ln in enumerate(state) if ln.startswith(f"- {prefix}:") and not grammar.DRAWN_WAIT_RE.match(ln)), None)
         if at is None:
-            have = ", ".join(ln[2:].split(":")[0] for ln in parsed.sections.get("State", []) if ln.startswith("- "))
+            drawn = next((ln for ln in state if ln.startswith(f"- {prefix}:")), None)
+            if drawn:
+                raise _drawn_wait_refusal(drawn)
+            have = ", ".join(ln[2:].split(":")[0] for ln in state if ln.startswith("- "))
             raise StoreError(f"no `- {prefix}:` line in State (lines: {have})", 4)
         removed = parsed.sections["State"].pop(at)
         _write_readme(case, _render_readme(parsed), out, anchor=True)
@@ -3027,10 +3084,20 @@ def readme_drop(case: Path, section: str, ref: str) -> Outcome:
     bullets = [i for i, ln in enumerate(parsed.sections.get(name, [])) if ln.startswith("- ")]
     if not 1 <= k <= len(bullets):
         raise StoreError(f"{name} has {len(bullets)} line(s), nothing at position {k}", 4)
+    if name == "State" and grammar.DRAWN_WAIT_RE.match(parsed.sections[name][bullets[k - 1]]):
+        raise _drawn_wait_refusal(parsed.sections[name][bullets[k - 1]])
     removed = parsed.sections[name].pop(bullets[k - 1])
     _write_readme(case, _render_readme(parsed), out, anchor=name == "State")
     out.say(f"README {name}: dropped «{removed[2:]}»")
     return out
+
+
+def _drawn_wait_refusal(line: str) -> StoreError:
+    """The `ждёт:` line about a nested case is drawn from the phase's `waits:` (F6): removed here it would come back on
+    the next write, and the parent would still wait. It goes when the child ends — the same door that ends it."""
+    name = grammar.DRAWN_WAIT_RE.match(line).group(1)
+    return StoreError(f"«{line[2:]}» is drawn by el from the phase's `waits:` (F6) — the parent waits for {name}; the line "
+                      f"goes when that case ends: el --case {name} done \"outcome\" · or el --case {name} case cancel \"why\"", 4)
 
 
 # ---- cases --------------------------------------------------------------------------------------
@@ -3070,14 +3137,18 @@ def _case_folder(name: str) -> str:
 
 
 def case_new(root: Path, name: str, goal: str, parent: Optional[Path] = None) -> Path:
+    """A new case: at the top of `.cases/`, or nested in `parent` — whose child of the project case (root mode) lives in
+    `.cases/` all the same. A nested case links back to the parent's README (F6, L9; feedback 2026-09-30: the bare
+    folder name did not click, and a child of the project case had no line about its parent at all)."""
     folder = _case_folder(name)
-    case = (parent or root) / folder
+    case = (root if parent is None or _is_project(parent) else parent) / folder
     if case.exists():
         raise StoreError(f"{case} already exists", 4)
     case.mkdir()
     title = name.strip()
     goal = " ".join(goal.split())
-    links = [f"- parent: {parent.name} · фаза {_phase_of(store.todo_of(parent))[1:]}"] if parent else []
+    back = Path(os.path.relpath(store.file_path(parent, "README.md"), case)).as_posix() if parent else ""
+    links = [f"- parent: [{parent.name}]({back}) · фаза {_phase_of(store.todo_of(parent))[1:]}"] if parent else []
     d, t = _now()
     readme_text = "\n".join([
         f"# {title}", "", "## Context", goal, *_default_rules(), "", "## State", "- progress: (no phases yet)",
@@ -3217,25 +3288,18 @@ def spawn(root: Path, parent: Path, name: str, goal: str) -> Outcome:
     cur = _flying(parent, todo) or todo.current()
     if cur is None:
         raise StoreError("parent has no open phase — spawn happens inside a phase (P11)", 4)
-    into = root if parent == store.project_case(root) else parent
+    into = root if _is_project(parent) else parent
     child_name = _case_folder(name)
     if (into / child_name).exists():
         raise StoreError(f"{into / child_name} already exists", 4)
     # Parent first, child last: without a session id the hand follows the freshest JOURNAL.md; with one, it is held.
+    # README is written before the child too — a refusal there must not leave a folder behind (the undo keeps files).
     cur.waits.append(child_name)
     out.absorb(_write_todo(parent, todo))
-    text = _readme_text(parent, out)
-    lines = text.rstrip("\n").split("\n")
-    idx = next(i for i, ln in enumerate(lines) if ln == "## State")
-    j = idx + 1
-    while j < len(lines) and not lines[j].startswith("## "):
-        j += 1
-    while j > idx + 1 and lines[j - 1] == "":
-        j -= 1
-    lines.insert(j, f"- ждёт: {child_name}")
-    _write_readme(parent, "\n".join(lines) + "\n", out)
+    _write_readme(parent, _readme_text(parent, out), out)  # `ждёт:` is drawn from `waits:` (F6)
     out.lines = log(parent, "PROBLEM", f"{goal} · open → {child_name}/").lines + out.lines
-    child = case_new(root, name, goal, parent=None if into == root else parent)
+    child = case_new(root, name, goal, parent=parent)
+    _write_readme(parent, _readme_text(parent, out), out)  # the cases block of Links draws the child now, not next time
     store.hold(root, child)
     out.say(f"spawned: {child.relative_to(root)} — hand moves to the child; parent waits in phase {cur.n}")
     hints.attach(out, "case_new", root=root)
@@ -3327,7 +3391,7 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> O
                 p.items.append(grammar.Item(p.n, m, True, summary, 0,  # the agent's words only; the proof line names the case
                                             evidence=[("file", _child_readme_link(parent, case))]))
         out.absorb(_write_todo(parent, ptodo))
-        _write_readme(parent, _set_state_line(_readme_text(parent, out), "ждёт: ", None), out)
+        _write_readme(parent, _readme_text(parent, out), out)  # `ждёт:` of this child is drawn no more (F6)
         # the child always reports to its parent, however it was created (F18): an awaited child
         # closes the PROBLEM that spawned it, any other child lands as a RESULT
         out.lines += log(parent, "PROBLEM" if awaited else "RESULT",
@@ -3374,7 +3438,7 @@ def case_cancel(root: Path, case: Path, why: str) -> Outcome:
                 p.items.append(grammar.Item(p.n, m, True, f"снято: {why}", 0,
                                             evidence=[("file", _child_readme_link(parent, case))]))
         out.absorb(_write_todo(parent, ptodo))
-        _write_readme(parent, _set_state_line(_readme_text(parent, out), "ждёт: ", None), out)
+        _write_readme(parent, _readme_text(parent, out), out)  # `ждёт:` of this child is drawn no more (F6)
         out.lines += log(parent, "DECISION", f"снято → {why} · {case.name}/").lines
         out.say(f"parent updated: {parent.name}")
     out.say(f"cancelled: {case.name} — closed as «снято», reason in the journal")
@@ -3700,8 +3764,14 @@ STATE_DUE_RE = re.compile(r"^- due: (\d{4}-\d{2}-\d{2})(?:\s*[·—–-]?\s*(.*)
 
 def _child_readme_link(parent: Path, child: Path) -> str:
     """`[child-name](child-name/README.md)` — from a normal parent; `.cases/…` from the project case."""
-    prefix = f"{order.CASES_DIR}/" if _is_project(parent) else ""
-    return f"[{child.name}]({prefix}{child.name}/README.md)"
+    return _case_link(child.name, _is_project(parent))
+
+
+def _case_link(name: str, root_mode: bool) -> str:
+    """How el points at a nested case from its parent, wherever it draws one — a phase's `waits:`, the State line
+    `ждёт:`, the cases block of Links, the proof line of the child's outcome: a link to the child's README, the face
+    of the case (F6, F18). Feedback 2026-09-30: `waits:` and `ждёт:` were bare folder names — no click in the editor."""
+    return f"[{name}]({order.CASES_DIR + '/' if root_mode else ''}{name}/README.md)"
 
 
 def _when(days: int) -> str:
@@ -3977,11 +4047,13 @@ def entry(root: Path, case: Path) -> Outcome:
     readme_body = _refresh_readme(case, out)
     todo_body, _ = stamp.split(store.read(case, "TODO.md"))
     todo = grammar.parse_todo(todo_body)
-    if not todo.errors and _derive_todo(case, todo):  # phase lines follow their files (F18)
+    # phase lines follow their files (F18); a bare `waits:` name el wrote before 1.31.0 becomes a link (F6)
+    if not todo.errors and (_derive_todo(case, todo) or BARE_WAITS_RE.search(todo_body)):
         try:
-            out.absorb(store.write(case, "TODO.md", render_todo(todo, _two_hands(readme_body))))
-            todo_body = render_todo(todo, _two_hands(readme_body))
-            out.say("TODO refreshed: open phase lines follow their phase files (goal · path)")
+            fresh = render_todo(todo, _two_hands(readme_body), _is_project(case))
+            out.absorb(store.write(case, "TODO.md", fresh))
+            todo_body = fresh
+            out.say("TODO refreshed: open phase lines follow their phase files (goal · path), nested cases are links")
         except StoreError as e:
             out.warn(f"TODO not refreshed — {e}")
     journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
@@ -4011,7 +4083,7 @@ def entry(root: Path, case: Path) -> Outcome:
         out.say(howto, "")  # what the project already knows how to do — before the task, not only when stuck
     out.say(readme_body.rstrip("\n"), "")
     if not todo.errors:
-        shown, collapsed = render_todo_entry(todo, _two_hands(readme_body))
+        shown, collapsed = render_todo_entry(todo, _two_hands(readme_body), _is_project(case))
         out.say(shown.rstrip("\n"))
         if collapsed:
             out.say(f"({collapsed} done item(s) collapsed here — result and proofs: TODO.md · one item in full: el todo show N.M)")

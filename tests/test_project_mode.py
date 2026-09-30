@@ -45,7 +45,11 @@ class ProjectMode(unittest.TestCase):
         code, out, err = run("spawn", "add payments", "--goal", "оплата картой, причина сложности неизвестна")
         self.assertEqual(code, 0, err)
         child = next(p for p in (self.project / ".cases").iterdir() if p.is_dir() and "add-payments" in p.name)
-        self.assertIn("waits: " + child.name, (self.project / "TODO.md").read_text())
+        # the project case points into .cases/, the child back two folders up (feedback 2026-09-30)
+        self.assertIn(f"waits: [{child.name}](.cases/{child.name}/README.md)", (self.project / "TODO.md").read_text())
+        self.assertIn(f"- ждёт: [{child.name}](.cases/{child.name}/README.md)", (self.project / "README.md").read_text())
+        self.assertIn(f"- parent: [{self.project.name}](../../README.md) · фаза 1", (child / "README.md").read_text())
+        self.assertEqual(run("check")[0], 0)
         code, out, _ = run()
         self.assertIn(f"{self.project.name} › {child.name}", out)
         # child works and closes; outcome lands in the project files

@@ -79,7 +79,11 @@ def visible_len(text: str) -> int:
     rephrased — verb first, the path stays, the filler goes — not counted differently)."""
     return len(LINK_RE.sub(r"\1", text))
 DEEP_ITEM_RE = re.compile(r"^\s+- \[( |x)\] \d+\.\d+\.\d+")
-WAITS_RE = re.compile(r"^  - waits: (\S+)$")
+# F6: `waits:` names a nested case by a link to its README (feedback 2026-09-30: a bare folder name did not click in the
+# editor); the bare name el wrote before 1.31.0 is read as well and drawn as a link on the next write
+WAITS_RE = re.compile(r"^  - waits: (?:\[[^\]\s]+\]\((?:\.cases/)?([^)\s/]+)/README\.md\)|([^\s\[]\S*))$")
+# the State line el draws at a parent for every case its phases wait for (F6) — from `waits:`, never typed
+DRAWN_WAIT_RE = re.compile(r"^- ждёт: \[([^\]\s]+)\]\((?:\.cases/)?\1/README\.md\)$")
 PHASE_NOTE_RE = re.compile(r"^  - note: (.+)$")                      # F22: a note under a phase line
 POCKET_RE = re.compile(r"^    - (why|note|expect|result|fact|accepted):(?: (.+))?$")  # F22: an item's pockets; F23: accepted
 EVIDENCE_LINE_RE = re.compile(r"^(?:    |      )- (file|ref|run|owner)(?:: (.+))?$")  # F20: one line per proof
@@ -489,12 +493,12 @@ def parse_todo(text: str) -> Todo:
             if phase is None:
                 r.error("F6", i, "`waits:` before any phase")
             else:
-                phase.waits.append(m.group(1))
+                phase.waits.append(m.group(1) or m.group(2))
             finish(item)
             item, in_result = None, False
             continue
         r.error("F4", i, "unparsable line: expected `- [ ] N Name`, `  - [ ] N.M text`, `  - note: …` (phase), "
-                         "`    - why: | note: | expect: | result: | accepted: | fact: …` (item, F22, F23), `      - <kind>: <proof>` (evidence, F20), `  - waits: <case>`, "
+                         "`    - why: | note: | expect: | result: | accepted: | fact: …` (item, F22, F23), `      - <kind>: <proof>` (evidence, F20), `  - waits: [<case>](<case>/README.md)`, "
                          "or after `## Later`: `  - [ ] Lk text — since: YYYY-MM-DD` (F24)")
     finish(item)
     return r
@@ -545,7 +549,10 @@ def parse_readme(text: str) -> Readme:
     # limit could not be closed because of it) — a part of a line, so bytes only
     drawn_tail = sum(len(m.group(0).encode("utf-8")) for ln in r.sections.get("State", []) if ln.startswith("- closed: ")
                      for m in [CLOSED_TALLY_RE.search(ln)] if m)
-    own_lines, own_bytes = r.lines - r.rendered_lines, r.bytes - r.rendered_bytes - drawn_tail
+    # so is the `ждёт:` line el draws for a nested case the phase waits for (F6) — the agent cannot shorten it
+    drawn_wait = [ln for ln in r.sections.get("State", []) if DRAWN_WAIT_RE.match(ln)]
+    drawn_tail += sum(len(ln.encode("utf-8")) + 1 for ln in drawn_wait)
+    own_lines, own_bytes = r.lines - r.rendered_lines - len(drawn_wait), r.bytes - r.rendered_bytes - drawn_tail
     aside = (f" (Links rendered by el: {r.rendered_lines} lines / {r.rendered_bytes} bytes more, not counted)"
              if rendered else "")
     if own_lines > README_MAX_LINES or own_bytes > README_MAX_BYTES:
