@@ -260,7 +260,10 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   Nothing came out? Then it was not done: `cancel N.M "why"`.
 - waiting for the outside — a ticket in another team's queue, an approval, a reply: `el todo hold N.M "waiting for:
   what, whose"` — `[~]`, not ours to do now and not broken; `[ ]` would read «do me now». The reason is required; the
-  entry's thread names the wait; it came → `el todo resume N.M`, then do it. A wait on an item of this case is
+  entry's thread names the wait; it came → `el todo resume N.M`, then do it. Is there a command that tells the wait
+  is over (a probe, a status call)? `--check '<command>'` — the next agent comes without memory and tests the wall
+  instead of guessing; el never runs it, the thread names it; a hold again keeps it, `--check none` takes it away.
+  A wait on an item of this case is
   `el todo after N.M "N.K"` instead — el lifts it by itself when N.K is done.
 - a tick taken back: `el todo reopen N.M "why the result no longer holds"` — the item is open
   again (the phase cannot close over it, its dependents are blocked again), the journal gets a
@@ -644,8 +647,9 @@ ACCEPTANCE
 
 A WAIT ON THE OUTSIDE
   weak    `[ ] 2.1 check the port` while the access ticket sits in another team's queue — reads «do me now»
-  strong  el todo hold 2.1 "waiting for: ticket REQ-1, network team's queue" — the entry's thread says
-          `waiting: 2.1 «…» — it came: el todo resume 2.1`; resumed, the probe runs and proves the criterion
+  strong  el todo hold 2.1 "waiting for: ticket REQ-1, network team's queue" --check './check-port.sh' — the entry's
+          thread says `waiting: 2.1 «…» — is it over? `./check-port.sh` — it came: el todo resume 2.1`; the next agent
+          runs the check, not the calendar; resumed, the probe runs and proves the criterion
 
 CLOSING A PHASE
   weak    reflect: "tests passed on DEV and UAT"           — that is a result

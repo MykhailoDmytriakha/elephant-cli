@@ -255,6 +255,10 @@ class Item:
     # `el todo accept` only (the owner's word, 2026-09-25: done by one hand, accepted by another); `reopen` clears it
     accepted: str = ""
     since: str = ""  # F24: a Later line only — the date it was put into the general list (written by el)
+    # L4 (a live wall, 2026-09-30): the command that tells whether the wait is over — `— check: …` after the hold reason;
+    # el never runs it (the owner's word, 2026-09-22), the entry names it; it lives and goes with the hold. Last field:
+    # items are built positionally
+    hold_check: str = ""
 
     @property
     def kind(self) -> str:
@@ -386,8 +390,13 @@ def parse_todo(text: str) -> Todo:
             finish(item)
             mark, n, k, txt = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4).strip()
             held, reason, due = mark == "~", "", ""
+            check = ""
             if held and " — hold: " in txt:
                 txt, reason = txt.rsplit(" — hold: ", 1)
+                if " — check:" in reason:  # without the trailing space: a line cut at the end still shows its empty check
+                    reason, check = (x.strip() for x in reason.rsplit(" — check:", 1))
+                    if not check:
+                        r.error("F4", i, f"item {n}.{k}: `check:` is empty — the command that tells the wait is over, or no `— check:` at all")
             # 1.5.0–1.9.0 appended the evidence tail AFTER the date or dependency (`… — due: D — file: [x](p)`):
             # a line el wrote is a line el reads (feedback 2026-09-22: one such line made the whole TODO
             # unwritable). The tail goes back onto the text, and finish() splits it as evidence.
@@ -414,6 +423,7 @@ def parse_todo(text: str) -> Todo:
             if phase.done:
                 r.error("F5", i, f"closed phase {phase.n} still lists items — they belong in the phase file")
             item, in_result = Item(n, k, mark in ("x", "/"), txt, i, held, reason, due, after), False  # F13 is checked in finish()
+            item.hold_check = check
             phase.items.append(item)
             continue
         m = EVIDENCE_LINE_RE.match(raw)
