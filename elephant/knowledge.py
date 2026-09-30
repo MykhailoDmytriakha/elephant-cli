@@ -199,7 +199,8 @@ happened. Now the lower layer is visible from the top, and the top is rendered f
   both answers: make it two files (feedback 2026-09-16: «why-x-and-router-flow.md»).
   Recipes are NOT per-case: they go to the project-root .howto/.
 - README State carries lines el owns: `progress:` (from TODO), `last:` (newest RESULT),
-  `as of:` (the journal entry State was last rewritten against, S5). Yours: next, ждёт, due …
+  `as of:` (the journal entry State was last rewritten against, S5), `ждёт: [<case>](…)` (a nested case a phase
+  waits for, F6). Yours: next, ждёт, due …
   — `el readme set <prefix> "…"` sets one, `el readme set <prefix> ""` (or `el readme drop state
   <prefix>`) removes it once it stops being true; a stale State line is a lie the owner reads.
   Other sections are ordered lists: `el readme add <section> "line"` · `el readme edit <section>
@@ -441,8 +442,10 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   freshest journal: set EL_SESSION, or pass --case. One agent works one case at a time.
 - Rule of nesting: know what to do → an item N.M; do NOT know the cause / needs its own research /
   longer than a session → `el spawn "name" --goal "…"` — a nested case of the same shape inside
-  the parent. The parent shows one `waits:` line; `el done "outcome"` in the child writes one
-  summary line back and returns the hand.
+  the parent. Parent and child point at each other with links the editor opens: the parent's phase shows
+  `waits: [<child>](<child>/README.md)` and its State `ждёт: [<child>](…)` — drawn by el from `waits:`, gone when the
+  child ends, not yours to set or drop; the child's Links shows `parent: [<parent>](../README.md) · фаза N`.
+  `el done "outcome"` in the child writes one summary line back and returns the hand.
 - `el done "outcome"` closes the case (all phases and nested cases must be closed first);
   `el case cancel "why"` ends it the other honest way — open phases collapse with the reason.
   At a parent that waits for it the outcome becomes an item, so it is an item's size: ≤ 100 visible chars of YOUR

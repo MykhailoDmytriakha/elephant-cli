@@ -108,9 +108,10 @@ class Flow(unittest.TestCase):
         code, out, err = run("spawn", "db unreachable from server", "--goal", "server cannot reach the database")
         self.assertEqual(code, 0, err)
         child = next(p for p in case.iterdir() if p.is_dir() and p.name.endswith("db-unreachable-from-server"))
-        self.assertIn("waits: " + child.name, (case / "TODO.md").read_text())
-        self.assertIn("- ждёт: " + child.name, (case / "README.md").read_text())
-        self.assertIn("parent: " + case.name, (child / "README.md").read_text())
+        # both ways a link to the case's README (feedback 2026-09-30)
+        self.assertIn(f"waits: [{child.name}]({child.name}/README.md)", (case / "TODO.md").read_text())
+        self.assertIn(f"- ждёт: [{child.name}]({child.name}/README.md)", (case / "README.md").read_text())
+        self.assertIn(f"parent: [{case.name}](../README.md)", (child / "README.md").read_text())
         code, out, _ = run()
         self.assertIn(f"{case.name} › {child.name}", out)
 
