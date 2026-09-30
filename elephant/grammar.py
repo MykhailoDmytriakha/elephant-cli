@@ -31,6 +31,7 @@ EVENT_WARN_CHARS = 180
 EVENT_BODY_LINES = 5
 
 README_SECTIONS = ["Context", "State", "Decisions", "Problems", "Links"]
+CLOSED_TALLY_RE = re.compile(r" · acceptance: \d+ of \d+ done accepted.*$")  # el's tail on `closed:` (F23), not counted
 STATE_OWNED = ("progress", "last", "as of", "closed")  # State lines el writes (F3): whole, not the agent's to shorten
 JOURNAL_TYPES = {"PHASE", "DECISION", "PROBLEM", "RESULT"}
 # F20 (2026-09-14, the owner's word): a done item carries the KIND of its evidence — a closed list, on
@@ -540,7 +541,11 @@ def parse_readme(text: str) -> Readme:
     # counted (feedback 2026-09-03: a growing file index squeezed the owner's own five lines out).
     rendered = [ln for ln in r.sections.get("Links", []) if ln.startswith("  ")]
     r.rendered_lines, r.rendered_bytes = len(rendered), sum(len(ln.encode("utf-8")) + 1 for ln in rendered)
-    own_lines, own_bytes = r.lines - r.rendered_lines, r.bytes - r.rendered_bytes
+    # the acceptance tally el draws on the `closed:` line is el's too (the Codex review, 2026-09-29: a README near its
+    # limit could not be closed because of it) — a part of a line, so bytes only
+    drawn_tail = sum(len(m.group(0).encode("utf-8")) for ln in r.sections.get("State", []) if ln.startswith("- closed: ")
+                     for m in [CLOSED_TALLY_RE.search(ln)] if m)
+    own_lines, own_bytes = r.lines - r.rendered_lines, r.bytes - r.rendered_bytes - drawn_tail
     aside = (f" (Links rendered by el: {r.rendered_lines} lines / {r.rendered_bytes} bytes more, not counted)"
              if rendered else "")
     if own_lines > README_MAX_LINES or own_bytes > README_MAX_BYTES:

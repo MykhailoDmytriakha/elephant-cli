@@ -125,7 +125,9 @@ class Flow(unittest.TestCase):
         self.assertEqual(code, 0, err)
         ptodo = grammar.parse_todo((case / "TODO.md").read_text())
         self.assertEqual(ptodo.phase(2).waits, [])
-        self.assertEqual(ptodo.phase(2).items[0].text, f"firewall rule on 5432 · {child.name}/")
+        # the agent's words only (feedback 2026-09-29): the case is named by the proof line, not appended to the text
+        self.assertEqual(ptodo.phase(2).items[0].text, "firewall rule on 5432")
+        self.assertIn(child.name, ptodo.phase(2).items[0].evidence[0][1])
         self.assertNotIn("- ждёт:", (case / "README.md").read_text())
         self.assertIn("closed: ", (child / "README.md").read_text())
         # hand is back on the parent

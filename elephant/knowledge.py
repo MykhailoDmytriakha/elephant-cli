@@ -69,6 +69,12 @@ The principles a fix is held to:
 - instructions do not retell the tool: knowledge lives in `el help`, a project carries one short block (el onboarding)
 - the system grows only from live use: a report from a real case → a principle → a change → a measurement → a test
 
+Rules and life (the owner's word, 2026-09-29): sometimes you hold to the rule, sometimes to life, and the two do not always
+agree. The tool never pretends they do: every rule has a legal way out for life — the owner's word, a cancel with a reason,
+a phase out of turn with its reason — and the record says which one was held, at every level it rises to. A rule with no
+way out teaches to fake; a way out with no trace dissolves the rule. Life that hits the same rule again and again changes
+the rule — by a measurement from a live case, not by a complaint.
+
 A report is not a spec: it is weighed against these, and the fix goes to the hole, not to the symptom — sometimes as an
 honest alternative to what was asked. Decided not to do: an external database or JSONL as the source of truth · hidden
 node ids in TODO · reading dates or dependencies out of free text · deleting files by the tool · reminders before a live
@@ -439,6 +445,13 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   summary line back and returns the hand.
 - `el done "outcome"` closes the case (all phases and nested cases must be closed first);
   `el case cancel "why"` ends it the other honest way — open phases collapse with the reason.
+  At a parent that waits for it the outcome becomes an item, so it is an item's size: ≤ 100 visible chars of YOUR
+  words — the case is named by the item's proof line (a link to its README), never appended to the text. A cancel reason
+  lands as «снято: <reason>», so 93 of the 100 are yours. el checks either before writing anything and says the number
+  (feedback 2026-09-29). Under the two-hands rule the parent's new item is `[/]` until the parent's second hand accepts it.
+- the case's `closed:` line carries how its work was accepted, at either end (done or cancelled) — `acceptance: 16 of 16
+  done accepted — the owner's word 16 · re-ran 0 of 16 run proof(s)` — and the parent draws its line about the child from
+  it (el help acceptance). The tally is el's drawing: it is not counted in the README budget.
 - the parent's Links carries a `cases:` block rendered from each child's own README (progress ·
   next; closed ones as a count plus the latest few) — never typed by hand (F18); a child from before
   el shows as legacy → migrate, a child whose stamped README el cannot parse any more as BROKEN →
@@ -695,7 +708,14 @@ records the verdict.
 - the session: `done` writes the doer's session under its RESULT (`session: 1a2b3c4d` — EL_SESSION, else the
   harness's id; Claude Code sets CLAUDE_CODE_SESSION_ID); `accept` compares: another session · same session ·
   session not given · the owner's word. Provenance, not proof: a subagent shares its parent's session id.
-- `--by self` is refused: a self-acceptance is not an acceptance. The owner's word passes: `--by owner "…"`.
+- `--by self` is refused: a self-acceptance is not an acceptance. The owner's word passes: `--by owner "the owner's
+  words, as said"` — el writes them as a quote (`слово владельца: «…»`), never as the agent's account of them; one word
+  for many items is one quote over a range, and the record shows it was one word.
+- the tally rises with the work (feedback 2026-09-29: sixteen items accepted on one blanket word read ✓ everywhere above
+  the item): one count, by kind — `3 of 4 done accepted — another session 2 · the owner's word 1 · re-ran 2 of 4 run
+  proof(s)` — on the entry, in the Digest of a closed phase, in the case's `closed:` line (done or cancelled) and so at
+  its parent; a cancelled phase keeps each item's `accepted:` line, and the case counts them. The box says the
+  state, the tally says how it was reached — like the kinds of evidence, counted beside the mark, not in it.
 - two errors, two guards: the acceptor catches «done is not what was expected»; «expected is not what the owner
   meant» only the owner catches — at the start, when the agent retells the task (el help practice: RETELLING).
 - stuck: an open item returned 3 times → an Order line with three honest exits: cut it smaller · cancel it with the
