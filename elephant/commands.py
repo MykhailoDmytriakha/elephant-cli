@@ -1231,8 +1231,11 @@ def _promise_lines(case: Path, todo: grammar.Todo) -> List[str]:
             continue
         for (kind, what), status, ref in _goal_coverage(p, _phase_goal(case, p)):
             if status == "uncovered" and what:
+                # the criterion is the beacon at the end; the way to it grows before it (feedback 2026-09-30: read as
+                # «decompose everything now», while the steps to the probe were still to be found)
                 lines.append(f"phase {p.n} {p.name} promises {_slot(kind, what)} and no item promises it — the criterion nobody works towards: "
-                             f"el todo add {p.n} \"…\" --expect \"{_slot(kind, what)}\" · or correct the goal line in phases/{_phase_file(case, p.n, p.name).name}")
+                             f"name it as the phase's last item now, el todo add {p.n} \"…\" --expect \"{_slot(kind, what)}\"; the steps to it come "
+                             f"as you find them, before it: el todo add {p.n} \"…\" --before {p.n}.K · or correct the goal line in phases/{_phase_file(case, p.n, p.name).name}")
     return lines
 
 
@@ -1737,14 +1740,22 @@ def _put_to_later(case: Path, todo: grammar.Todo, phase: grammar.Phase, item: gr
 
 
 def todo_hold(case: Path, ref: str, reason: str) -> Outcome:
+    """An item that cannot be done now, and why: most often it waits for the outside — a ticket in another team's
+    queue, an approval, a reply (feedback 2026-09-30: `[ ]` read «do me now», and a hold with no reason read «broken»).
+    The reason is required, like cancel's and reopen's: a silent hold is the lie; the thread names it on entry."""
     out = Outcome()
+    reason = " ".join(reason.split())
+    if not reason:
+        raise StoreError(f"hold needs what the item waits for: el todo hold {ref} \"waiting for: ticket REQ-1 in the network "
+                         f"team's queue\" — the thread names it on entry; it came → el todo resume {ref}", 2)
     todo = _todo(case, out)
     phase, item = _find_item(todo, ref)
     if item.done:
         raise StoreError(f"item {ref} is done — nothing to hold", 4)
-    item.held, item.hold_reason = True, " ".join(reason.split())
+    item.held, item.hold_reason = True, reason
     out.absorb(_write_todo(case, todo))
-    out.say(f"on hold: {ref} (held items sit at the end of the phase; `el todo resume {ref}` brings it back)")
+    out.say(f"on hold: {ref} — «{reason}»; the entry's thread names the wait, held items sit at the end of the phase; "
+            f"it came → el todo resume {ref}")
     return out
 
 
@@ -2103,7 +2114,7 @@ def _thread_line(case: Path, todo: grammar.Todo, readme_body: str, order_lines: 
                          else f"every item ended: el phase close {phase.n} \"…\"")
             order_lines = [ln for ln in (order_lines or []) if not ln.startswith(f"phase {phase.n} ")]  # named just now
         elif open_items:
-            parts.append(f"{len(open_items)} open item(s), none free — held or blocked: see unblocked:")
+            parts.append(_waiting_step(phase, open_items, blocked))
         else:
             parts.append(f"no items: el todo add {phase.n} \"…\"")
     if order_lines:
@@ -2113,6 +2124,21 @@ def _thread_line(case: Path, todo: grammar.Todo, readme_body: str, order_lines: 
     if m:
         parts.append(f"next: «{order._short(m.group(1).strip(), 70)}»")
     return "thread: " + " → ".join(parts) if parts else None
+
+
+def _waiting_step(phase: grammar.Phase, open_items: List[grammar.Item], blocked: Dict[str, List[Tuple[str, str]]]) -> str:
+    """The thread's step when no open item can be taken: WHAT the phase waits for, with the move that ends the wait
+    (feedback 2026-09-30: an item waiting for another team's ticket was left `[ ]`, reading «do me now», because the
+    thread said «held or blocked: see unblocked:» — and `unblocked:` never lists either, so the pointer led nowhere)."""
+    held = [it for it in open_items if it.held]
+    if held:
+        it = held[0]
+        more = f" (+{len(held) - 1} more held)" if len(held) > 1 else ""
+        why = f" «{order._short(it.hold_reason, 60)}»" if it.hold_reason else ""
+        return f"waiting: {it.n}.{it.m}{why}{more} — it came: el todo resume {it.n}.{it.m}"
+    ref = next(f"{it.n}.{it.m}" for it in open_items if f"{it.n}.{it.m}" in blocked)
+    on = ", ".join(r + ("" if st == "open" else f" ({st})") for r, st in blocked[ref])
+    return f"blocked: {ref} after {on} — finish that first, or rewire: el todo after {ref} none"
 
 
 def _later_lines(todo: grammar.Todo, journal: Optional[grammar.Journal]) -> List[str]:

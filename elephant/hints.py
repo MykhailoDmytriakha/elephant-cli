@@ -99,7 +99,8 @@ def _phase_open(rel: str, n: int = 0, promised=(), covered=(), **_) -> Optional[
     if promised and len(covered) < len(promised):  # the goal promises proofs no item works towards yet
         gap = [sl for sl in promised if sl not in covered]
         return (f"the goal promises {len(promised)} proof(s) and {len(covered)} have an item — name each criterion as an item "
-                f"with the same slot: el todo add {n} \"…\" --expect \"{gap[0]}\" (a phase is proved by its items) — el help phases")
+                f"with the same slot: el todo add {n} \"…\" --expect \"{gap[0]}\" — the beacon at the end; the steps to it come as you "
+                f"find them, before it (--before {n}.K) — el help phases")
     if not promised:
         return (f"what must be true when phase {n} closes? promise it in the goal, one proof per criterion — "
                 f"[run: …] [file: …] [owner] — and name each as an item; a baseline is not the goal — el help practice")

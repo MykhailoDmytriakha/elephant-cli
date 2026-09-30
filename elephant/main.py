@@ -41,7 +41,7 @@ EXAMPLES = """examples
   el mv docs/old.md docs/notes/new.md   move a file; every link to it is rewritten (README/TODO/JOURNAL and the documents)
   el relink docs/old.md docs/notes/new.md   the file already moved without el: the links follow now (journal included)
   el relink docs/old.md none            gone for good, or an example written as a link: the links become literal text
-  el todo hold 3.2 "ждём ответа заказчика" · el todo resume 3.2
+  el todo hold 3.2 "waiting for: ticket REQ-1, network team's queue" · el todo resume 3.2   the outside keeps it: [~], the thread names the wait
   el todo reopen 3.1 "the databases drifted — the result no longer holds"   a tick taken back: DECISION in the journal, the RESULT stays
   el todo brief 2.3                     the prompt for a FRESH session that accepts or returns 2.3 — a new chat, Codex, a clean subagent (el help acceptance)
   el todo accept 2.3 --by codex --run "k6 → p95 810 ms" "opened k6.txt too" · el todo reopen 2.3 --by codex "cold cache: 1400 ms"   the second hand re-runs each run: proof (F23)

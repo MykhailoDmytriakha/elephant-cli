@@ -248,7 +248,7 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
 
     "todo": """todo items — `el todo <action> N.M …`
 - `el todo add N "text"` (`--before N.K` puts it in place, not at the end) · `el todo done N.M <kind> "what came out"` · `el todo edit N.M "text"` ·
-  `el todo drop N.M` · `el todo hold N.M "why"` / `el todo resume N.M` · `el todo cancel N.M "why"` ·
+  `el todo drop N.M` · `el todo hold N.M "waiting for: …"` / `el todo resume N.M` · `el todo cancel N.M "why"` ·
   `el todo due N.M YYYY-MM-DD` · `el todo after N.M "N.K, case"` · `el todo move N.M N.K|last|K`.
 - done needs the KIND of its evidence and what came out (F20): `el todo done 2.4 file:evidence/receipt.pdf "fee paid"`
   — kinds: file:<path> · ref:<trace> · run:"<command → outcome>" · owner, several at once when the proof is several
@@ -258,6 +258,10 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   its `why:`; a commit hash, a function name, an operator is a trace, and a trace is proof (ref:<hash> · file:<source>),
   not the words (el warns when the words read like a code trace).
   Nothing came out? Then it was not done: `cancel N.M "why"`.
+- waiting for the outside — a ticket in another team's queue, an approval, a reply: `el todo hold N.M "waiting for:
+  what, whose"` — `[~]`, not ours to do now and not broken; `[ ]` would read «do me now». The reason is required; the
+  entry's thread names the wait; it came → `el todo resume N.M`, then do it. A wait on an item of this case is
+  `el todo after N.M "N.K"` instead — el lifts it by itself when N.K is done.
 - a tick taken back: `el todo reopen N.M "why the result no longer holds"` — the item is open
   again (the phase cannot close over it, its dependents are blocked again), the journal gets a
   DECISION and the old RESULT stays as history. `resume` only lifts a hold.
@@ -635,6 +639,13 @@ ACCEPTANCE
           logs] [run: the rerun shows the changed total]" — four criteria, four items with the same
           slots in their expect, four proofs; the baseline is a RESULT on the way, not a criterion. The close refuses
           until each criterion is proved; the Digest shows which item proved which
+  strong  the way to a criterion is found as you go: the criterion item is named when the phase opens, last — the
+          beacon; «submit the access request», «get the approval» come later, before it: el todo add 2 "…" --before 2.1
+
+A WAIT ON THE OUTSIDE
+  weak    `[ ] 2.1 check the port` while the access ticket sits in another team's queue — reads «do me now»
+  strong  el todo hold 2.1 "waiting for: ticket REQ-1, network team's queue" — the entry's thread says
+          `waiting: 2.1 «…» — it came: el todo resume 2.1`; resumed, the probe runs and proves the criterion
 
 CLOSING A PHASE
   weak    reflect: "tests passed on DEV and UAT"           — that is a result
