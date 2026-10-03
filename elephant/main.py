@@ -83,7 +83,7 @@ options: --case <name or suffix> (or EL_CASE) picks the case; exit codes 0 ok ·
 
 HELP_TOPIC = {"log": "journal", "todo": "todo", "phase": "phases", "readme": "readme", "case": "cases", "spawn": "cases", "facts": "facts",
               "done": "cases", "feedback": "feedback", "migrate": "migrate", "mv": "order", "relink": "order",
-              "order": "order", "check": "errors", "status": "start"}
+              "order": "order", "check": "errors", "doctor": "errors", "status": "start"}
 # The form of every other command carries its meaning in its placeholders (N.M, TYPE, old new); feedback's
 # three free texts do not — the agent must know what is valuable to the reader before writing a word, so
 # a wrong call prints the whole dose, not one example line.
@@ -122,6 +122,19 @@ def usage_recovery(prog: str) -> str:
     cmd = _cmd_of(prog)
     topic = HELP_TOPIC.get(cmd) if cmd else None
     return f"el help {topic} · el {cmd} -h" if topic else "el --help · el help start"
+
+
+def _command_usage(parser: argparse.ArgumentParser, name: str) -> Optional[str]:
+    """`el help mv` — a command with no dose of its own name answers with its usage and the dose it lives in (feedback
+    2026-10-02: `el --help` lists mv, `el help mv` was «no topic» with a recovery back to the topic list, while
+    `el mv -h` had the answer). A knowledge dose wins over a usage; a name that is neither stays an error."""
+    subs = next((a for a in parser._actions if isinstance(a, argparse._SubParsersAction)), None)
+    cmd = subs.choices.get(name.strip().lower()) if subs is not None else None
+    if cmd is None:
+        return None
+    topic = HELP_TOPIC.get(name.strip().lower())
+    return (cmd.format_help().rstrip("\n") + f"\n\n`{name}` is a command, not a knowledge dose — above is its usage (el {name} -h)"
+            + (f"; the dose it lives in: el help {topic}" if topic else "") + f"; every dose: el help <{knowledge.topic_list()}>")
 
 
 class Parser(argparse.ArgumentParser):
@@ -262,6 +275,7 @@ def shell_trace(args) -> Optional[str]:
 
 def run(argv=None) -> int:
     """One command, one change: what a refused or crashed command touched is put back (store.begin/rollback)."""
+    commands._FINGERPRINTS.clear()  # a file is hashed once per command, never trusted from an earlier one
     store.begin()
     try:
         return _run(argv)
@@ -283,6 +297,10 @@ def _run(argv=None) -> int:
         if args.cmd == "help":
             if args.topic:
                 dose = knowledge.resolve(args.topic)
+                usage = _command_usage(parser, args.topic) if dose is None else None
+                if usage:
+                    print(usage)
+                    return 0
                 if dose is None:
                     raise StoreError(f"no topic `{args.topic}` — topics: {knowledge.topic_list()}", 2, recovery="el help <topic>")
                 print(dose)

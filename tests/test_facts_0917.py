@@ -5,12 +5,17 @@ that worked became facts, dead branches stayed with their reason, the next agent
 from those lines only, `expect:` on every item of a running phase (shown, not refused), refutation running down
 `after` edges as «under question», never as an automatic reopen."""
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
 from tests.test_commands import run
 
+
+def nofp(text: str) -> str:
+    """The proof lines without el's version mark (L8, 1.35.0) — these tests hold the shape of the line, not the version."""
+    return re.sub(r" · #[0-9a-f]{8}", "", text)
 
 class Base(unittest.TestCase):
     def setUp(self):
@@ -141,7 +146,7 @@ class TheChain(Base):
         self.assertIn("facts — ", out)
         self.assertIn("2 established · 0 under question · 1 expected · 1 dead branch(es) · 1 done item(s) without a fact (work, not knowledge)", out)
         self.assertIn("  ✓ 1.1 the router never calls Partner in the CART flow\n        run: grep → no call\n", out)
-        self.assertIn("  ✓ 1.2 the DB holds the live pair\n        file: [db.md](research/db.md)\n", out)
+        self.assertIn("  ✓ 1.2 the DB holds the live pair\n        file: [db.md](research/db.md)\n", nofp(out))
         self.assertIn("  · 1.3 the discount applies end to end   ← after: 1.1, 1.2\n        expect: [run: rerun]\n", out)
         self.assertIn("  ✗ 1.5 search the RAML specs   ← снято ", out)
         self.assertIn(": the specs hold test data only", out)

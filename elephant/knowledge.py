@@ -333,8 +333,9 @@ then the words; the tick, the kind and the RESULT are one write. Four kinds, and
                              phase is a report, not four proofs — el warns at `done` and the Digest counts
                              distinct proofs.
                              The path is read from the case folder first, then from the project root
-                             (`file:src/app/parser.ts`); the tool checks the file is there (later: that
-                             it did not change) and writes the link from the case. The strongest kind.
+                             (`file:src/app/parser.ts`); the tool checks the file is there and writes the
+                             link from the case. A file OF THE CASE also gets its version — `· #1a2b3c4d`,
+                             the content it was done against (see «version» below). The strongest kind.
                                                           → tail `— file: [receipt.pdf](evidence/receipt.pdf)`
 - ref:<trace outside>        a request number, a case number on a portal, a URL, a letter in the
                              mailbox, a commit hash — a person can check it outside the case; the tool checks only
@@ -356,10 +357,25 @@ and one proof line per kind (`- file: [receipt.pdf](evidence/receipt.pdf)` · `-
 `- owner`) — the tick, the words and the proofs are separate lines, a click away for the owner and outside
 the 100-char count; several kinds in one `done` when the proof is several things; a second `done` on a done
 item adds a proof (the words stay unless given) and writes no RESULT — the tick is not new. At `phase close` the block travels into the phase file, links
-re-based. On entry `evidence: 11 done · file 3 · owner 8 — el checked: file exists · run, ref, owner: as reported`
-counts the done items of the open phases and says what el itself verified: a file exists; a run is as the agent
+re-based. On entry `evidence: 11 done · file 3 · owner 8 — el checked: file exists, a case file its version · run, ref, owner:
+as reported` counts the done items of the open phases and says what el itself verified: a file exists, and a file of the
+case is still the version it was done against; a run is as the agent
 reported it, nobody repeated it — `check` passing means structure and form, not proof. el never runs a check itself: running it
 is the agent's job and the agent's responsibility (the owner's word, 2026-09-22) — el records what was reported.
+Version (L8; feedback and the owner's word, 2026-10-02): a path is not the thing that was checked — a note accepted
+as version A and then replaced by B kept its `[x]` everywhere. `done` writes the version of a file of the case on its
+proof line (`- file: [note.txt](docs/note.txt) · #1a2b3c4d`: 8 hex of the sha256 of its content; a line ending is not
+content). In a phase not closed yet a proof whose file changed since (or can no longer be read) is said by `todo show`, `brief`, the entry (Order, and
+`acceptance: … · 1 on a version since changed`), `el facts` (its fact is under question) and `check` (a violation);
+`accept` refuses it — the acceptor would sign bytes the doer never claimed — and so does `phase close`. Two honest
+moves: `el todo done N.M file:<path> "what this version is"` records the new version (a RESULT; an acceptance starts
+over, the old verdict stays in the journal) · `el todo reopen N.M "why"`. el's own rewrites carry the version along —
+`el mv`, `el relink`, `el order --adopt` rewrite documents (in this case and the cases above it), and that is not a
+change of content; a change the author made before them stays a change. One proof line per file: a range that mixes
+open and done items goes through the same door, and a version is never dropped by a proof given without one. No version: a file of the project (source code lives on — its fixed version is a commit,
+`ref:<hash>`, its truth a run), the case's own files (README · TODO · JOURNAL, phase files: el writes them), a proof
+written before 1.35.0, a closed phase (history). In root mode the project folder is the case: the version goes where el
+already sees case content there — a folder of a known kind (docs, evidence, letters …) or one Links lists — not code.
 Old records: an item ticked before 1.5.0 has no kind and counts as `untyped` — read, never nagged: the
 rule lives at the write door, not at the read. The exception is the phase in flight — it IS the write door,
 so there `check` counts a tick without a kind (el help phases). Attach evidence later through the same door —
@@ -735,6 +751,10 @@ records the verdict.
 - `--by self` is refused: a self-acceptance is not an acceptance. The owner's word passes: `--by owner "the owner's
   words, as said"` — el writes them as a quote (`слово владельца: «…»`), never as the agent's account of them; one word
   for many items is one quote over a range, and the record shows it was one word.
+- a file of the case is accepted as a version (L8, 2026-10-02): `done` wrote the content's version on the proof line;
+  if the file changed since, `accept` refuses — you would sign bytes the doer never claimed — and names the two moves:
+  the doer records this version (`el todo done N.M file:<path> "…"`, the acceptance starts over) or you return it
+  (`el todo reopen N.M --by <you> "…"`). A change after your acceptance is said on entry and holds the phase close.
 - the tally rises with the work (feedback 2026-09-29: sixteen items accepted on one blanket word read ✓ everywhere above
   the item): one count, by kind — `3 of 4 done accepted — another session 2 · the owner's word 1 · re-ran 2 of 4 run
   proof(s)` — on the entry, in the Digest of a closed phase, in the case's `closed:` line (done or cancelled) and so at
@@ -868,7 +888,7 @@ ALIASES = {
     "case": "cases", "spawn": "cases", "nested": "cases", "list": "cases",
     "file": "files", "folder": "files", "folders": "files", "summary": "files",
     "limit": "limits", "numbers": "limits", "error": "errors", "exit": "errors", "codes": "errors",
-    "item": "todo", "items": "todo", "pocket": "todo", "pockets": "todo", "note": "todo", "notes": "todo", "why": "todo",
+    "item": "todo", "items": "todo", "pocket": "todo", "pockets": "todo", "note": "todo", "notes": "todo",
     "due": "todo", "after": "todo", "dates": "todo", "done": "evidence", "proof": "evidence", "proofs": "evidence",
     "kind": "evidence", "kinds": "evidence", "expect": "practice", "hint": "practice", "hints": "practice",
     "best": "practice", "practices": "practice", "craft": "practice", "log": "journal", "event": "journal",

@@ -5,6 +5,7 @@ live case 11 done items, none pointing at a file though the files lay in evidenc
 evidence comes first (file · ref · run · owner, a closed list), the tail is written on the item, the
 count is shown on entry; old ticks are read, never nagged — the rule lives at the write door."""
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,10 @@ from pathlib import Path
 from elephant import store
 from tests.test_commands import run
 
+
+def nofp(text: str) -> str:
+    """The proof lines without el's version mark (L8, 1.35.0) — these tests hold the shape of the line, not the version."""
+    return re.sub(r" · #[0-9a-f]{8}", "", text)
 
 class Base(unittest.TestCase):
     def setUp(self):
@@ -68,14 +73,15 @@ class TheFourKinds(Base):
         self.assertNotIn("[x]", self.read("TODO.md"))
         code, out, err = run("todo", "done", "1.1", "file:evidence/receipt.pdf", "fee paid")
         self.assertEqual(code, 0, err)
-        self.assertIn("  - [x] 1.1 pay the fee\n    - result: fee paid\n      - file: [receipt.pdf](evidence/receipt.pdf)\n", self.read("TODO.md"))
-        self.assertIn("RESULT · 1.1: file [receipt.pdf](evidence/receipt.pdf) — fee paid", self.read("JOURNAL.md"))
+        self.assertIn("  - [x] 1.1 pay the fee\n    - result: fee paid\n      - file: [receipt.pdf](evidence/receipt.pdf)\n", nofp(self.read("TODO.md")))
+        self.assertRegex(self.read("TODO.md"), r"- file: \[receipt\.pdf\]\(evidence/receipt\.pdf\) · #[0-9a-f]{8}\n", "a case file carries its version (L8)")
+        self.assertIn("RESULT · 1.1: file [receipt.pdf](evidence/receipt.pdf) — fee paid", nofp(self.read("JOURNAL.md")))
         self.assertIn("evidence: file [receipt.pdf](evidence/receipt.pdf)", out)
 
     def test_a_link_pasted_whole_and_a_path_outside_the_case(self):
         code, out, err = run("todo", "done", "1.1", "file:[receipt.pdf](evidence/receipt.pdf)", "paid")
         self.assertEqual(code, 0, err)
-        self.assertIn("      - file: [receipt.pdf](evidence/receipt.pdf)", self.read("TODO.md"))
+        self.assertIn("      - file: [receipt.pdf](evidence/receipt.pdf)", nofp(self.read("TODO.md")))
         self.assertEqual(run("todo", "done", "1.2", "file:../outside.pdf", "x")[0], 2)
         self.assertEqual(run("todo", "done", "1.2", "file:/etc/hosts", "x")[0], 2)
 
@@ -136,9 +142,9 @@ class SameDoor(Base):
         code, out, err = run("todo", "done", "1.1", "file:evidence/receipt.pdf", "receipt saved")
         self.assertEqual(code, 0, err)
         self.assertIn("1.1 was already done — evidence now: owner · file [receipt.pdf](evidence/receipt.pdf) (was: owner) · "
-                      "result renewed (was: «paid, the owner says»)", out)
+                      "result renewed (was: «paid, the owner says»)", nofp(out))
         self.assertIn("no journal event", out)
-        self.assertIn("    - result: receipt saved\n      - owner\n      - file: [receipt.pdf](evidence/receipt.pdf)\n", self.read("TODO.md"))
+        self.assertIn("    - result: receipt saved\n      - owner\n      - file: [receipt.pdf](evidence/receipt.pdf)\n", nofp(self.read("TODO.md")))
         j = self.read("JOURNAL.md")
         self.assertIn("RESULT · 1.1: owner — paid", j, "history stays")
         self.assertNotIn("receipt saved", j)
@@ -148,7 +154,7 @@ class SameDoor(Base):
         code, out, err = run("todo", "reopen", "1.1", "the payment bounced")
         self.assertEqual(code, 0, err)
         self.assertIn("  - [ ] 1.1 pay the fee\n", self.read("TODO.md"))
-        self.assertIn("RESULT · 1.1: file [receipt.pdf](evidence/receipt.pdf) — paid", self.read("JOURNAL.md"))
+        self.assertIn("RESULT · 1.1: file [receipt.pdf](evidence/receipt.pdf) — paid", nofp(self.read("JOURNAL.md")))
 
     def test_a_range_gives_every_item_the_tail_with_one_result(self):
         code, out, err = run("todo", "done", "1.1-1.3", "run:make check → OK", "pre-flight verified")
@@ -170,7 +176,7 @@ class TheTailTravels(Base):
         code, out, err = run("phase", "close", "1", "all three ended")
         self.assertEqual(code, 0, err)
         pf = self.read("phases/1-work.md")
-        self.assertIn("- 1.1 ✓ pay the fee\n  - result: paid\n    - file: [receipt.pdf](../evidence/receipt.pdf)\n", pf)
+        self.assertIn("- 1.1 ✓ pay the fee\n  - result: paid\n    - file: [receipt.pdf](../evidence/receipt.pdf)\n", nofp(pf))
         self.assertIn("- 1.2 ✓ file the request\n  - result: filed\n    - ref: R000123\n", pf)
         self.assertIn("- 1.3 ✓ run the tests\n  - result: ok\n    - owner\n", pf)
         self.assertIn("violations: 0", run("check")[1])

@@ -71,7 +71,7 @@ def _todo_expect(item: grammar.Item, phase: grammar.Phase, **_) -> Optional[str]
 
 def _link_path(proof: str) -> str:
     import re
-    m = re.fullmatch(r"\[[^\]]*\]\(([^)]+)\)", proof)
+    m = re.fullmatch(r"\[[^\]]*\]\(([^)]+)\)", grammar.split_fingerprint(proof)[0])
     return m.group(1) if m else proof
 
 
