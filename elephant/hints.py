@@ -84,10 +84,21 @@ def _todo_done(items: List[grammar.Item], proofs, **_) -> Optional[str]:
     return None
 
 
-def _log(typ: str, text: str = "", project: Optional[Path] = None, **_) -> Optional[str]:
+def _log(typ: str, text: str = "", project: Optional[Path] = None, item: Optional[grammar.Item] = None, **_) -> Optional[str]:
     """A PROBLEM that names no recipe is the moment to write one — the same test the phase close asks by (P8). Until
     2026-09-27 three recipes in the project silenced it as «the habit is there»; measured that day on the tool's own
-    project: five recipes, 48 PROBLEM events, one naming `.howto/` — the count was no sign of the habit."""
+    project: five recipes, 48 PROBLEM events, one naming `.howto/` — the count was no sign of the habit.
+
+    A RESULT that names no item of a running phase with open items is work beside the plan (feedback 2026-10-02: the
+    journal and `next:` moved, TODO kept one coarse `[ ]` line, and the agent then logged the same result again with
+    `done`): the three doors by which it reaches the tree, the item in hand numbered."""
+    if typ == "RESULT":
+        if item is None:
+            return None
+        ref = f"{item.n}.{item.m}"
+        return (f"this RESULT names no item — TODO, where the owner looks, does not move: {ref} ended? el todo done {ref} <kind> "
+                f"\"…\" writes the RESULT itself · a step of {ref} → el todo note {ref} \"…\" · a step with its own proof → "
+                f"el todo add {item.n} \"…\" --before {ref}, then done it — el help todo")
     if typ != "PROBLEM" or re.search(r"\.howto/[\w./-]+\.md", text):
         return None
     return ("will it bite again? write the recipe now, while you remember: .howto/<verb>.md, first line `when: <the error "

@@ -118,7 +118,7 @@ class TodoAdd(Base):
         self.assertIn("--before 1.9: no such item", err)
         code, out, err = run("todo", "add", "1", "слово " * 20)
         self.assertEqual(code, 3)
-        self.assertIn("suggestion: \"", err)
+        self.assertIn("would lose «", err)  # no boundary of meaning: the words a cut drops, not the cut (2026-10-02)
         self.assertIn("--before 1.K", err, "the refusal names how a re-added item keeps its place")
 
     def test_edit_shows_the_new_text(self):

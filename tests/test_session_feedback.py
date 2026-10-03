@@ -62,7 +62,9 @@ class EditableTodo(Base):
     def test_too_long_item_prints_a_ready_suggestion(self):
         code, out, err = run("todo", "add", "1", "слово " * 30)
         self.assertEqual(code, 3)
-        self.assertIn("suggestion: \"", err)
+        # no boundary of meaning: the cut is not offered as a suggestion, the words it would drop are named (2026-10-02)
+        self.assertIn("would lose «", err)
+        self.assertIn("rephrase, do not truncate", err)
 
 
 class ReadmeSections(Base):

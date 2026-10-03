@@ -508,9 +508,27 @@ def _phase_by_refs(todo: grammar.Todo, text: str, out: Outcome, case: Optional[P
     return default
 
 
-def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: str = "") -> Outcome:
+def _item_beside(case: Path, todo: grammar.Todo, phase: str, text: str) -> Optional[grammar.Item]:
+    """The item in hand when a RESULT typed by the agent names no item of its running phase — None when it names one,
+    or the phase is not running, or nothing in it is open (feedback 2026-10-02: an agent logged its steps as free
+    RESULTs while TODO kept one coarse `[ ]` line — the work went on beside the plan, and nothing above the item moved;
+    measured the same day on 19 live cases: 98 of 489 RESULTs were free ones logged before the next item ended)."""
+    p = todo.phase(int(phase[1:])) if re.fullmatch(r"p\d+", phase) else None
+    if p is None or p.done or not _phase_file(case, p.n, p.name).exists():
+        return None
+    if any((int(m.group(1)), int(m.group(2))) in {(it.n, it.m) for it in p.items} for m in ITEM_REF_RE.finditer(text)):
+        return None
+    open_items = [it for it in p.items if not it.done]
+    blocked = _blocking(case, todo)
+    ready = [it for it in open_items if not it.held and f"{it.n}.{it.m}" not in blocked]
+    return (ready or open_items or [None])[0]
+
+
+def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: str = "", typed: bool = False) -> Outcome:
     """`trailer` — a provenance body line el adds under the event (`session: 1a2b3c4d` under a RESULT, F23): kept out of
-    the headline, so the entry, which shows headlines only, does not change; dropped when the body is already full."""
+    the headline, so the entry, which shows headlines only, does not change; dropped when the body is already full.
+    `typed` — the agent wrote this event itself (`el log`), not a command on its behalf: only then a RESULT that no
+    item carries is named at the moment it is written."""
     out = Outcome()
     typ = typ.upper()
     if typ not in grammar.JOURNAL_TYPES:
@@ -562,6 +580,8 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: s
             _write_readme(case, _readme_text(case), out)
         except StoreError as e:
             out.warn(f"README `last:` not refreshed — {e}")
+        if typed:
+            hints.attach(out, "log", typ=typ, text=text, item=_item_beside(case, todo, phase, text))
     if typ == "PROBLEM":
         hints.attach(out, "log", typ=typ, text=text, project=_project_root(case))
     return out
@@ -607,8 +627,12 @@ def _split_suggestion(text: str, add: str, note: str) -> str:
     """The refusal of a long item, with the rest kept: `add` is the command for the head, `note` the one for
     the rest — the agent's words move into the item's context pocket instead of being thrown away."""
     head, rest, at_clause = _clause_cut(text, grammar.TODO_ITEM_CHARS)
-    if not at_clause:  # no boundary of meaning fits: a note cut mid-phrase helps nobody — rephrase
-        return f"  suggestion: \"{head}\""
+    if not at_clause:  # no boundary of meaning fits: the cut is not offered, the words it would drop are named
+        # (a live report, 2026-10-02: the refusal printed the cut as `suggestion:` and «rephrase, do not truncate» under
+        # it; the agent took the cut and lost a word of the claim — the printed line wins over the advice below it)
+        over = grammar.visible_len(text) - grammar.TODO_ITEM_CHARS
+        return (f"  {over} over and no boundary of meaning to split at — a cut at {grammar.TODO_ITEM_CHARS} would lose "
+                f"«{order._short(rest, 40)}»")
     if grammar.visible_len(rest) > grammar.POCKET_CHARS:
         return f"  suggestion: \"{head}\"" + (" (the rest is context — a file in the case, linked)" if rest else "")
     quote = lambda t: "'" + t.replace("'", "’") + "'"  # single quotes: the shell leaves `$` and `>` alone
@@ -1101,7 +1125,8 @@ def _pocket_text(label: str, text: str, ref: str) -> str:
 
 
 REPHRASE_HINT = ("  rephrase, do not truncate: verb first, the path or flag stays, the filler goes — "
-                 "«Trigger /v3/x, confirm FLAG=false in pod logs» is one action with its checkable outcome")
+                 "«Trigger /v3/x, confirm FLAG=false in pod logs» is one action with its checkable outcome; "
+                 "an opaque id (a hash, a generated entity id) is a trace, not words — name the thing, the id goes to a note")
 
 
 def _item_context(it: grammar.Item) -> str:
@@ -2212,8 +2237,19 @@ def _acceptance_line(todo: grammar.Todo, readme_body: str, journal: Optional[gra
                       and set(re.findall(r"\d+\.\d+", RETURN_RE.match(ev.text).group(1))) & open_refs)
     if not (_two_hands(readme_body) or acc or by_acceptor):
         return None
+    # both doors, numbered (a live report, 2026-10-02: «the owner said it in the chat — is that enough, or must a
+    # subagent be briefed for form's sake?» — the line named the brief only, so the owner's word read as a shortcut)
+    owed = [it for it in done if not it.accepted]
+    first = f"{owed[0].n}.{owed[0].m}" if owed else "N.M"
+    span = first
+    if owed:
+        n = owed[0].n
+        same = sorted(it.m for it in owed if it.n == n)
+        between = {it.m for p in todo.phases if p.n == n for it in p.items if same[0] <= it.m <= same[-1]}
+        if len(same) > 1:  # a range only when nothing else lies inside it — an open item in it would be refused
+            span = f"{n}.{same[0]}-{n}.{same[-1]}" if between == set(same) else ", ".join(f"{n}.{m}" for m in same)
     return (f"acceptance: {_acceptance_tally(done)}" + (f" · returned by an acceptor {by_acceptor}" if by_acceptor else "")
-            + " — a fresh session's prompt: el todo brief N.M")
+            + f" — a fresh session: el todo brief {first} · the owner's word said to you: el todo accept {span} --by owner \"…\"")
 
 
 RERAN_RE = re.compile(r"\bre-ran (\d+) of \d+")
@@ -4290,8 +4326,10 @@ def _facts_line(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journa
         done = [it for p in todo.phases if not p.done for it in p.items if it.done]
         if len(done) < 3:
             return None
-        return (f"facts: 0 established over {len(done)} done items — work, not yet knowledge; what is now known? "
-                "el todo fact N.M '…' · el help facts")
+        # the difference is said where the zero is (a live report, 2026-10-02: «a detailed result reads as the fact
+        # already» — the line said «work, not yet knowledge» and left the two words to be told apart in the help)
+        return (f"facts: 0 established over {len(done)} done items — a result says what the work did, a fact what is now "
+                "true that the next step stands on (not every item has one): el todo fact N.M '…' · el help facts")
     return (f"facts: {len(est) - len(q)} established" + (f" · {len(q)} under question" if q else "")
             + (f" · {len(pend)} expected" if pend else "") + " — el facts")
 

@@ -258,6 +258,10 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   its `why:`; a commit hash, a function name, an operator is a trace, and a trace is proof (ref:<hash> · file:<source>),
   not the words (el warns when the words read like a code trace).
   Nothing came out? Then it was not done: `cancel N.M "why"`.
+- the plan moves with the work: TODO is where the owner looks, and a result logged beside it (`el log RESULT` naming
+  no item) moves nothing there. An item that ended → `done` (it writes the RESULT: no second `el log`) · a step of it
+  the owner should see → `el todo note N.M "…"` · a step with its own proof → `el todo add N "…" --before N.M`, then
+  `done` it · a step with its own clock → `el spawn`. el names this at the RESULT (feedback 2026-10-02).
 - waiting for the outside — a ticket in another team's queue, an approval, a reply: `el todo hold N.M "waiting for:
   what, whose"` — `[~]`, not ours to do now and not broken; `[ ]` would read «do me now». The reason is required; the
   entry's thread names the wait; it came → `el todo resume N.M`, then do it. Is there a command that tells the wait
@@ -488,6 +492,8 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
 - finished for today                     → `el` → Order says "State is behind"? rewrite State
 - closed a phase                        → `el phase close N "…"` (does TODO+journal+README itself)
 - took a measurement                    → `el log RESULT "…"` + the number in README State
+- a step of an item ended               → TODO moves, not only the journal: the item ended → `done`; a step of
+                                          it → `el todo note N.M`; a step with its own proof → `todo add --before N.M`
 - a piece of work has a date            → `— due: YYYY-MM-DD` at the end of the item; the case
                                           deadline → `el readme set due "YYYY-MM-DD · what"`
 - an item is no longer needed           → `el todo cancel N.M "why"` (not done, not drop)
@@ -795,7 +801,9 @@ TODO: ≤ 200 lines (100 before 0.20: a rollout through five environments × 17 
   <Result>` is one action with its checkable outcome) — markdown links [name](path) count as `name`, nothing
   else is exempt: an item over 100 is rephrased, not recounted (the owner's word 2026-09-15 — verb first, the
   path stays, the filler goes); a refusal cuts at the last boundary of meaning (— ; : · ,) and offers the rest
-  as the item's note in a ready command (`el todo add N '…' --note '…'`); no boundary fits → rephrase;
+  as the item's note in a ready command (`el todo add N '…' --note '…'`); no boundary fits → rephrase: the refusal
+  names the words a cut would lose and offers no cut (a live report, 2026-10-02: a cut shown as a suggestion was taken
+  and the claim lost a word); an opaque id (a hash, a generated entity id) is a trace, not words — it goes to a note;
   pockets (F22): `why:` / `note:` ≤ 150 visible chars each and they count in the 200 lines; `result:` and the
   proof lines under it are el's — reported, not counted, and written whole: el cuts nothing in README, TODO or a phase
   file (the owner's word, 2026-09-25 — a cut part is lost to the reader; `result:`, `closed:`, `last:`, Links, the TODO
