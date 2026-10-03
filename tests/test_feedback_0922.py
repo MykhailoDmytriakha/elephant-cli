@@ -5,6 +5,7 @@ as a broken README; an event about items 2.x landed under p1; a long item's sugg
 import datetime as dt
 import io
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -13,6 +14,10 @@ from pathlib import Path
 from elephant import grammar, stamp
 from tests.test_commands import run
 
+
+def nofp(text: str) -> str:
+    """The proof lines without el's version mark (L8, 1.35.0) — these tests hold the shape of the line, not the version."""
+    return re.sub(r" · #[0-9a-f]{8}", "", text)
 
 class Base(unittest.TestCase):
     def setUp(self):
@@ -53,7 +58,7 @@ class OldTail(Base):
         self.assertEqual((it.text, it.due, it.evidence), ("file the form", "2026-09-16", [("file", "[a.jpg](evidence/a.jpg)")]))
         code, out, err = run("todo", "add", "1", "next step")
         self.assertEqual(code, 0, err)
-        self.assertIn("  - [x] 1.1 file the form — due: 2026-09-16\n    - file: [a.jpg](evidence/a.jpg)\n", self.read("TODO.md"),
+        self.assertIn("  - [x] 1.1 file the form — due: 2026-09-16\n    - file: [a.jpg](evidence/a.jpg)\n", nofp(self.read("TODO.md")),
                       "the next write renders the current form")
 
     def test_overdue_is_named_first_on_entry(self):
@@ -78,7 +83,7 @@ class AttachIsNotAnEvent(Base):
         self.assertIn("no journal event", out)
         self.assertEqual(self.read("JOURNAL.md"), journal)
         self.assertEqual(self.read("README.md"), readme, "last: does not move")
-        self.assertIn("    - result: form filed\n      - owner\n      - file: [a.jpg](evidence/a.jpg)\n", self.read("TODO.md"))
+        self.assertIn("    - result: form filed\n      - owner\n      - file: [a.jpg](evidence/a.jpg)\n", nofp(self.read("TODO.md")))
 
 
 class FeedbackNeverOverwrites(unittest.TestCase):
@@ -146,7 +151,7 @@ class ReportedIsNotVerified(Base):
     def test_check_and_entry_say_what_el_checked(self):
         run("todo", "done", "1.1", "run:make test -> 12 OK", "tests pass")
         self.assertIn("structure and form, not what the proofs prove", run("check")[1])
-        self.assertIn("el checked: file exists · run, ref, owner: as reported", run()[1])
+        self.assertIn("el checked: file exists, a case file its version · run, ref, owner: as reported", run()[1])
 
     def test_zero_facts_over_done_work_is_said(self):
         run("todo", "add", "1", "b")

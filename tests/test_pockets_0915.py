@@ -6,6 +6,7 @@ surface when it opens; «по ссылке — выжимка» → `## Digest` 
 месяца» → a Problems line with `until:` counted on entry. Everything el renders is not counted in F4."""
 import datetime as dt
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +14,10 @@ from pathlib import Path
 from elephant import grammar, store
 from tests.test_commands import run
 
+
+def nofp(text: str) -> str:
+    """The proof lines without el's version mark (L8, 1.35.0) — these tests hold the shape of the line, not the version."""
+    return re.sub(r" · #[0-9a-f]{8}", "", text)
 
 class Base(unittest.TestCase):
     def setUp(self):
@@ -123,11 +128,11 @@ class SeveralProofs(Base):
         self.assertEqual(code, 0, err)
         self.assertIn("(result + 2 proof line(s))", out)
         self.assertIn("  - [x] 1.1 оплатить пошлину\n    - why: без оплаты вернут\n    - result: оплачено, чек в папке\n"
-                      "      - file: [receipt.pdf](evidence/receipt.pdf)\n      - ref: 4471-09\n", self.read("TODO.md"))
-        self.assertIn("RESULT · 1.1: file [receipt.pdf](evidence/receipt.pdf) · ref 4471-09 — оплачено, чек в папке", self.read("JOURNAL.md"))
+                      "      - file: [receipt.pdf](evidence/receipt.pdf)\n      - ref: 4471-09\n", nofp(self.read("TODO.md")))
+        self.assertIn("RESULT · 1.1: file [receipt.pdf](evidence/receipt.pdf) · ref 4471-09 — оплачено, чек в папке", nofp(self.read("JOURNAL.md")))
         code, out, err = run("todo", "done", "1.1", "owner", "подтверждено владельцем")
         self.assertEqual(code, 0, err)
-        self.assertIn("evidence now: file [receipt.pdf](evidence/receipt.pdf) · ref 4471-09 · owner", out)
+        self.assertIn("evidence now: file [receipt.pdf](evidence/receipt.pdf) · ref 4471-09 · owner", nofp(out))
         self.assertIn("result renewed (was: «оплачено, чек в папке»)", out)
         self.assertIn("      - owner\n", self.read("TODO.md"))
         self.assertIn("evidence: 1 done · file 1 · ref 1 · owner 1", run()[1])
@@ -264,7 +269,7 @@ class DigestAtClose(Base):
         self.assertIn("\n## Notes\n", pf)
         self.assertIn("## Items at close\n- 1.1 ✓ оплатить пошлину\n  - why: без оплаты вернут\n  - result: оплачено\n"
                       "    - file: [receipt.pdf](../evidence/receipt.pdf)\n- 1.2 ✓ согласовать дату — [адвокат](../docs/permit.pdf)\n"
-                      "  - result: 24 сентября\n    - owner\n", pf)
+                      "  - result: 24 сентября\n    - owner\n", nofp(pf))
         self.assertNotIn("- note:", self.read("TODO.md"), "the phase notes travelled into the file")
         code, out, err = run("check")
         self.assertEqual(code, 0, out + err)
@@ -286,7 +291,7 @@ class HollowProofs(Base):
         self.assertEqual(code, 0, err)
         self.assertIn("is a markdown inside the case — your own text", err)
         self.assertIn('run:"<command → outcome>"', err)
-        self.assertIn("      - file: [evidence.md](testing/evidence.md)", self.read("TODO.md"), "written all the same")
+        self.assertIn("      - file: [evidence.md](testing/evidence.md)", nofp(self.read("TODO.md")), "written all the same")
         code, out, err = run("todo", "done", "1.2", "file:evidence/receipt.pdf", "paid")
         self.assertEqual(code, 0, err)
         self.assertNotIn("your own text", err, "a pdf is a thing")

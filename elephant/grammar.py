@@ -87,6 +87,15 @@ DRAWN_WAIT_RE = re.compile(r"^- ждёт: \[([^\]\s]+)\]\((?:\.cases/)?\1/README
 PHASE_NOTE_RE = re.compile(r"^  - note: (.+)$")                      # F22: a note under a phase line
 POCKET_RE = re.compile(r"^    - (why|note|expect|result|fact|accepted):(?: (.+))?$")  # F22: an item's pockets; F23: accepted
 EVIDENCE_LINE_RE = re.compile(r"^(?:    |      )- (file|ref|run|owner)(?:: (.+))?$")  # F20: one line per proof
+# L8 (feedback and the owner's word, 2026-10-02): a file proof of the case carries the version it was done against —
+# `- file: [note.txt](docs/note.txt) · #1a2b3c4d`, the first 8 hex of the sha256 of its content, written by `done` only
+FINGERPRINT_RE = re.compile(r"^(.*\S) · #([0-9a-f]{8})$")
+
+
+def split_fingerprint(proof: str):
+    """`[x](docs/x.txt) · #1a2b3c4d` → ("[x](docs/x.txt)", "1a2b3c4d"); a proof without one → (proof, "")."""
+    m = FINGERPRINT_RE.match(proof)
+    return (m.group(1), m.group(2)) if m else (proof, "")
 POCKET_KINDS = ("why", "note", "expect", "result", "fact")  # the agent's pockets; `accepted:` is el's (F23)
 # F22 `expect:` — what done will look like, written BEFORE the work; the proofs it names stand in brackets,
 # `[file: docs/x.md] [run: k6 → p95] [owner]`, so `done` can hold the record to its own promise.
