@@ -360,7 +360,7 @@ def _run(argv=None) -> int:
             if args.cmd is None or args.cmd == "status":
                 out = commands.entry(root, case)
             elif args.cmd == "log":
-                out = commands.log(case, args.type, args.text, args.phase)
+                out = commands.log(case, args.type, args.text, args.phase, typed=True)
             elif args.cmd == "todo":
                 parts = list(args.text or [])
                 ref = args.ref
