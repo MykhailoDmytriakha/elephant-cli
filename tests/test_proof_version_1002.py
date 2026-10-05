@@ -395,5 +395,5 @@ class DigestKeepsOtherKinds(unittest.TestCase):
     def test_only_a_file_proof_loses_its_version_in_the_count(self):
         from elephant import commands
         self.assertEqual(grammar.split_fingerprint("verify → result · #12345678"), ("verify → result", "12345678"))
-        src = open(commands.__file__, encoding="utf-8").read()
+        src = Path(commands.__file__).read_text(encoding="utf-8")
         self.assertIn('grammar.split_fingerprint(pr)[0] if k == "file" else pr', src)

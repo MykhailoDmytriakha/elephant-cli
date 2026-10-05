@@ -86,7 +86,8 @@ class PlannedPhase(unittest.TestCase):
         self.assertIn("F13", err)
         code, out, err = run("phase", "plan", "2", "Rollout", "--goal", "слово " * 30)
         self.assertEqual(code, 3)
-        self.assertIn("suggestion:", err)
+        self.assertNotIn('suggestion: "', err)  # feedback 2026-10-05: the cut is named, not offered — one voice at every door
+        self.assertIn("a cut at 100 would lose", err)
         run("phase", "plan", "2", "Rollout")
         code, out, err = run("phase", "plan", "2", "Rollout")
         self.assertEqual(code, 0, err)
