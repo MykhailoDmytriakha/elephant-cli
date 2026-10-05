@@ -58,7 +58,10 @@ LATER_HEAD = "## Later"
 LATER_RE = re.compile(r"^  - \[ \] L(\d+) (.+)$")
 SINCE_SUFFIX = " — since: "
 AFTER_REF_RE = re.compile(r"\d+\.\d+|[A-Za-z0-9][\w-]*")  # F19: an item N.M or a nested case name
-LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+# one grammar of a link for every counter and cutter: a name may hold one level of brackets (`[trace [prod]](…)`), a target
+# one level of balanced parentheses and a title (`(docs/(prod).md "source, details")`) — CommonMark (Codex, 2026-10-05)
+LINK_PATTERN = r"\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\((?:[^()]|\([^()]*\))*\)"
+LINK_RE = re.compile(LINK_PATTERN)
 EVIDENCE_RE = re.compile(r"^(.*) — (file|ref|run|owner)(?:: (.+))?$")  # the evidence suffix of a done item
 # the 1.5.0–1.9.0 order: evidence after the date or dependency suffix → (line up to the suffix, the evidence tail)
 OLD_TAIL_RE = re.compile(r"^(.* — (?:due: \d{4}-\d{2}-\d{2}|after: [^—]+?))( — (?:file|ref|run|owner)(?:: .+)?)$")
@@ -185,6 +188,12 @@ class Journal(Result):
 
     def last(self, n: int):
         return self.entries[:n]
+
+    def newest_first(self):
+        """Every event, newest first: entries run newest first and events inside an entry are appended in write order
+        (feedback 2026-10-05: three readers took the first event of an entry for its newest)."""
+        for e in self.entries:
+            yield from reversed(e.events)
 
 
 def parse_journal(text: str) -> Journal:

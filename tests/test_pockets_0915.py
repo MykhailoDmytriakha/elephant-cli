@@ -94,7 +94,8 @@ class WhyAndNotes(Base):
         code, _, err = run("todo", "note", "1.1", "н" * 151)
         self.assertEqual(code, 3)
         self.assertIn("151 visible chars, limit 150 (F22)", err)
-        self.assertIn("suggestion:", err)
+        self.assertNotIn('suggestion: "', err)  # feedback 2026-10-05: a pocket has no place for the rest — no cut offered
+        self.assertIn("rephrase, do not truncate", err)
         self.assertEqual(run("todo", "why", "1.1", "з" * 150)[0], 0, "150 fits")
         # hand-written forms the parser refuses: a pocket under no item, two whys, result under an open item
         r = grammar.parse_todo("# T\n\n- [ ] 1 Court\n    - why: lost\n")

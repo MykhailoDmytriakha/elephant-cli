@@ -319,7 +319,9 @@ def _derive_readme(case: Path, body: str) -> str:
         pass
     try:
         journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
-        last = next((ev for e in journal.entries for ev in e.events if ev.type == "RESULT"), None)
+        # entries run newest first, events inside an entry are appended — the newest RESULT is the LAST one of its entry
+        # (feedback 2026-10-05: two RESULTs in one minute showed the older one as `last:`)
+        last = next((ev for ev in journal.newest_first() if ev.type == "RESULT"), None)
         if last:  # the whole RESULT — headline and body — never cut (the owner's word, 2026-09-25)
             text = _set_state_line(text, "last: ", _event_words(last))
     except StoreError:
@@ -605,14 +607,26 @@ def _journal(case: Path, out: Optional[Outcome] = None) -> grammar.Journal:
 
 
 CLAUSE_SEPS = (" — ", "; ", ": ", " · ", ", ")  # strongest boundary of meaning first
+# links, code spans, autolinks, emphasis (* and _), entities, strikethrough — a split never falls between the first and the last;
+# a snake_case word or «A & B» on both sides of a boundary costs the ready split, never a broken construct (Codex, 2026-10-05)
+MARKUP_CHARS = "[]()`\\<>*_&~"
 
 
 def _clause_cut(text: str, limit: int):
     """(head, rest, at_clause): the text cut at the last boundary of meaning that fits — a dash, `;`, `:`, `·`, `,` —
     else at a word (feedback 2026-09-22: a cut in the middle of a phrase, «не «следил за», cost two or three
     rounds per item). The head is a suggestion to rephrase from, the rest is context: a `note:`, never lost."""
+    # a boundary is taken only outside the marked-up stretch — left of its first markup char or right of its last: every
+    # link, code span, autolink and emphasis lies inside that stretch, so no split can cut one, whatever the escaping or
+    # the title (Codex, 2026-10-05: four passes found markdown wider than any pattern; the guarantee is by construction)
+    marks = [i for i, ch in enumerate(text) if ch in MARKUP_CHARS]
+    marks += [m.end() - 1 for m in re.finditer(r"&#?\w+;", text)]  # an entity ends on its `;`, which is also a boundary
+    marks.sort()
+    lo, hi = (marks[0], marks[-1]) if marks else (len(text), -1)
     for sep in CLAUSE_SEPS:
         pos = text.rfind(sep, 0, limit + 1)
+        while pos >= 0 and lo <= pos <= hi:
+            pos = text.rfind(sep, 0, pos)
         if pos >= limit // 3:
             return text[:pos].rstrip(" ,;:·—"), text[pos + len(sep):].strip(), True
     cut = text.rfind(" ", 0, limit)
@@ -620,8 +634,25 @@ def _clause_cut(text: str, limit: int):
     return text[:cut].rstrip(), text[cut:].strip(), False
 
 
-def _trim_suggestion(text: str, limit: int) -> str:
-    return _clause_cut(text, limit)[0]
+def _too_long(what: str, text: str, limit: int, rule: str) -> str:
+    """The head of every length refusal — one voice at every door (feedback 2026-10-05: a note refused «when linking a
+    doc» made the agent ask el to stop counting link targets, which never counted; the pocket refusal had not said so)."""
+    names = sum(grammar.visible_len(m.group(0)) for m in grammar.LINK_RE.finditer(text))
+    share = f" — {names} of them are link names: a short name keeps the link" if names else ""
+    return f"{what} is {grammar.visible_len(text)} visible chars, limit {limit} ({rule}); markdown links count as their name{share}"
+
+
+def _cut_loss(text: str, limit: int, why: str = "") -> str:
+    """What a cut at the limit would drop, named instead of offered: a pocket has no second place for the rest, so a
+    cut there is never whole (feedback 2026-10-05: the cut dropped the link a note exists for, ended a fact on «was»)."""
+    text = " ".join(text.split())  # _short measures the normalized text — slice the same one
+    kept = order._short(text, limit)
+    lost = text[len(kept) - 1:].strip(" ,;:·—") if kept != text else ""
+    over = grammar.visible_len(text) - limit
+    if not lost:
+        return f"  {over} over{why} — one token longer than the limit: rephrase around it"
+    return f"  {over} over{why} — a cut at {limit} would lose «{order._short(lost, 40)}»" + (
+        " (with its link)" if grammar.LINK_RE.search(lost) else "")
 
 
 def _split_suggestion(text: str, add: str, note: str) -> str:
@@ -631,12 +662,13 @@ def _split_suggestion(text: str, add: str, note: str) -> str:
     if not at_clause:  # no boundary of meaning fits: the cut is not offered, the words it would drop are named
         # (a live report, 2026-10-02: the refusal printed the cut as `suggestion:` and «rephrase, do not truncate» under
         # it; the agent took the cut and lost a word of the claim — the printed line wins over the advice below it)
-        over = grammar.visible_len(text) - grammar.TODO_ITEM_CHARS
-        return (f"  {over} over and no boundary of meaning to split at — a cut at {grammar.TODO_ITEM_CHARS} would lose "
-                f"«{order._short(rest, 40)}»")
-    if grammar.visible_len(rest) > grammar.POCKET_CHARS:
-        return f"  suggestion: \"{head}\"" + (" (the rest is context — a file in the case, linked)" if rest else "")
-    quote = lambda t: "'" + t.replace("'", "’") + "'"  # single quotes: the shell leaves `$` and `>` alone
+        return _cut_loss(text, grammar.TODO_ITEM_CHARS, " and no boundary of meaning to split at")
+    if grammar.visible_len(rest) > grammar.POCKET_CHARS:  # the rest has no ready place: no head is offered without it
+        return (f"  the rest after the boundary of meaning is too long for a note: a cut there would lose «{order._short(rest, 40)}» "
+                f"— it goes to a file in the case, linked")
+    if head.startswith("-") or rest.startswith("-"):  # argparse would take it for an option: the command would not run
+        return _cut_loss(text, grammar.TODO_ITEM_CHARS, " and the split would start with `-`")
+    quote = lambda t: "'" + t.replace("'", "'\\''") + "'"  # single quotes: the shell leaves `$` and `>` alone, `'` kept as typed
     return f"  suggestion — the item, the rest as its note: {add.replace('«head»', quote(head))} {note.replace('«rest»', quote(rest))}"
 
 
@@ -1331,15 +1363,19 @@ def _pocket_text(label: str, text: str, ref: str) -> str:
     if not text:
         raise StoreError(f"{label} needs a text: el todo {label} {ref} \"…\"", 2)
     if grammar.visible_len(text) > grammar.POCKET_CHARS:
-        raise StoreError(f"{label}: is {grammar.visible_len(text)} visible chars, limit {grammar.POCKET_CHARS} (F22) — a pocket points at "
-                         f"context, the context itself goes to a file in the case, linked [name](docs/file.md)\n"
-                         f"  suggestion: \"{_trim_suggestion(text, grammar.POCKET_CHARS)}\"", 3)
+        raise StoreError(f"{_too_long(label + ':', text, grammar.POCKET_CHARS, 'F22')}\n"
+                         f"{_cut_loss(text, grammar.POCKET_CHARS)}\n{POCKET_HINT}", 3)
     return text
 
 
 REPHRASE_HINT = ("  rephrase, do not truncate: verb first, the path or flag stays, the filler goes — "
                  "«Trigger /v3/x, confirm FLAG=false in pod logs» is one action with its checkable outcome; "
                  "an opaque id (a hash, a generated entity id) is a trace, not words — name the thing, the id goes to a note")
+POCKET_HINT = ("  rephrase, do not truncate: a pocket is one line that points at the context — the context itself goes to a "
+               "file in the case, linked by a short name [trace](docs/trace.json); an opaque id (a hash, a generated entity "
+               "id) is a trace, not words — it lives in that file, or in a ref: proof at done")
+INTENT_HINT = ("  rephrase, do not truncate: the outcome first, the filler goes; the story goes into a phase note and the "
+               "phase file once it opens")
 
 
 def _item_context(it: grammar.Item) -> str:
@@ -1499,6 +1535,10 @@ def todo_fact(case: Path, ref: str, text: str) -> Outcome:
         out.say(f"fact {ref} ({state}): «{item.fact}»" + (f" (was: «{old}»)" if old else "") + " → TODO.md")
         if item.done:
             out.lines += log(case, "RESULT", f"{ref}: fact — {item.fact}", f"p{phase.n}").lines
+            # feedback 2026-10-05 asked the anchor to stay put; kept as the owner decided 2026-09-17 — a fact is a RESULT,
+            # and said here, at the moment, instead of surprising the agent on the next `check`
+            out.say("State: a fact is knowledge the next step stands on — read State again: still true → el readme touch "
+                    "· changed → el readme set next \"…\" (at done, --fact rides the same RESULT)")
     else:
         out.say(f"fact {ref}: none" + (f" (was: «{old}»)" if old else "") + " → TODO.md")
     return out
@@ -1597,8 +1637,7 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why:
                              f"drop --before to add at the end", 4)
         at = phase.items.index(target)
     if grammar.visible_len(text) > grammar.TODO_ITEM_CHARS:
-        raise StoreError(f"item text is {grammar.visible_len(text)} visible chars, limit {grammar.TODO_ITEM_CHARS} (F13); "
-                         f"markdown links count as their name\n"
+        raise StoreError(f"{_too_long('item text', text, grammar.TODO_ITEM_CHARS, 'F13')}\n"
                          f"{_split_suggestion(text, 'el todo add ' + ref + ' «head»', '--note «rest»')}\n{REPHRASE_HINT}\n"
                          f"  (a re-added item takes the next free number at the END of the list — "
                          f"`el todo add {ref} \"…\" --before {phase.n}.K` puts it in place)", 3)
@@ -1665,7 +1704,7 @@ def _add_later(case: Path, text: str, before: Optional[str], why: str, notes: Op
     if before:
         raise StoreError("--before is for items of a phase; the general list keeps the order thoughts came in", 2)
     if grammar.visible_len(text) > grammar.TODO_ITEM_CHARS:
-        raise StoreError(f"line text is {grammar.visible_len(text)} visible chars, limit {grammar.TODO_ITEM_CHARS} (F13)\n"
+        raise StoreError(f"{_too_long('line text', text, grammar.TODO_ITEM_CHARS, 'F13')}\n"
                          f"{_split_suggestion(text, 'el todo add later «head»', '--note «rest»')}\n{REPHRASE_HINT}", 3)
     item = grammar.Item(0, k, False, text, 0)
     item.since = _now()[0]
@@ -1847,7 +1886,7 @@ def todo_edit(case: Path, ref: str, text: str) -> Outcome:
     if after:
         _set_after(case, todo, item, after)
     if grammar.visible_len(text) > grammar.TODO_ITEM_CHARS:
-        raise StoreError(f"item text is {grammar.visible_len(text)} visible chars, limit {grammar.TODO_ITEM_CHARS} (F13)\n"
+        raise StoreError(f"{_too_long('item text', text, grammar.TODO_ITEM_CHARS, 'F13')}\n"
                          f"{_split_suggestion(text, 'el todo edit ' + ref + ' «head»', '&& el todo note ' + ref + ' «rest»')}\n{REPHRASE_HINT}", 3)
     old_text, item.text = item.text, text
     if due:
@@ -2314,12 +2353,11 @@ def todo_brief(case: Path, ref: str) -> Outcome:
 def _returns(journal: Optional[grammar.Journal]) -> Dict[str, List[str]]:
     """item → the reasons it was sent back (`DECISION · N.M возвращён в работу — …`), newest first."""
     found: Dict[str, List[str]] = {}
-    for e in (journal.entries if journal is not None else []):
-        for ev in e.events:
-            m = RETURN_RE.match(ev.text) if ev.type == "DECISION" else None
-            if m:
-                for r in re.findall(r"\d+\.\d+", m.group(1)):
-                    found.setdefault(r, []).append(ev.text[m.end():])
+    for ev in (journal.newest_first() if journal is not None else []):
+        m = RETURN_RE.match(ev.text) if ev.type == "DECISION" else None
+        if m:
+            for r in re.findall(r"\d+\.\d+", m.group(1)):
+                found.setdefault(r, []).append(ev.text[m.end():])
     return found
 
 
@@ -2628,9 +2666,9 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     existing = todo.phase(n)
     intent = _goal_text(goal) if goal else None
     if intent and grammar.visible_len(intent) > grammar.TODO_ITEM_CHARS:
-        raise StoreError(f"intent is {grammar.visible_len(intent)} visible chars, limit {grammar.TODO_ITEM_CHARS} — one line in TODO (F13); "
-                         f"the story goes into the phase file once it opens\n"
-                         f"  suggestion: \"{_trim_suggestion(intent, grammar.TODO_ITEM_CHARS)}\"", 3)
+        raise StoreError(f"{_too_long('intent (one line in TODO)', intent, grammar.TODO_ITEM_CHARS, 'F13')}\n"
+                         f"{_split_suggestion(intent, f'el phase plan {n} {chr(39)}{name}{chr(39)} --goal «head»', f'&& el phase note {n} «rest»')}\n"
+                         f"{INTENT_HINT}", 3)
     if existing is not None:
         free = max(p.n for p in todo.phases) + 1
         if existing.done and (existing.summary or "").startswith("снято"):

@@ -712,6 +712,9 @@ proved statements of a theory: found and proved once, then built on, not re-deri
 - `el facts` renders the chain: ✓ established · · expected (open) · ? under question (rests on an item that is
   open again — refuted, and el never reopens the dependents itself: finish the base, rewire `after`, or reopen)
   · ✗ dead branch (cancelled, with its reason, from the journal). Done items without a fact are counted as work.
+- a fact written on a done item (`el todo fact N.M "…"`) is its own RESULT — knowledge the next step stands on, so
+  State is read again before you stop: still true → `el readme touch`. Written at `done` with `--fact`, it rides the
+  same RESULT (feedback 2026-10-05 asked the anchor to stay put; kept: a RESULT is knowledge, the owner's word 2026-09-17).
 - the chain has edges: `— after: N.K` says what a fact rests on; `el todo show N.M` prints the inputs.
 - a fact carries its bounds (feedback 2026-09-22: four samples read as «the fallback is always safe», a direct
   API response as end to end): what was observed, where, how many — and, when it matters, what would refute it.
@@ -824,7 +827,10 @@ TODO: ≤ 200 lines (100 before 0.20: a rollout through five environments × 17 
   as the item's note in a ready command (`el todo add N '…' --note '…'`); no boundary fits → rephrase: the refusal
   names the words a cut would lose and offers no cut (a live report, 2026-10-02: a cut shown as a suggestion was taken
   and the claim lost a word); an opaque id (a hash, a generated entity id) is a trace, not words — it goes to a note;
-  pockets (F22): `why:` / `note:` ≤ 150 visible chars each and they count in the 200 lines; `result:` and the
+  pockets (F22): `why:` / `note:` ≤ 150 visible chars each and they count in the 200 lines — a pocket has no place
+  for a rest, so its refusal never offers a cut: it says what counts (link names, with their share), what a cut
+  would lose, and that the context goes to a file linked by a short name (feedback 2026-10-05: one voice at every
+  door — item, pocket, phase note, a plan's intent, whose rest becomes a phase note); `result:` and the
   proof lines under it are el's — reported, not counted, and written whole: el cuts nothing in README, TODO or a phase
   file (the owner's word, 2026-09-25 — a cut part is lost to the reader; `result:`, `closed:`, `last:`, Links, the TODO
   phase line and the Digest carry the whole text);
