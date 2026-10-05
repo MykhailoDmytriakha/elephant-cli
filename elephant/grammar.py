@@ -76,6 +76,18 @@ def split_evidence(text: str):
     return m.group(1).rstrip(), m.group(2), (m.group(3) or "").strip()
 
 
+def state_section(readme: str) -> str:
+    """The text of README's `## State` section — the only place el's own lines (`closed:`, `next:`, `as of:`) live."""
+    m = re.search(r"^## State[ \t]*\n(.*?)(?=^## |\Z)", readme, re.M | re.S)
+    return m.group(1) if m else ""
+
+
+def is_closed(readme: str) -> bool:
+    """A case is closed when its State says so — a Context or Decisions line that reads «closed: …» is the agent's text
+    (Codex, 2026-10-05: one such bullet made an open case closed for the hand, the list and Order)."""
+    return re.search(r"^- closed: ", state_section(readme), re.M) is not None
+
+
 def visible_len(text: str) -> int:
     """Length as the reader sees it: markdown links `[name](path)` count as `name` (feedback 2026-09-01).
     Nothing else is exempt (the owner's word, 2026-09-15: a 103-char item with an endpoint path is

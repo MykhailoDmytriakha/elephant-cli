@@ -176,7 +176,7 @@ class Anchor(Base):
         r = self.readme()
         self.assertRegex(r, r"- as of: \d{4}-\d{2}-\d{2} \d{2}:\d{2} · p0 \(1 event\)")
         code, out, err = run()
-        self.assertIn("State is behind", out, "opening a phase is a PHASE event: `next:` still says open phase 1")
+        self.assertIn("State is behind", out, "opening a phase is a PHASE event: State waits for the agent's next step")
         self.assertIn("1 PHASE", out)
         run("readme", "set", "next", "первый пункт фазы")
         code, out, err = run()

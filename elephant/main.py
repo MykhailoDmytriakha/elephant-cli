@@ -56,6 +56,7 @@ EXAMPLES = """examples
   el phase close 3 "…" --reflect "…" --align "…" --howto .howto/restart-redis.md   a PROBLEM in the phase → its recipe (first line `when:`) or --howto "none: why"
   el readme add decisions "2026-09-05 · X over Y — why" · el readme drop decisions 2 · el readme drop state пауза
   el readme edit decisions 3 "2026-09-05 · X over Y — why"   line 3 in place, order kept (context · decisions · problems · links)
+  el readme edit context goal "… [run: e2e → OK]"    the case goal line by name — its promise holds el done
   el readme touch                      State read and still true after new RESULTs: moves `as of` only (Order: State is behind)
   el readme --file README.md           validate and write a README (progress line kept in sync)
   el case new "connect database" --goal "app talks to the prod database"

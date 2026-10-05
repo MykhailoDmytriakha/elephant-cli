@@ -280,7 +280,7 @@ def progress_line(todo: grammar.Todo, case: Optional[Path] = None) -> str:
     parts = []
     for p in sorted(todo.phases, key=lambda x: x.n):
         opened = case is not None and _phase_file(case, p.n, p.name).exists()
-        cancelled = p.done and (p.summary or "").startswith("снято")
+        cancelled = _cancelled(p)
         mark = (" ✗" if cancelled else " ✓") if p.done else (" ▶" if opened else "")
         parts.append(f"{p.n} {p.name}{mark}")
     return " · ".join(parts) if parts else "(no phases yet)"
@@ -314,6 +314,8 @@ def _derive_readme(case: Path, body: str) -> str:
         todo = grammar.parse_todo(store.read(case, "TODO.md"))
         if not todo.errors:
             text = _set_state_line(text, "progress: ", progress_line(todo, case))
+            if _default_next_in_state(text) and any(_phase_file(case, p.n, p.name).exists() for p in todo.phases):
+                text = _set_state_line(text, "next: ", None)  # el's own pointer, done once a phase opened (L2) — never the agent's
             text = _draw_waits(case, text, [w for p in todo.phases for w in p.waits])
     except StoreError:
         pass
@@ -417,6 +419,23 @@ def _write_readme(case: Path, body: str, out: Outcome, anchor: bool = False):
 
 def _sync_progress(case: Path, todo: grammar.Todo, out: Outcome):
     _write_readme(case, _readme_text(case, out), out)
+
+
+# the pointer el writes into a new case's State — el's own words, so el takes them down once they are done
+DEFAULT_NEXT = 'open phase 1 — `el phase open 1 <Name> --goal "…"`'
+
+
+def _say_default_next_down(had: bool, case: Path, out: Outcome) -> None:
+    """A phase opened: el's own «next: open phase 1» is done and would read as the next step on every entry (L2: a sign
+    «opening soon» left on an open shop). The render takes it down (`_derive_readme`) — only el's words, never a `next:` the
+    agent wrote; this says so at the moment it happens."""
+    if had and not _default_next_in_state(_readme_text(case)):
+        out.say("State: el's own «next: open phase 1» is taken down — your next step in your words: el readme set next \"…\"")
+
+
+def _default_next_in_state(readme_body: str) -> bool:
+    parsed = grammar.parse_readme(readme_body)
+    return not parsed.errors and f"- next: {DEFAULT_NEXT}" in parsed.sections.get("State", [])
 
 
 # ---- journal ------------------------------------------------------------------------------------
@@ -728,6 +747,16 @@ def _parse_evidence(case: Path, ref: str, token: str):
     return kind, value
 
 
+def _pair_slots(slots: List[Tuple[str, str]], evidence: List[Tuple[str, str]]):
+    """Each promised slot next to ITS proof: one proof of a kind fills one slot of that kind, in order (L5: two promised
+    runs — the tests and the load test — were «2 of 2 filled» by one run, and both were shown against it). Returns
+    [(kind, what, proof or None)] in the order of the slots."""
+    left: Dict[str, List[str]] = {}
+    for k, pr in evidence:
+        left.setdefault(k, []).append(pr)
+    return [(k, w, left[k].pop(0) if left.get(k) else None) for k, w in slots]
+
+
 def _expect_check(phase: grammar.Phase, items: List[grammar.Item]):
     """Hold `done` to the item's own `expect:` (F22): which promised proofs arrived, which did not. Shown, never
     refused — the expectation may have been wrong, and the honest move is to say so, not to forge a proof.
@@ -738,22 +767,21 @@ def _expect_check(phase: grammar.Phase, items: List[grammar.Item]):
         slots = grammar.expected_kinds(it.expect)
         if not slots:
             continue
-        have = {k for k, _ in it.evidence}
-        filled = [(k, w) for k, w in slots if k in have]
-        missing = [(k, w) for k, w in slots if k not in have]
+        paired = _pair_slots(slots, it.evidence)
+        filled = [(k, w, pr) for k, w, pr in paired if pr is not None]
+        missing = [(k, w) for k, w, pr in paired if pr is None]
         ref = f"{phase.n}.{it.m}"
         if missing:
             gap = " ".join(f"[{k}: {w}]" if w else f"[{k}]" for k, w in missing)
             out.say(f"expect {ref}: {len(filled)} of {len(slots)} filled — missing {gap}: the proof is short, or the expectation "
                     f"was wrong — say which: el todo done {ref} <kind> \"…\" adds a proof · el todo expect {ref} \"…\" corrects the promise")
-            notes.append(f"{ref} expected {' · '.join(k for k, _ in slots)}, got {' · '.join(sorted(have)) or 'nothing'}")
+            notes.append(f"{ref} expected {' · '.join(k for k, _ in slots)}, got {' · '.join(k for k, _ in it.evidence) or 'nothing'}")
         else:
             out.say(f"expect {ref}: {len(slots)} of {len(slots)} filled — {' · '.join(k for k, _ in slots)}")
         # the promise next to what arrived, in words — the tool matches kinds, the reader matches meaning
         # (feedback 2026-09-16: «HTTP 200 with benefits» filled a run slot that meant «discount applied»)
-        for k, w in filled:
+        for k, w, brought in filled:
             if w:
-                brought = next((pr for kk, pr in it.evidence if kk == k), "")
                 out.say(f"  {_slot(k, w)} ← {k} {brought}".rstrip() + "  — does it show that?")
     return "; ".join(notes), out.lines
 
@@ -1331,6 +1359,34 @@ def _gone_lines(case: Path, todo: grammar.Todo) -> List[str]:
     return out
 
 
+def _closed_words(readme_body: str) -> str:
+    """A closed case's outcome as `done` recorded it: the `closed:` line without its date and el's acceptance tail."""
+    parsed = grammar.parse_readme(readme_body)  # State only: a Context line «closed: …» is the agent's text (Codex, 2026-10-05)
+    line = next((ln for ln in parsed.sections.get("State", []) if ln.startswith("- closed: ")), "") if not parsed.errors else ""
+    if not line:
+        return ""
+    text = grammar.CLOSED_TALLY_RE.sub("", line[len("- closed: "):]).strip()
+    return re.sub(r"^\d{4}-\d{2}-\d{2} · ", "", text)
+
+
+def _closed_wait_lines(case: Path, todo: grammar.Todo) -> List[str]:
+    """Order (L7): a phase waits for a nested case that is closed — the child's close was cut between its own record and
+    this one (a killed process), so its outcome never landed here and the phase cannot close. The repair is the same
+    door: `done` in the closed child delivers what it recorded, nothing in the child is written twice."""
+    out = []
+    children = {k.name: k for k in order.child_cases(case, _is_project(case))}
+    for p in todo.phases:
+        for name in ([] if p.done else p.waits):
+            child = children.get(name)
+            if child is None or order.child_status(child)[0] != "closed":
+                continue
+            words = _closed_words(store.read(child, "README.md"))
+            path = child.relative_to(store.find_root(case)).as_posix()  # a path: one name may live under two parents
+            out.append(f"phase {p.n} waits for {name}, and {name} is closed — its close never reached this case (cut off "
+                       f"midway?) → el --case {path} done {_sh(words)} delivers its outcome here")
+    return out
+
+
 def todo_after(case: Path, ref: str, refs: str) -> Outcome:
     """Set (or clear with `none`) what item N.M waits for: `el todo after 2.5 "2.3, 1.7, case-name"`."""
     out = Outcome()
@@ -1403,28 +1459,207 @@ def _goal_coverage(phase: grammar.Phase, goal: str) -> List[Tuple[Tuple[str, str
     on a baseline — HTTP 200 with benefits — while its goal was a discount applied; `check` said 0 violations
     because four criteria of one kind were satisfied by one run). A promise with words is covered by an ITEM
     whose `expect:` carries the same slot — the phase's statement decomposes into its items' statements — and
-    is proved when that item is done with a proof of that kind. A bare kind (`[owner]`) is proved by any done
-    item of that kind. Returns [(slot, status, ref)]: status ∈ proved · promised (item open) · uncovered."""
-    out = []
-    done_kinds = {k for it in phase.items if it.done for k, _ in it.evidence}
-    for kind, what in grammar.expected_kinds(goal):
+    is proved when that item's own proof for that slot arrived (L5: one run no longer proves the item's two run
+    slots, so it no longer proves two of the goal's). A bare kind (`[owner]`) is proved by a done proof of that kind
+    the named promises did not use. Returns [(slot, status, ref)]: status ∈ proved · promised (item open) · uncovered."""
+    slots = grammar.expected_kinds(goal)
+    status: Dict[int, Tuple[str, str]] = {}
+    used: Dict[str, int] = {}
+    pairs = {it.m: _pair_slots(grammar.expected_kinds(it.expect), it.evidence if it.done else []) for it in phase.items}
+    taken = set()  # (item, pair): one proof serves one goal slot — `[run: tests] [run: tests]` needs two (Codex, 2026-10-05)
+    for i, (kind, what) in enumerate(slots):
         key = _slot_key(kind, what)
         if not key[1]:
-            out.append(((kind, what), "proved" if kind in done_kinds else "uncovered", ""))
             continue
         carriers = [it for it in phase.items if key in {_slot_key(k, w) for k, w in grammar.expected_kinds(it.expect)}]
-        proved = [it for it in carriers if it.done and any(k == kind for k, _ in it.evidence)]
-        if proved:
-            out.append(((kind, what), "proved", f"{phase.n}.{proved[0].m}"))
+        free = next(((it, j) for it in carriers for j, (k, w, pr) in enumerate(pairs[it.m])
+                     if _slot_key(k, w) == key and pr is not None and (it.m, j) not in taken), None)
+        if free:
+            taken.add((free[0].m, free[1]))
+            status[i] = ("proved", f"{phase.n}.{free[0].m}")
+            used[kind] = used.get(kind, 0) + 1
         elif carriers:
-            out.append(((kind, what), "promised", ", ".join(f"{phase.n}.{it.m}" for it in carriers)))
+            status[i] = ("promised", ", ".join(f"{phase.n}.{it.m}" for it in carriers))
         else:
-            out.append(((kind, what), "uncovered", ""))
-    return out
+            status[i] = ("uncovered", "")
+    left: Dict[str, int] = {}  # a bare kind twice needs two done proofs of it (L5), beyond those the named ones took
+    for it in phase.items:
+        for k, _ in (it.evidence if it.done else []):
+            left[k] = left.get(k, 0) + 1
+    for k, n in used.items():
+        left[k] = left.get(k, 0) - n
+    for i, (kind, what) in enumerate(slots):
+        if i in status:
+            continue
+        ok = left.get(kind, 0) > 0
+        if ok:
+            left[kind] -= 1
+        status[i] = ("proved" if ok else "uncovered", "")
+    return [((kind, what), *status[i]) for i, (kind, what) in enumerate(slots)]
 
 
 def _slot(kind: str, what: str) -> str:
     return f"[{kind}: {what}]" if what else f"[{kind}]"
+
+
+def _cancelled(p: grammar.Phase) -> bool:
+    """A phase ended by `phase cancel` — its line says «снято: <why>»; a result that merely begins with the word is not one."""
+    return p.done and (p.summary or "").startswith("снято: ")
+
+
+def _sh(text: str) -> str:
+    """A value as the shell gets it back intact: single quotes, a `'` inside kept as typed."""
+    return "'" + text.replace("'", "'\\''") + "'"
+
+
+def _context_text(text: str) -> str:
+    """A Context line at the write door (L6): free text, but a `[word: …]` in it is a promise and names a kind from the closed
+    list — `[test: …]` or `[RUN: …]` would read as a promise el never counts. Links, code spans and a bracketed word without
+    a colon (`[docs](…)`, `Status [ready]`) are text (Codex, 2026-10-05: the goal door refused them)."""
+    text = " ".join(text.split())
+    for m in _promise_slots(text, re.compile(r"\[([A-Za-z][\w-]*):[^\]]*\]")):
+        if m.group(1) not in grammar.EVIDENCE_KINDS:
+            low = m.group(1).lower()
+            hint = f" — kinds are lowercase: [{low}: …]" if low in grammar.EVIDENCE_KINDS else ""
+            raise StoreError(f"`[{m.group(1)}: …]` is not a kind of proof{hint} — a promise in Context is [file: what] · [ref: what] · "
+                             f"[run: what] · [owner]; a kind that is missing: el feedback \"…\" · el help evidence", 2)
+    return text
+
+
+def _goal_line_index(lines: List[str]) -> Optional[int]:
+    """Where the case goal sits in Context: the first line that is not blank and not a case rule (what `_context_goal` reads)."""
+    return next((i for i, ln in enumerate(lines) if ln.strip() and not ln.strip().startswith("- rule:")), None)
+
+
+CODE_SPAN_RE = re.compile(r"(?<![`\\])(`+)(?!`).*?(?<!`)\1(?!`)")  # CommonMark: a whole, unescaped run opens; as long a run closes
+REF_LINK_RE = re.compile(r"\[[^\]]*\]\[[^\]]*\]")  # `[owner][signer]` — a reference link names its target elsewhere
+
+
+def _promise_slots(line: str, pattern) -> List[re.Match]:
+    """The slots of a Context line that are promises: not inside a code span (`` `[run: x]` `` quotes syntax) and not a link's
+    name (`[owner](https://…)`) — while a code span INSIDE a slot (``[run: `make test` → OK]``) is part of it (Codex, 2026-10-05)."""
+    quoted = [(m.start(), m.end()) for rx in (CODE_SPAN_RE, grammar.LINK_RE, REF_LINK_RE) for m in rx.finditer(line)]
+    return [m for m in pattern.finditer(line) if not any(a <= m.start() < b and m.end() <= b for a, b in quoted)]
+
+
+def _case_promises(readme_body: str) -> List[Tuple[Tuple[str, str], str]]:
+    """The proofs the case promised in its Context (L6) — `[run: …] [file: …] [ref: …] [owner]` in the owner's goal or in
+    any Context line but a case rule: [((kind, what), where)], `where` is how `el readme edit context` names the line —
+    `goal`, a bullet's position, or "" for a plain line only a whole rewrite reaches."""
+    parsed = grammar.parse_readme(readme_body)
+    if parsed.errors:
+        return []
+    lines = parsed.sections.get("Context", [])
+    gi = _goal_line_index(lines)
+    bullets = [i for i, ln in enumerate(lines) if ln.startswith("- ")]
+    out = []
+    for i, ln in enumerate(lines):
+        if ln.strip().startswith("- rule:"):
+            continue
+        where = "goal" if i == gi else (str(bullets.index(i) + 1) if i in bullets else "")
+        out += [((m.group(1), (m.group(2) or "").strip()), where) for m in _promise_slots(ln, grammar.EXPECT_SLOT_RE)]
+    return out
+
+
+def _case_coverage(case: Path, todo: grammar.Todo, readme_body: str):
+    """Each proof the case promised (L6) against its phases — the phase-level check (F12) one size up, the owner's word
+    2026-10-05 («the expectation lives at every size of the node» was taught and checked by nothing): a promise with words
+    is covered by a PHASE whose goal carries the same slot, and proved when that slot is proved inside the phase — by its
+    items, the F12 count — not by the phase being closed (a goal edited after the close, a phase from before F12); a bare
+    kind (`[owner]`) is proved by a done proof of that kind anywhere in the case. One carrier serves one promise; a
+    cancelled phase carries nothing. Returns [(slot, where, status, phases)]: status ∈ proved · promised · uncovered."""
+    promises = _case_promises(readme_body)
+    if not promises:
+        return []
+    phases = [p for p in todo.phases if not _cancelled(p)]
+    carriers: List[Tuple[Tuple[str, str], grammar.Phase, bool]] = []  # (key, phase, the slot proved in it)
+    left: Dict[str, int] = {}
+    for p in phases:
+        items = _closed_phase_items(case, p) if p.done else p.items
+        for it in items:
+            for k, _ in (it.evidence if it.done else []):
+                left[k] = left.get(k, 0) + 1
+        whole = grammar.Phase(p.n, p.name, p.done, p.line, p.summary, items)
+        for (k, w), st, _ in _goal_coverage(whole, _phase_goal(case, p)):
+            carriers.append((_slot_key(k, w), p, st == "proved"))
+    results: Dict[int, tuple] = {}
+    taken = set()
+    for idx, ((kind, what), where) in sorted(enumerate(promises), key=lambda e: not e[1][0][1]):  # named first (Codex, 2026-10-05)
+        key = _slot_key(kind, what)
+        mine = [(i, p, ok) for i, (k, p, ok) in enumerate(carriers) if k == key and i not in taken]
+        if not key[1] and not any(ok for _, _, ok in mine):  # a bare kind: any free proof of it, carried or not (Codex, 2026-10-05)
+            ok = left.get(kind, 0) > 0
+            if ok:
+                left[kind] -= 1
+            results[idx] = ((kind, what), where, "proved" if ok else "uncovered", "")
+            continue
+        pick = next(((i, p, ok) for i, p, ok in mine if ok), mine[0] if mine else None)
+        if pick is None:
+            results[idx] = ((kind, what), where, "uncovered", "")
+            continue
+        taken.add(pick[0])
+        if pick[2]:
+            left[kind] = left.get(kind, 0) - 1  # the proof under that carrier serves this promise and no other
+        results[idx] = ((kind, what), where, "proved" if pick[2] else "promised", str(pick[1].n))
+    return [results[i] for i in range(len(promises))]
+
+
+def _near_promises(case: Path, todo: grammar.Todo, kind: str, what: str) -> str:
+    """The slots of the same kind the phases did promise — the same promise in other words is the common case (a live case:
+    «deploy green after each phase push» above, «deploy green» in every phase): shown side by side, the reader decides."""
+    key = _slot_key(kind, what)
+    seen = []
+    for p in todo.phases:
+        if _cancelled(p):
+            continue
+        for k, w in grammar.expected_kinds(_phase_goal(case, p)):
+            if k == kind and _slot_key(k, w) != key and _slot(k, w) not in seen:
+                seen.append(_slot(k, w))
+    return " ".join(seen[:3])
+
+
+def _promise_fix(where: str) -> str:
+    if where:
+        return f"el readme edit context {where} '…'"
+    return "the line is plain text — rewrite README with it corrected: el readme --file <your edited copy>"
+
+
+def _carry_command(n: int, slot: str) -> str:
+    """The command that names a phase carrying a case promise — runnable as printed (Codex, 2026-10-05): shell-quoted, and a
+    plan only while «… [slot]» fits a plan line; a longer slot goes in when the phase opens (its goal lives in its file)."""
+    goal = f"… {slot}"
+    if grammar.visible_len(goal) <= grammar.TODO_ITEM_CHARS:
+        return f"el phase plan {n} 'Name' --goal {_sh(goal)}"
+    return f"el phase open {n} 'Name' --goal {_sh(goal)} (longer than a plan line: it goes in at the opening)"
+
+
+def _case_promise_lines(case: Path, todo: grammar.Todo, readme_body: str) -> List[str]:
+    """Order (L6): a proof the case promised that no phase promises — the goal nobody works towards, shown while the case is
+    open; `el done` refuses over it. The fix is a phase that carries the slot, or the promise corrected in the owner's words."""
+    if grammar.is_closed(readme_body):
+        return []
+    lines = []
+    free = max((p.n for p in todo.phases), default=0) + 1
+    for (kind, what), where, status, _ in _case_coverage(case, todo, readme_body):
+        if status != "uncovered":
+            continue
+        near = _near_promises(case, todo, kind, what)
+        lines.append(f"the case promises {_slot(kind, what)} and no phase promises it — the goal nobody works towards: name the "
+                     f"phase that proves it, {_carry_command(free, _slot(kind, what))} · or correct the promise: {_promise_fix(where)}"
+                     + (f" (phases promise {near} — the same in other words? say it in theirs)" if near else ""))
+    return lines
+
+
+def _case_promise_hint(case: Path, todo: grammar.Todo, n: int, out: Outcome) -> None:
+    """At the moment a phase gets its goal: the case's promises no phase carries yet, ready to copy — copied, the words match
+    (L6: the case and its phases said the same thing in different words, and a word-for-word check could not see it)."""
+    phase = todo.phase(n)
+    carried = {_slot_key(k, w) for k, w in grammar.expected_kinds(_phase_goal(case, phase))} if phase else set()
+    left = [_slot(k, w) for (k, w), _, st, _ in _case_coverage(case, todo, _readme_text(case)) if st == "uncovered"
+            and _slot_key(k, w) not in carried]
+    if left:
+        out.say(f"the case promises {' '.join(left)} and no phase carries it yet — is it this one? copy the slot into its goal, "
+                f"in the same words: the case closes when each of its promises is proved inside a phase")
 
 
 def _phase_goal(case: Path, phase: grammar.Phase) -> str:
@@ -2624,7 +2859,7 @@ ALONGSIDE_HINT = ("phases are one pipeline, in order, one in flight; work that r
 def _closing_checks(case: Path, prev: grammar.Phase, journal: grammar.Journal) -> List[str]:
     """What P8 demands from a phase before the next one may open."""
     missing = []
-    if (prev.summary or "").startswith("снято"):
+    if _cancelled(prev):
         return []  # cancelled (F20): the phase never ran — no RESULT, reflect or align to ask for (feedback 2026-09-09)
     pf0 = _phase_file(case, prev.n, prev.name)
     if pf0.exists():
@@ -2671,8 +2906,10 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
                          f"{INTENT_HINT}", 3)
     if existing is not None:
         free = max(p.n for p in todo.phases) + 1
-        if existing.done and (existing.summary or "").startswith("снято"):
-            return _replan_cancelled(case, todo, existing, name, intent, free, out)
+        if _cancelled(existing):
+            back = _replan_cancelled(case, todo, existing, name, intent, free, out)
+            _case_promise_hint(case, _todo(case), n, back)
+            return back
         if existing.done:
             raise StoreError(f"phase {n} {existing.name} is closed — pick the next number: el phase plan {free} \"{name}\"", 4)
         pf = _phase_file(case, n, existing.name)
@@ -2690,16 +2927,19 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
             existing.summary = intent
         if not changes:
             out.say(f"phase {n} {name} is already planned with this goal — nothing changed")
+            _case_promise_hint(case, todo, n, out)
             return out
         out.absorb(_write_todo(case, todo))
         _sync_progress(case, todo, out)
         out.say(f"re-planned: phase {n} {name} — {existing.summary or '(no goal)'} ({', '.join(changes)}) → TODO.md")
+        _case_promise_hint(case, todo, n, out)
         return out
     todo.phases.append(grammar.Phase(n, name, False, 0, intent))
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
     out.say(f"planned: phase {n} {name} → TODO.md (no phase file until it opens) · items now: el todo add {n} \"…\" · "
             f"open once the previous phase is closed: el phase open {n}")
+    _case_promise_hint(case, todo, n, out)
     return out
 
 
@@ -2920,8 +3160,10 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
             out.say(f"phase {n} carries {len(existing.notes)} note(s) in TODO — read them; they move into the phase file at close")
     if existing is None:
         todo.phases.append(grammar.Phase(n, name, False, 0))
+    had_default = _default_next_in_state(_readme_text(case))
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
+    _say_default_next_down(had_default, case, out)
     opened = f"{name} открыта" + (f" (запланирована была как «{renamed}»)" if renamed else "")
     early = []
     if skipped and why:  # the order was changed by something found: said once, with the reason, under this phase
@@ -2932,6 +3174,7 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
                if skipped and why else ""))
     if _two_hands(_readme_text(case)) and not _scope_agreed(_journal(case), n):
         out.warn(f"phase {n} opened without the owner's agreed scope (this case's rule: two hands) → el phase agree {n} \"the owner's words\"")
+    _case_promise_hint(case, todo, n, out)
     hints.attach(out, "phase_open", rel=f"phases/{pf.name}", n=n,
                  promised=[_slot(k, w) for k, w in grammar.expected_kinds(_phase_goal(case, todo.phase(n)))],
                  covered=[_slot(k, w) for (k, w), st, _ in _goal_coverage(todo.phase(n), _phase_goal(case, todo.phase(n))) if st != "uncovered"])
@@ -3188,13 +3431,13 @@ def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]
                      + (" — not proved: " + " ".join(_slot(*sl) for sl, st, _ in coverage if st != "proved") if len(proved) < len(coverage) else ""))
     promised = [it for it in phase.items if grammar.expected_kinds(it.expect)]
     if promised:  # F22: the record held to its own promises — met, or short and said so
-        met = [it for it in promised if {k for k, _ in grammar.expected_kinds(it.expect)} <= {k for k, _ in it.evidence}]
+        met = [it for it in promised if all(pr is not None for *_, pr in _pair_slots(grammar.expected_kinds(it.expect), it.evidence))]
         short = [it for it in promised if it not in met]
         line = f"- expectations: {len(met)} met"
         if short:
             line += f" · {len(short)} short (" + "; ".join(
                 f"{it.n}.{it.m} expected {' · '.join(k for k, _ in grammar.expected_kinds(it.expect))}, "
-                f"got {' · '.join(sorted({k for k, _ in it.evidence})) or 'nothing'}" for it in short) + ")"
+                f"got {' · '.join(k for k, _ in it.evidence) or 'nothing'}" for it in short) + ")"
         lines.append(line)
     lines += bucket("notes", [rel(n) for n in phase.notes])
     lines += bucket("facts", [f"{it.n}.{it.m} {rel(it.fact)}" for it in phase.items if it.done and it.fact])
@@ -3261,6 +3504,9 @@ def phase_cancel(case: Path, n: int, why: str) -> Outcome:
 def readme(case: Path, text: str) -> Outcome:
     out = Outcome()
     body, _ = stamp.split(text)
+    parsed = grammar.parse_readme(body)
+    for ln in ([] if parsed.errors else parsed.sections.get("Context", [])):  # one door rule for a line and a whole file (L6)
+        _context_text(ln)
     try:
         todo = _todo(case, out)
         if not re.search(r"^- progress:", body, re.M):
@@ -3348,8 +3594,9 @@ def readme_add(case: Path, section: str, line: str) -> Outcome:
     name = SECTION_NAMES.get(section.lower())
     if name is None:
         raise StoreError(f"no section `{section}` — sections: {' · '.join(grammar.README_SECTIONS)}", 2)
+    line = _context_text(line) if name == "Context" else " ".join(line.split())  # a promise names a kind from the closed list
     parsed = _readme_sections(case, out)
-    parsed.sections.setdefault(name, []).append(f"- {' '.join(line.split())}")
+    parsed.sections.setdefault(name, []).append(f"- {line}")
     _write_readme(case, _render_readme(parsed), out, anchor=name == "State")
     out.say(f"README {name}: line added")
     return out
@@ -3367,10 +3614,23 @@ def readme_edit(case: Path, section: str, ref: str, text: str) -> Outcome:
         raise StoreError(f"usage: el readme edit {name.lower()} <k> \"new text\" — to remove a line: el readme drop {name.lower()} <k>", 2)
     if name == "State":
         return readme_set(case, ref, text)
+    if name == "Context":
+        text = _context_text(text)  # a promise in Context names a kind from the closed list, like a goal or an expect (L6)
     parsed = _readme_sections(case, out)
     ref = str(ref).strip()
+    if name == "Context" and ref.lower() == "goal":  # the goal line by name, like State lines by prefix (L6: no door reached it)
+        lines = parsed.sections.get("Context", [])
+        gi = _goal_line_index(lines)
+        if gi is None:
+            raise StoreError("Context has no goal line — el readme add context \"…\"", 4)
+        old = lines[gi]
+        lines[gi] = f"- {text}" if old.startswith("- ") else text
+        _write_readme(case, _render_readme(parsed), out)
+        out.say(f"README Context: the goal edited → «{text}» (was: «{old[2:] if old.startswith('- ') else old}»)")
+        return out
     if not ref.isdigit():
-        raise StoreError(f"usage: el readme edit {name.lower()} <k> \"new text\" — k is the line's position (1 = first bullet)", 2)
+        raise StoreError(f"usage: el readme edit {name.lower()} <k> \"new text\" — k is the line's position (1 = first bullet)"
+                         + (" · the goal line: el readme edit context goal \"…\"" if name == "Context" else ""), 2)
     k = int(ref)
     bullets = [i for i, ln in enumerate(parsed.sections.get(name, [])) if ln.startswith("- ")]
     if not 1 <= k <= len(bullets):
@@ -3485,15 +3745,15 @@ def case_new(root: Path, name: str, goal: str, parent: Optional[Path] = None) ->
     case = (root if parent is None or _is_project(parent) else parent) / folder
     if case.exists():
         raise StoreError(f"{case} already exists", 4)
+    goal = _context_text(goal)  # before the folder exists: a promise in the goal names a kind from the closed list (L6)
     case.mkdir()
     title = name.strip()
-    goal = " ".join(goal.split())
     back = Path(os.path.relpath(store.file_path(parent, "README.md"), case)).as_posix() if parent else ""
     links = [f"- parent: [{parent.name}]({back}) · фаза {_phase_of(store.todo_of(parent))[1:]}"] if parent else []
     d, t = _now()
     readme_text = "\n".join([
         f"# {title}", "", "## Context", goal, *_default_rules(), "", "## State", "- progress: (no phases yet)",
-        "- next: open phase 1 — `el phase open 1 <Name> --goal \"…\"`", f"- as of: {d} {t} · p0 (1 event)", "",
+        f"- next: {DEFAULT_NEXT}", f"- as of: {d} {t} · p0 (1 event)", "",
         "## Decisions", "", "## Problems", "", "## Links", *links, ""])
     store_write_fresh(case, "README.md", readme_text)
     store_write_fresh(case, "TODO.md", f"# TODO — {title}\n")
@@ -3607,11 +3867,11 @@ def project_new(root: Path, name: str, goal: str) -> Outcome:
                              f"overwrite it. Keep it and run the ordinary form instead: el case new \"{name}\" --goal \"…\" "
                              f"(the case lives in .cases/); root mode only after you move that file aside", 4)
     title = name.strip()
-    goal = " ".join(goal.split())
+    goal = _context_text(goal)
     d, t = _now()
     store_write_fresh(project, "README.md", "\n".join([
         f"# {title}", "", "## Context", goal, *_default_rules(), "", "## State", "- progress: (no phases yet)",
-        "- next: open phase 1 — `el phase open 1 <Name> --goal \"…\"`", f"- as of: {d} {t} · p0 (1 event)", "",
+        f"- next: {DEFAULT_NEXT}", f"- as of: {d} {t} · p0 (1 event)", "",
         "## Decisions", "", "## Problems", "", "## Links", ""]))
     store_write_fresh(project, "TODO.md", f"# TODO — {title}\n")
     event_lines, _ = _render_event("PHASE", f"проект открыт: {goal}")
@@ -3684,8 +3944,63 @@ def _case_tally(case: Path, todo: grammar.Todo, out: Outcome) -> str:
     return _acceptance_tally(items) if _two_hands(_readme_text(case, out)) or any(it.accepted for it in items) else ""
 
 
+def _deliver_cancel_to_parent(root: Path, case: Path, why: str, out: Outcome) -> None:
+    parent = store.parent_case(case, root)
+    if parent is None:
+        return
+    ptodo = _todo(parent, out)
+    for p in ptodo.phases:
+        if case.name in p.waits:
+            p.waits.remove(case.name)
+            m = _next_number(parent, ptodo, p)
+            p.items.append(grammar.Item(p.n, m, True, f"снято: {why}", 0,
+                                        evidence=[("file", _child_readme_link(parent, case))]))
+    out.absorb(_write_todo(parent, ptodo))
+    _write_readme(parent, _readme_text(parent, out), out)  # `ждёт:` of this child is drawn no more (F6)
+    out.lines += log(parent, "DECISION", f"снято → {why} · {case.name}/").lines
+    out.say(f"parent updated: {parent.name}")
+
+
+def _deliver_to_parent(root: Path, case: Path, summary: str, out: Outcome) -> None:
+    """The parent's half of a close: the awaited phase stops waiting and gets the child's outcome as a done item, the
+    parent's journal hears of it. One helper for both ends of a child — done and cancelled («снято: <why>», which the parent
+    records as a DECISION) — and for a close whose parent half was cut off (L7): the parent hears the same either way."""
+    if summary.startswith("снято: "):
+        return _deliver_cancel_to_parent(root, case, summary[len("снято: "):], out)
+    parent = store.parent_case(case, root)
+    if parent is None:
+        return
+    ptodo = _todo(parent, out)
+    awaited = False
+    for p in ptodo.phases:
+        if case.name in p.waits:
+            awaited = True
+            p.waits.remove(case.name)
+            m = _next_number(parent, ptodo, p)
+            # the child's outcome lands at the parent as a done item whose evidence is the child itself
+            # (F20: the tool does not write a tick without a kind): file → the child's README
+            p.items.append(grammar.Item(p.n, m, True, summary, 0,  # the agent's words only; the proof line names the case
+                                        evidence=[("file", _child_readme_link(parent, case))]))
+    out.absorb(_write_todo(parent, ptodo))
+    _write_readme(parent, _readme_text(parent, out), out)  # `ждёт:` of this child is drawn no more (F6)
+    # the child always reports to its parent, however it was created (F18): an awaited child
+    # closes the PROBLEM that spawned it, any other child lands as a RESULT
+    out.lines += log(parent, "PROBLEM" if awaited else "RESULT",
+                     (f"закрыто → {summary} · {case.name}/" if awaited else f"дело закрыто → {summary} · {case.name}/")).lines
+    out.say(f"parent updated: {parent.name} — hand returns to the parent")
+
+
 def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> Outcome:
     out = Outcome()
+    recorded = _closed_words(_readme_text(case, out))
+    if recorded:  # closed already: the only thing left to do is the parent's half, if it was cut off (L7)
+        parent = store.parent_case(case, root)
+        if parent is None or not any(case.name in p.waits for p in _todo(parent, out).phases):
+            raise StoreError(f"{case.name} is closed already «{recorded}» — nothing to close, and no parent waits for it", 4)
+        _deliver_to_parent(root, case, recorded, out)
+        out.say(f"{case.name} was closed already — its outcome as recorded «{recorded}» is delivered to the parent; "
+                f"nothing in {case.name} was written again")
+        return out
     howto_text = _howto_text(case, howto) if howto else None
     todo = _todo(case, out)
     open_phases = [p for p in todo.phases if not p.done]
@@ -3696,6 +4011,18 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> O
     if live:  # F20: a parent closes only when every child is done or cancelled; BROKEN holds it open (F18)
         raise StoreError("cannot close the case: nested cases still open — " + ", ".join(live) +
                          " → close each (el --case <name> done \"…\") or cancel it with a reason", 4)
+    coverage = _case_coverage(case, todo, _readme_text(case, out))
+    unproved = [cv for cv in coverage if cv[2] != "proved"]
+    if unproved:  # L6: the case's own promise holds its close, as a phase's goal holds the phase's (F12)
+        (kind, what), where, status, refs = unproved[0]
+        near = _near_promises(case, todo, kind, what)
+        more = f" (+{len(unproved) - 1} more promise(s) unproved)" if len(unproved) > 1 else ""
+        why = (f"phase {refs} carries it and did not prove it" if status == "promised"
+               else "no phase proves it" + (f" — the phases promised {near}: the same in other words?" if near else ""))
+        free = max((p.n for p in todo.phases), default=0) + 1
+        raise StoreError(f"cannot close the case: it promised {_slot(kind, what)} in Context and {why} → prove it: a phase whose "
+                         f"goal carries {_slot(kind, what)}, closed with its proof ({_carry_command(free, _slot(kind, what))}) · or correct "
+                         f"the promise to what was proved, in the owner's words: {_promise_fix(where)}{more}", 4)
     words = " ".join(summary.split())
     _child_item_check(root, case, words, words, "summary", f"el done \"<the outcome in at most "
                       f"{grammar.TODO_ITEM_CHARS} chars>\"")
@@ -3718,27 +4045,11 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> O
     text = _set_state_line(text, "next: ", None)  # a closed case has no next step — the line would be a lie (2026-09-14)
     _write_readme(case, text, out, anchor=True)
     out.lines = log(case, "PHASE", f"дело закрыто → {summary}").lines + out.lines
-    parent = store.parent_case(case, root)
-    if parent is not None:
-        ptodo = _todo(parent, out)
-        awaited = False
-        for p in ptodo.phases:
-            if case.name in p.waits:
-                awaited = True
-                p.waits.remove(case.name)
-                m = _next_number(parent, ptodo, p)
-                # the child's outcome lands at the parent as a done item whose evidence is the child itself
-                # (F20: the tool does not write a tick without a kind): file → the child's README
-                p.items.append(grammar.Item(p.n, m, True, summary, 0,  # the agent's words only; the proof line names the case
-                                            evidence=[("file", _child_readme_link(parent, case))]))
-        out.absorb(_write_todo(parent, ptodo))
-        _write_readme(parent, _readme_text(parent, out), out)  # `ждёт:` of this child is drawn no more (F6)
-        # the child always reports to its parent, however it was created (F18): an awaited child
-        # closes the PROBLEM that spawned it, any other child lands as a RESULT
-        out.lines += log(parent, "PROBLEM" if awaited else "RESULT",
-                         (f"закрыто → {summary} · {case.name}/" if awaited else f"дело закрыто → {summary} · {case.name}/")).lines
-        out.say(f"parent updated: {parent.name} — hand returns to the parent")
+    _deliver_to_parent(root, case, summary, out)
     out.say(f"closed: {case.name}")
+    if coverage:
+        out.say(f"case promises: {len(coverage)} of {len(coverage)} proved — "
+                + " · ".join(_slot(*sl) + (f" by phase {refs}" if refs else "") for sl, _, _, refs in coverage))
     if tally:
         out.say(f"acceptance: {tally} → the closed: line, drawn at the parent")
     return out
@@ -3752,7 +4063,7 @@ def case_cancel(root: Path, case: Path, why: str) -> Outcome:
     if not why:
         raise StoreError("cancel needs a reason: el case cancel \"why the case is no longer needed\"", 2)
     todo = _todo(case, out)
-    if re.search(r"^- closed: ", _readme_text(case, out), re.M):
+    if grammar.is_closed(_readme_text(case, out)):
         raise StoreError(f"{case.name} is already closed", 4)
     live = [f"{k.name} ({order.child_status(k)[0]})" for k in order.child_cases(case, _is_project(case)) if order.child_status(k)[0] != "closed"]
     if live:
@@ -3769,19 +4080,7 @@ def case_cancel(root: Path, case: Path, why: str) -> Outcome:
     text = _set_state_line(text, "next: ", None)  # nothing is next for a cancelled case
     _write_readme(case, text, out, anchor=True)
     out.lines = log(case, "DECISION", f"дело снято → {why}").lines + out.lines
-    parent = store.parent_case(case, root)
-    if parent is not None:
-        ptodo = _todo(parent, out)
-        for p in ptodo.phases:
-            if case.name in p.waits:
-                p.waits.remove(case.name)
-                m = _next_number(parent, ptodo, p)
-                p.items.append(grammar.Item(p.n, m, True, f"снято: {why}", 0,
-                                            evidence=[("file", _child_readme_link(parent, case))]))
-        out.absorb(_write_todo(parent, ptodo))
-        _write_readme(parent, _readme_text(parent, out), out)  # `ждёт:` of this child is drawn no more (F6)
-        out.lines += log(parent, "DECISION", f"снято → {why} · {case.name}/").lines
-        out.say(f"parent updated: {parent.name}")
+    _deliver_to_parent(root, case, f"снято: {why}", out)
     out.say(f"cancelled: {case.name} — closed as «снято», reason in the journal")
     return out
 
@@ -4342,8 +4641,10 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_until_lines(readme_body))                # a workaround past its until date (F3)
         lines.extend(_blind_items(todo_now, readme_body))    # an item with nowhere to go (case rule)
         lines.extend(_gone_lines(case, todo_now))              # waiting for something that no longer exists (F19)
+        lines.extend(_closed_wait_lines(case, todo_now))       # waiting for a child that closed, its close cut off (L7)
         lines.extend(_ended_phase_lines(case, todo_now, journal, readme_body))  # every item ended: accept, then close (F20, F23)
         lines.extend(_promise_lines(case, todo_now))               # a promised proof nobody works towards (F12)
+        lines.extend(_case_promise_lines(case, todo_now, readme_body))  # the same, one size up: the case's promise (L6)
         lines.extend(_expect_gap_lines(case, todo_now))            # an item of a running phase with no expectation (F22)
         lines.extend(_running_order_lines(case, todo_now))         # the phase in flight is held to the current form
         lines.extend(_refuted_lines(todo_now))                     # a fact resting on a refuted one (the fact chain)

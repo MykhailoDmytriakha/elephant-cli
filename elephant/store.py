@@ -163,7 +163,7 @@ def is_open(case: Path) -> bool:
         text = read(case, "README.md")
     except StoreError:
         return False
-    return re.search(r"^- closed: ", text, re.M) is None
+    return not grammar.is_closed(text)
 
 
 def load(case: Path, name: str):
@@ -173,20 +173,33 @@ def load(case: Path, name: str):
     return body, report
 
 
+def _rel(case: Path, root: Path) -> str:
+    return case.relative_to(root).as_posix() if case.is_relative_to(root) else case.name  # the project case sits above .cases/
+
+
 def resolve_case(root: Path, name: Optional[str]) -> Path:
     """Find a case by name (exact folder name, nested allowed) or by unique suffix."""
     cases = all_cases(root)
     project = project_case(root)
     if project is not None and name in (".", "root", project.name):
         return project
+    if name and "/" in name:  # a path from .cases/ names a nested case exactly, whatever its siblings are called
+        want = name.strip("/").removeprefix(".cases/")
+        hit = [c for c in cases if c.is_relative_to(root) and c.relative_to(root).as_posix() == want]
+        if hit:
+            return hit[0]
     exact = [c for c in cases if c.name == name] or [c for c in cases if name and c.name.lower() == name.lower()]
+    if len(exact) > 1:  # two cases of one name in different parents: a silent first pick wrote into the wrong one (Codex, 2026-10-05)
+        raise StoreError(f"`{name}` names several cases: {', '.join(_rel(c, root) for c in exact)} — "
+                         f"name one by its path: el --case <path> …", 2)
     if exact:
         return exact[0]
     partial = [c for c in cases if name and c.name.lower().endswith(name.lower())]
     if len(partial) == 1:
         return partial[0]
     if len(partial) > 1:
-        raise StoreError(f"`{name}` matches several cases: {', '.join(c.name for c in partial)}", 2)
+        raise StoreError(f"`{name}` names several cases: {', '.join(_rel(c, root) for c in partial)} — "
+                         f"name one by its path: el --case <path> …", 2)
     raise StoreError(f"no case named `{name}` under {root}", 4, recovery="el case list")
 
 

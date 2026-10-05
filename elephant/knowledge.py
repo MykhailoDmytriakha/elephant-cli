@@ -209,7 +209,8 @@ happened. Now the lower layer is visible from the top, and the top is rendered f
   (`- budget: …`), or a file with `summary:` — its line lands in Links by itself.""",
 
     "readme": """readme — one line at a time; the whole file rarely
-- State lines go by prefix: `el readme set next "…"` sets or creates `- next: …`; `set <prefix> ""`
+- State lines go by prefix: `el readme set next "…"` sets or creates `- next: …` (a new case starts with el's own
+  «next: open phase 1»; `phase open` takes it down — your next step is yours to write); `set <prefix> ""`
   (or `drop state <prefix>`) removes it. `progress:` / `last:` / `as of:` are Elephant's — derived on
   every write, refused to set or drop.
 - the other sections are ordered lists addressed by position (1 = first bullet):
@@ -437,6 +438,15 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   proved — [run: …] by 2.3 · not proved: [run: …]`. A baseline, an HTTP 200, a manual computation are steps —
   RESULT events and notes — not the criterion (feedback 2026-09-16: a phase closed on a baseline, `check` 0).
   The expectation lives at every size of the node: Context for the case, `goal:` for the phase, `expect:` for the item.
+  The case is held to its Context the way a phase is held to its goal (the owner's word, 2026-10-05): a slot in Context
+  (`registration works in three regions [run: e2e by region → 3 of 3]`) is covered by a phase whose goal carries the
+  same slot (the same words, case and spacing aside), proved when that slot is proved inside the phase — by its items,
+  not by the phase being closed; a bare `[owner]` by an owner's word in the case; one phase serves one promise. Order names
+  a promise no phase carries — with the phases' slots of that kind beside it, the same in other words is the common
+  case — and `el done` refuses over an unproved one. Two exits: a phase that proves it, or the promise corrected in the
+  owner's words: `el readme edit context goal "…"`. Planning or opening a phase prints the promises no phase carries
+  yet: copied into its goal, the words match. Two slots of one kind need two proofs — `[run: tests] [run: load]` is
+  «1 of 2 filled» with one run, at done, in the Digest and in a goal.
 - the recipe question (P8; the owner's word, 2026-09-25 — 48 PROBLEM events and four recipes on the tool's own case):
   a phase that logged a PROBLEM no recipe answers closes with `--howto .howto/<verb>.md` (the file exists, its first line
   is `when: <the error words>` — grep finds it next time; logged as a link) or `--howto "none: why nothing repeats"`;
@@ -472,7 +482,9 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   the parent. Parent and child point at each other with links the editor opens: the parent's phase shows
   `waits: [<child>](<child>/README.md)` and its State `ждёт: [<child>](…)` — drawn by el from `waits:`, gone when the
   child ends, not yours to set or drop; the child's Links shows `parent: [<parent>](../README.md) · фаза N`.
-  `el done "outcome"` in the child writes one summary line back and returns the hand.
+  `el done "outcome"` in the child writes one summary line back and returns the hand. A close cut off between the two
+  records (a killed process): the parent still waits for a closed child — its Order names it, and `el --case <child>
+  done '…'` in the closed child delivers what it recorded, nothing in the child written twice.
 - `el done "outcome"` closes the case (all phases and nested cases must be closed first);
   `el case cancel "why"` ends it the other honest way — open phases collapse with the reason.
   At a parent that waits for it the outcome becomes an item, so it is an item's size: ≤ 100 visible chars of YOUR

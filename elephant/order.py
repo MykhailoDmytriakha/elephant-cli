@@ -747,7 +747,7 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
             described[m.group(1)] = (m.group(2) or "").strip()
     listed = set(described)
     folders = content_folders(case, root_mode, listed)
-    closed = re.search(r"^- closed: ", readme_body, re.M) is not None
+    closed = grammar.is_closed(readme_body)
     if journal is not None and not closed:  # a closed case has no "now" to keep current
         key = anchor(readme_body)
         if key is None:
