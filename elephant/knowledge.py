@@ -388,7 +388,9 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
 - plan: `el phase plan 3 "Rollout" --goal "one line"` — names the NEXT phase while the current one
   runs: a `- [ ] 3 Rollout — intent` line in TODO, no phase file, no journal event. Park its items
   there now (`el todo add 3 "…"`); it opens later with `el phase open 3` (name and goal come
-  from the plan). One phase in flight stays the rule: planned is not open. A plan is rough when
+  from the plan). One phase in flight stays the rule: planned is not open — items go into a plan, work does not:
+  `done` in a planned phase that could open now is refused with `el phase open N` (feedback 2026-10-05: the refusal at
+  close taught the fix after the work). A plan is rough when
   made: the same command on a planned phase re-plans it (new name and/or goal); once open, the
   goal lives in the phase file (`goal:` line) and the TODO line follows it (F18).
 - open: `el phase open 2 "Server database" --goal "one line"` — creates phases/2-server-database.md
@@ -416,7 +418,8 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   list with their pockets, the gates are the same (`el help later`). The scope the owner agreed:
   `el phase agree N "the owner's words"` — at the boundary, before opening; under the case rule «two hands»
   Order names a running phase without it (`el help acceptance`).
-- out of turn: work parked under a planned phase may end before its turn (it ran alongside). Then
+- out of turn: work parked under a planned phase that cannot open yet (another phase running, or a planned phase below
+  it that would need `--why`) may end before its turn (it ran alongside) — `done` lets it in. Then
   `el phase close N "…"` closes it straight from the plan once every item ended — the file is born
   at close, the journal says it ran alongside, progress shows ✓; `open` stays refused. Every gate
   still applies, logged under that phase: `el log --phase N RESULT|DECISION "…"`. Next time, work
@@ -780,8 +783,10 @@ records the verdict.
   (`el todo reopen N.M --by <you> "…"`). A change after your acceptance is said on entry and holds the phase close.
 - the tally rises with the work (feedback 2026-09-29: sixteen items accepted on one blanket word read ✓ everywhere above
   the item): one count, by kind — `3 of 4 done accepted — another session 2 · the owner's word 1 · re-ran 2 of 4 run
-  proof(s)` — on the entry, in the Digest of a closed phase, in the case's `closed:` line (done or cancelled) and so at
-  its parent; a cancelled phase keeps each item's `accepted:` line, and the case counts them. The box says the
+  proof(s)` — on the entry, in the Digest of a closed phase, beside the closer's words on the phase's own line (TODO, its
+  `result:` that README Links draws, the close output — feedback 2026-10-05: «accepted by a second hand» stood over «same
+  session 8»), in the case's `closed:` line (done or cancelled) and so at its parent; a cancelled phase keeps each item's
+  `accepted:` line, and the case counts them. The box says the
   state, the tally says how it was reached — like the kinds of evidence, counted beside the mark, not in it.
 - two errors, two guards: the acceptor catches «done is not what was expected»; «expected is not what the owner
   meant» only the owner catches — at the start, when the agent retells the task (el help practice: RETELLING).
