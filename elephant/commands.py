@@ -439,6 +439,40 @@ def _write_readme(case: Path, body: str, out: Outcome, anchor: bool = False):
         if header:
             body = _set_state_line(body, "as of: ", header)
     out.absorb(store.write(case, "README.md", _derive_readme(case, body)))
+    _refresh_parents(case, out)
+
+
+def _refresh_parents(case: Path, out: Outcome) -> None:
+    """L5 (measured 2026-10-06: a child with three phases, its line at the parent still «no phases yet»): what a parent
+    shows about a child is drawn from the child's README — and was drawn only when the parent itself was written, so the
+    owner reading the parent's README read yesterday. Every write of a child's README now redraws its parents, up while
+    something changes (a grandparent shows the parent's State, which a child's write leaves as it was). A parent whose
+    README el cannot vouch for (a hand edit, a case from before el) is left to its own next write — a command in the
+    child never rebuilds a file in another case. The hand stays where the command wrote."""
+    try:
+        root = store.find_root(case)
+    except StoreError:
+        return
+    child = case
+    for _ in range(16):  # nesting is not bounded by the rules, a loop is (a link cycle is not a tree)
+        parent = store.parent_case(child, root)
+        if parent is None or parent == child:
+            return
+        try:
+            text = store.read(parent, "README.md")
+        except StoreError:
+            return
+        if not stamp.verify(text)[0]:
+            return
+        body, _ = stamp.split(text)
+        derived = _derive_readme(parent, body)
+        if derived == body:
+            return
+        try:
+            store.write(parent, "README.md", derived)  # the parent's own warnings are its own, said at its own entry
+        except StoreError:
+            return
+        child = parent
 
 
 def _sync_progress(case: Path, todo: grammar.Todo, out: Outcome):
@@ -5051,6 +5085,7 @@ def _refresh_readme(case: Path, out: Outcome) -> str:
         try:
             out.absorb(store.write(case, "README.md", derived))
             out.say("README refreshed: Links from the files' summary lines · last: from the journal")
+            _refresh_parents(case, out)
             return derived
         except StoreError as e:
             out.warn(f"README not refreshed — {e}")
