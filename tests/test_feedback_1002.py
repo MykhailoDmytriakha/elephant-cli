@@ -59,7 +59,8 @@ class AResultBesideThePlanIsNamed(Base):
         self.assertIn("this RESULT names no item — TODO, where the owner looks, does not move", hint)
         self.assertIn('el todo done 1.1 <kind> "…" writes the RESULT itself', hint, "done writes it: no second log")
         self.assertIn('el todo note 1.1 "…"', hint)
-        self.assertIn('el todo add 1 "…" --before 1.1, then done it', hint)
+        # since 1.40.0 (feedback 2026-10-06, F25) a step with its own proof is a sub-item under the item, not a peer before it
+        self.assertIn('el todo add 1.1 "…", a sub-item 1.1.K, then done it', hint)
 
     def test_the_item_in_hand_is_the_first_one_that_can_be_taken(self):
         run("todo", "hold", "1.1", "waiting for: access to the staging site")

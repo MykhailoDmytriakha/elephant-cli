@@ -57,7 +57,10 @@ LEGEND = "> marks: [ ] open · [/] done, awaiting acceptance — el todo brief N
 LATER_HEAD = "## Later"
 LATER_RE = re.compile(r"^  - \[ \] L(\d+) (.+)$")
 SINCE_SUFFIX = " — since: "
-AFTER_REF_RE = re.compile(r"\d+\.\d+|[A-Za-z0-9][\w-]*")  # F19: an item N.M or a nested case name
+# F25 (feedback and the owner's word, 2026-10-06): an item may hold sub-items N.M.K one level down — the probes of a
+# question, the steps of a long item; deeper is a nested case. One pattern for every reference to an item.
+ITEM_REF = r"\d+\.\d+(?:\.\d+)?"
+AFTER_REF_RE = re.compile(ITEM_REF + r"|[A-Za-z0-9][\w-]*")  # F19: an item N.M, a sub-item N.M.K or a nested case name
 # one grammar of a link for every counter and cutter: a name may hold one level of brackets (`[trace [prod]](…)`), a target
 # one level of balanced parentheses and a title (`(docs/(prod).md "source, details")`) — CommonMark (Codex, 2026-10-05)
 LINK_PATTERN = r"\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\((?:[^()]|\([^()]*\))*\)"
@@ -93,7 +96,16 @@ def visible_len(text: str) -> int:
     Nothing else is exempt (the owner's word, 2026-09-15: a 103-char item with an endpoint path is
     rephrased — verb first, the path stays, the filler goes — not counted differently)."""
     return len(LINK_RE.sub(r"\1", text))
-DEEP_ITEM_RE = re.compile(r"^\s+- \[( |x)\] \d+\.\d+\.\d+")
+TOO_DEEP_RE = re.compile(r"^\s*- \[.\] \d+\.\d+\.\d+\.\d+")  # F25: a fourth level is a nested case
+DEEP_ITEM_RE = re.compile(r"^\s*- \[.\] \d+\.\d+\.\d+ ")         # F25: N.M.K anywhere but under its item
+# F25: a sub-item sits under its item four spaces in; `[-]` = cancelled and kept in sight with its reason — the paths a
+# question closed are part of how it was answered (the owner's mockup, 2026-10-06)
+SUB_ITEM_RE = re.compile(r"^    - \[( |x|~|/|-)\] (\d+)\.(\d+)\.(\d+) (.+)$")
+CANCELLED_SUFFIX = " — cancelled: "
+# F25: the tally of an item's sub-items, drawn by el at the end of the item line from the sub-items themselves
+SUB_STATES = ("done", "cancelled", "on hold", "open")
+TALLY_SUFFIX = " — sub-items: "
+TALLY_RE = re.compile(r" — sub-items: \d+ (?:done|cancelled|on hold|open)(?: · \d+ (?:done|cancelled|on hold|open))*$")
 # F6: `waits:` names a nested case by a link to its README (feedback 2026-09-30: a bare folder name did not click in the
 # editor); the bare name el wrote before 1.31.0 is read as well and drawn as a link on the next write
 WAITS_RE = re.compile(r"^  - waits: (?:\[[^\]\s]+\]\((?:\.cases/)?([^)\s/]+)/README\.md\)|([^\s\[]\S*))$")
@@ -297,6 +309,26 @@ class Item:
     # L8 (the owner's word, 2026-10-05: «provider, model and number»): who did it — `Anthropic Claude Code · Opus 5.5 ·
     # session 70cc2077 · 2026-10-05`, written by `done` on the item itself, so who did it is read, not guessed from the journal
     done_by: str = ""
+    # F25 (feedback and the owner's word, 2026-10-06): sub-items N.M.K, one level down. A sub-item is an Item with
+    # `k` set (its n and m are its parent's); `subs` holds them in the order TODO shows. A cancelled sub-item stays in
+    # sight with its reason — the paths the item closed are part of how it ended — while a cancelled item leaves TODO.
+    k: int = 0
+    subs: List["Item"] = field(default_factory=list)
+    cancelled: bool = False
+    cancel_reason: str = ""
+
+    @property
+    def ref(self) -> str:
+        """`N.M` — or `N.M.K` for a sub-item; the one spelling of an item's number everywhere el prints it."""
+        return f"{self.n}.{self.m}.{self.k}" if self.k else f"{self.n}.{self.m}"
+
+    @property
+    def ended(self) -> bool:
+        """Done or cancelled — one of the two ends of a branch; an item held or open has not ended."""
+        return self.done or self.cancelled
+
+    def open_subs(self) -> List["Item"]:
+        return [s for s in self.subs if not s.ended]
 
     @property
     def kind(self) -> str:
@@ -320,6 +352,12 @@ class Phase:
     notes: List[str] = field(default_factory=list)  # F22: notes parked under a planned or open phase
 
 
+def flat(items: List[Item], cancelled: bool = False) -> List[Item]:
+    """Items with their sub-items right after each (F25) — every node a gate or a count must see. A cancelled sub-item
+    is left out unless asked for: like a cancelled item it is gone from the work, it only stays in sight."""
+    return [x for it in items for x in [it] + [s for s in it.subs if cancelled or not s.cancelled]]
+
+
 @dataclass
 class Todo(Result):
     phases: List[Phase] = field(default_factory=list)
@@ -335,18 +373,21 @@ class Todo(Result):
         return next((p for p in self.phases if not p.done), None)
 
 
+RENDERED_LINE_RE = re.compile(r"^(?: {4}| {6}| {8})- (?:(?:result|done|accepted):|(?:file|ref|run|owner)\b)")
+
+
 def parse_todo(text: str) -> Todo:
     r = Todo()
     lines = _frame(text, r)
     # F4 counts what the agent writes — phase and item lines, notes, why, waits. Lines el renders from
-    # `done` (`result:` and the evidence under it) are named, not counted: the agent cannot shorten them.
-    rendered = sum(1 for ln in lines if EVIDENCE_LINE_RE.match(ln) or ln == LEGEND
-                   or (POCKET_RE.match(ln) and ln.startswith(("    - result:", "    - done:", "    - accepted:"))))
+    # `done` (`result:` and the evidence under it, the signatures) are named, not counted: the agent cannot shorten them.
+    rendered = sum(1 for ln in lines if RENDERED_LINE_RE.match(ln) or ln == LEGEND)
     own = len(lines) - rendered
     if own > TODO_MAX_LINES:
         aside = f" (plus {rendered} result lines el renders, not counted)" if rendered else ""
         r.error("F4", 0, f"TODO is {own} lines of your text, limit {TODO_MAX_LINES}{aside}")
     phase, item, seen = None, None, set()
+    sub: Optional[Item] = None  # F25: the sub-item whose lines are being read — they sit two spaces deeper than an item's
     in_result = False  # after `    - result:` the evidence nests one level deeper
     in_later, later_seen = False, set()  # F24: after `## Later` only Later lines and their pockets
 
@@ -363,13 +404,122 @@ def parse_todo(text: str) -> Todo:
                 it.text = txt
                 it.evidence.append((kind, proof))
         if visible_len(it.text) > TODO_ITEM_CHARS:
-            r.error("F13", it.line, f"item {it.n}.{it.m} text is {visible_len(it.text)} visible chars, limit {TODO_ITEM_CHARS}")
+            r.error("F13", it.line, f"item {it.ref} text is {visible_len(it.text)} visible chars, limit {TODO_ITEM_CHARS}")
+        if it.done and it.open_subs():  # F25: a parent is assembled from its children — never done over an open one
+            r.error("F25", it.line, f"item {it.ref} is done over open sub-item(s) {', '.join(x.ref for x in it.open_subs())} — "
+                                    f"end each (done · cancel) or reopen {it.ref}")
+
+    def suffixes(txt: str, mark: str, ref: str, i: int):
+        """The suffixes el keeps outside the F13 count, read off the end of an item or sub-item line:
+        `— after: …` · `— due: …` · `— hold: … — check: …` → (text, hold reason, check, due, after)."""
+        reason, check, due = "", "", ""
+        if mark == "~" and " — hold: " in txt:
+            txt, reason = txt.rsplit(" — hold: ", 1)
+            if " — check:" in reason:  # without the trailing space: a line cut at the end still shows its empty check
+                reason, check = (x.strip() for x in reason.rsplit(" — check:", 1))
+                if not check:
+                    r.error("F4", i, f"item {ref}: `check:` is empty — the command that tells the wait is over, or no `— check:` at all")
+        # 1.5.0–1.9.0 appended the evidence tail AFTER the date or dependency (`… — due: D — file: [x](p)`):
+        # a line el wrote is a line el reads (feedback 2026-09-22: one such line made the whole TODO
+        # unwritable). The tail goes back onto the text, and finish() splits it as evidence.
+        tail = ""
+        if mark in ("x", "/"):
+            mt = OLD_TAIL_RE.match(txt)
+            if mt:
+                txt, tail = mt.group(1), mt.group(2)
+        if " — due: " in txt:
+            txt, due = txt.rsplit(" — due: ", 1)
+            due = due.strip()
+            if not DATE_RE.fullmatch(due):
+                r.error("F4", i, f"item {ref}: `due:` must be YYYY-MM-DD, got `{due}`")
+        after: List[str] = []
+        if " — after: " in txt:
+            txt, refs = txt.rsplit(" — after: ", 1)
+            after = [x.strip() for x in refs.split(",") if x.strip()]
+            for a in after:
+                if not AFTER_REF_RE.fullmatch(a):
+                    r.error("F19", i, f"item {ref}: `after:` expects N.M, N.M.K or a case name, got `{a}`")
+        return txt + tail, reason, check, due, after
+
+    def attach(raw: str, node: Optional[Item], i: int) -> bool:
+        """A pocket or a proof line under `node` (F20 · F22 · F23), written as under an item: a sub-item's lines are
+        handed over two spaces shallower. False when the line is neither."""
+        nonlocal in_result
+        m = EVIDENCE_LINE_RE.match(raw)
+        if m and node is not None and (in_result or raw.startswith("    - ")):
+            # F20: a proof line — `- file: [x](path)` · `- ref: …` · `- run: cmd → out` · `- owner`; only under a done item
+            kind, proof = m.group(1), (m.group(2) or "").strip()
+            if not node.done:
+                r.error("F20", i, f"item {node.ref} is open and carries evidence `{kind}` — evidence comes with `done`, or the tick is missing")
+            elif kind == "owner" and proof:
+                r.error("F20", i, f"item {node.ref}: `owner` carries no value — the outcome is the owner's word")
+            elif kind != "owner" and not proof:
+                r.error("F20", i, f"item {node.ref}: `{kind}:` needs its proof")
+            node.evidence.append((kind, proof))
+            return True
+        m = POCKET_RE.match(raw)
+        if not m:
+            return False
+        if node is None:
+            r.error("F22", i, f"`{m.group(1)}:` under no item — a pocket line belongs under `  - [ ] N.M …`")
+            return True
+        pocket, val = m.group(1), (m.group(2) or "").strip()
+        if pocket == "done":  # L8: el's line, the doer's signature, written by `el todo done` only
+            if not SIGN_LINE_RE.match(val):
+                r.error("F23", i, f"item {node.ref}: `done:` is not the line el writes — `<provider tool> · <model> · session <id> · "
+                                  f"<date>`; el writes it at done, nobody types it")
+            if not node.done:
+                r.error("F23", i, f"item {node.ref} is open and carries `done:` — the signature comes with `done`, or the tick is missing")
+            if node.done_by:
+                r.error("F23", i, f"item {node.ref} has two `done:` lines — one doer per tick, the journal keeps the rest")
+            node.done_by, in_result = val, False
+            return True
+        if pocket == "accepted":  # F23: el's line, written by `el todo accept` over a done item only
+            if not node.done:
+                r.error("F23", i, f"item {node.ref} is open and carries `accepted:` — only a done item is accepted, "
+                                  f"or the tick is missing")
+            if node.accepted:
+                r.error("F23", i, f"item {node.ref} has two `accepted:` lines — one acceptance per item, the journal keeps the rest")
+            node.accepted, in_result = val, False
+            return True
+        if pocket == "result":
+            if not node.done:
+                r.error("F20", i, f"item {node.ref} is open and carries `result:` — the result comes with `done`, or the tick is missing")
+            if node.result:
+                r.error("F22", i, f"item {node.ref} has two `result:` lines — one result per item, several proofs under it")
+            node.result, in_result = val, True
+            return True
+        in_result = False
+        if not val:
+            r.error("F22", i, f"item {node.ref}: `{pocket}:` is empty")
+        elif visible_len(val) > POCKET_CHARS:
+            r.error("F22", i, f"item {node.ref}: `{pocket}:` is {visible_len(val)} visible chars, limit {POCKET_CHARS} — "
+                              f"a pocket points at context; the context itself goes to a file, linked")
+        if pocket == "why":
+            if node.why:
+                r.error("F22", i, f"item {node.ref} has two `why:` lines — one why per item; the rest are notes")
+            node.why = val
+        elif pocket == "fact":
+            if node.fact:
+                r.error("F22", i, f"item {node.ref} has two `fact:` lines — one fact per item")
+            node.fact = val
+        elif pocket == "expect":
+            if node.expect:
+                r.error("F22", i, f"item {node.ref} has two `expect:` lines — one expectation per item, several proofs inside it")
+            for m2 in ANY_SLOT_RE.finditer(val):
+                if m2.group(1) not in EVIDENCE_KINDS:
+                    r.error("F22", i, f"item {node.ref}: `[{m2.group(1)}…]` is not a kind of proof — "
+                                      f"placeholders are [file: …] [ref: …] [run: …] [owner]")
+            node.expect = val
+        else:
+            node.notes.append(val)
+        return True
 
     for i, raw in enumerate(lines[1:], start=2):
         if raw.strip() == "":
             continue
-        if DEEP_ITEM_RE.match(raw):
-            r.error("F13", i, "no items deeper than N.M — third level belongs in the phase file")
+        if TOO_DEEP_RE.match(raw):
+            r.error("F25", i, "no items deeper than N.M.K — a fourth level is a nested case: el spawn \"name\" --goal \"…\"")
             continue
         if raw == LEGEND and phase is None and not in_later:  # el's legend of the marks (F23): rendered, not the agent's
             continue
@@ -377,7 +527,7 @@ def parse_todo(text: str) -> Todo:
             if in_later:
                 r.error("F24", i, "`## Later` appears twice")
             finish(item)
-            in_later, phase, item, in_result = True, None, None, False
+            in_later, phase, item, sub, in_result = True, None, None, None, False
             continue
         m = LATER_RE.match(raw)
         if m and in_later:
@@ -392,9 +542,41 @@ def parse_todo(text: str) -> Todo:
             if k in later_seen:
                 r.error("F24", i, f"L{k} appears twice")
             later_seen.add(k)
-            item, in_result = Item(0, k, False, txt.strip(), i), False
+            item, sub, in_result = Item(0, k, False, txt.strip(), i), None, False
             item.since = since
             r.later.append(item)
+            continue
+        m = SUB_ITEM_RE.match(raw)
+        if m:
+            mark, n, mm, k, txt = m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4)), m.group(5).strip()
+            ref = f"{n}.{mm}.{k}"
+            if in_later:
+                r.error("F25", i, f"sub-item {ref} in `## Later` — the general list holds single thoughts; sub-items live under an item of a phase")
+                continue
+            if item is None:
+                r.error("F25", i, f"sub-item {ref} under no item — it sits under `  - [ ] {n}.{mm} …`, four spaces in")
+                continue
+            if (n, mm) != (item.n, item.m):
+                r.error("F25", i, f"sub-item {ref} listed under item {item.ref}")
+            if any(x.k == k for x in item.subs):
+                r.error("F25", i, f"sub-item {ref} appears twice")
+            reason = ""
+            if mark == "-":
+                if CANCELLED_SUFFIX in txt:
+                    txt, reason = txt.rsplit(CANCELLED_SUFFIX, 1)
+                    reason = reason.strip()
+                if not reason:
+                    r.error("F25", i, f"sub-item {ref} is cancelled with no reason — `[-] {ref} text — cancelled: why`")
+            txt, hold, check, due, after = suffixes(txt, mark, ref, i)
+            sub = Item(n, mm, mark in ("x", "/"), txt.strip(), i, mark == "~", hold, due, after)
+            sub.k, sub.hold_check, sub.cancelled, sub.cancel_reason = k, check, mark == "-", reason
+            if visible_len(sub.text) > TODO_ITEM_CHARS:
+                r.error("F13", i, f"item {ref} text is {visible_len(sub.text)} visible chars, limit {TODO_ITEM_CHARS}")
+            item.subs.append(sub)
+            in_result = False
+            continue
+        if DEEP_ITEM_RE.match(raw):
+            r.error("F25", i, "a sub-item N.M.K sits under its item, four spaces in: `    - [ ] N.M.K text`")
             continue
         if in_later and (PHASE_LINE_RE.match(raw) or ITEM_RE.match(raw)):
             r.error("F24", i, "phases and their items come before `## Later` — the general list is the last section of TODO")
@@ -417,7 +599,7 @@ def parse_todo(text: str) -> Todo:
                         r.error("F5", i, f"closed phase {n}: summary must end with a link to its file: `[phases/{n}-name.md](phases/{n}-name.md)`")
             # An open phase may carry `— <one-line intent>` (rolling wave); only closed phases need a summary.
             finish(item)
-            phase, item, in_result = Phase(n, name, done, i, summary), None, False
+            phase, item, sub, in_result = Phase(n, name, done, i, summary), None, None, False
             r.phases.append(phase)
             continue
         m = ITEM_RE.match(raw)
@@ -427,110 +609,23 @@ def parse_todo(text: str) -> Todo:
                 continue
             finish(item)
             mark, n, k, txt = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4).strip()
-            held, reason, due = mark == "~", "", ""
-            check = ""
-            if held and " — hold: " in txt:
-                txt, reason = txt.rsplit(" — hold: ", 1)
-                if " — check:" in reason:  # without the trailing space: a line cut at the end still shows its empty check
-                    reason, check = (x.strip() for x in reason.rsplit(" — check:", 1))
-                    if not check:
-                        r.error("F4", i, f"item {n}.{k}: `check:` is empty — the command that tells the wait is over, or no `— check:` at all")
-            # 1.5.0–1.9.0 appended the evidence tail AFTER the date or dependency (`… — due: D — file: [x](p)`):
-            # a line el wrote is a line el reads (feedback 2026-09-22: one such line made the whole TODO
-            # unwritable). The tail goes back onto the text, and finish() splits it as evidence.
-            tail = ""
-            if mark in ("x", "/"):
-                mt = OLD_TAIL_RE.match(txt)
-                if mt:
-                    txt, tail = mt.group(1), mt.group(2)
-            if " — due: " in txt:
-                txt, due = txt.rsplit(" — due: ", 1)
-                due = due.strip()
-                if not DATE_RE.fullmatch(due):
-                    r.error("F4", i, f"item {n}.{k}: `due:` must be YYYY-MM-DD, got `{due}`")
-            after: List[str] = []
-            if " — after: " in txt:
-                txt, refs = txt.rsplit(" — after: ", 1)
-                after = [x.strip() for x in refs.split(",") if x.strip()]
-                for ref in after:
-                    if not AFTER_REF_RE.fullmatch(ref):
-                        r.error("F19", i, f"item {n}.{k}: `after:` expects N.M or a case name, got `{ref}`")
-            txt += tail
+            mt = TALLY_RE.search(txt)  # F25: the tally of its sub-items is el's drawing — read from them, not from here
+            if mt:
+                txt = txt[:mt.start()]
+            txt, reason, check, due, after = suffixes(txt, mark, f"{n}.{k}", i)
             if n != phase.n:
                 r.error("F4", i, f"item {n}.{k} listed under phase {phase.n}")
             if phase.done:
                 r.error("F5", i, f"closed phase {phase.n} still lists items — they belong in the phase file")
-            item, in_result = Item(n, k, mark in ("x", "/"), txt, i, held, reason, due, after), False  # F13 is checked in finish()
+            item, sub, in_result = Item(n, k, mark in ("x", "/"), txt, i, mark == "~", reason, due, after), None, False  # F13 in finish()
             item.hold_check = check
             phase.items.append(item)
             continue
-        m = EVIDENCE_LINE_RE.match(raw)
-        if m and item is not None and (in_result or raw.startswith("    - ")):
-            # F20: a proof line — `- file: [x](path)` · `- ref: …` · `- run: cmd → out` · `- owner`; only under a done item
-            kind, proof = m.group(1), (m.group(2) or "").strip()
-            if not item.done:
-                r.error("F20", i, f"item {item.n}.{item.m} is open and carries evidence `{kind}` — evidence comes with `done`, or the tick is missing")
-            elif kind == "owner" and proof:
-                r.error("F20", i, f"item {item.n}.{item.m}: `owner` carries no value — the outcome is the owner's word")
-            elif kind != "owner" and not proof:
-                r.error("F20", i, f"item {item.n}.{item.m}: `{kind}:` needs its proof")
-            item.evidence.append((kind, proof))
-            continue
-        m = POCKET_RE.match(raw)
-        if m:
-            if item is None:
-                r.error("F22", i, f"`{m.group(1)}:` under no item — a pocket line belongs under `  - [ ] N.M …`")
+        if sub is not None and raw.startswith("      "):  # F25: a sub-item's pockets and proofs, one level deeper
+            if attach(raw[2:], sub, i):
                 continue
-            pocket, val = m.group(1), (m.group(2) or "").strip()
-            if pocket == "done":  # L8: el's line, the doer's signature, written by `el todo done` only
-                if not SIGN_LINE_RE.match(val):
-                    r.error("F23", i, f"item {item.n}.{item.m}: `done:` is not the line el writes — `<provider tool> · <model> · session <id> · "
-                                      f"<date>`; el writes it at done, nobody types it")
-                if not item.done:
-                    r.error("F23", i, f"item {item.n}.{item.m} is open and carries `done:` — the signature comes with `done`, or the tick is missing")
-                if item.done_by:
-                    r.error("F23", i, f"item {item.n}.{item.m} has two `done:` lines — one doer per tick, the journal keeps the rest")
-                item.done_by, in_result = val, False
-                continue
-            if pocket == "accepted":  # F23: el's line, written by `el todo accept` over a done item only
-                if not item.done:
-                    r.error("F23", i, f"item {item.n}.{item.m} is open and carries `accepted:` — only a done item is accepted, "
-                                      f"or the tick is missing")
-                if item.accepted:
-                    r.error("F23", i, f"item {item.n}.{item.m} has two `accepted:` lines — one acceptance per item, the journal keeps the rest")
-                item.accepted, in_result = val, False
-                continue
-            if pocket == "result":
-                if not item.done:
-                    r.error("F20", i, f"item {item.n}.{item.m} is open and carries `result:` — the result comes with `done`, or the tick is missing")
-                if item.result:
-                    r.error("F22", i, f"item {item.n}.{item.m} has two `result:` lines — one result per item, several proofs under it")
-                item.result, in_result = val, True
-                continue
-            in_result = False
-            if not val:
-                r.error("F22", i, f"item {item.n}.{item.m}: `{pocket}:` is empty")
-            elif visible_len(val) > POCKET_CHARS:
-                r.error("F22", i, f"item {item.n}.{item.m}: `{pocket}:` is {visible_len(val)} visible chars, limit {POCKET_CHARS} — "
-                                  f"a pocket points at context; the context itself goes to a file, linked")
-            if pocket == "why":
-                if item.why:
-                    r.error("F22", i, f"item {item.n}.{item.m} has two `why:` lines — one why per item; the rest are notes")
-                item.why = val
-            elif pocket == "fact":
-                if item.fact:
-                    r.error("F22", i, f"item {item.n}.{item.m} has two `fact:` lines — one fact per item")
-                item.fact = val
-            elif pocket == "expect":
-                if item.expect:
-                    r.error("F22", i, f"item {item.n}.{item.m} has two `expect:` lines — one expectation per item, several proofs inside it")
-                for m2 in ANY_SLOT_RE.finditer(val):
-                    if m2.group(1) not in EVIDENCE_KINDS:
-                        r.error("F22", i, f"item {item.n}.{item.m}: `[{m2.group(1)}…]` is not a kind of proof — "
-                                          f"placeholders are [file: …] [ref: …] [run: …] [owner]")
-                item.expect = val
-            else:
-                item.notes.append(val)
+        elif attach(raw, item, i):
+            sub = None  # an item's own pocket after its sub-items: read as the item's, written back above them
             continue
         m = PHASE_NOTE_RE.match(raw)
         if m:
@@ -544,7 +639,7 @@ def parse_todo(text: str) -> Todo:
                     r.error("F22", i, f"phase {phase.n}: `note:` is {visible_len(val)} visible chars, limit {POCKET_CHARS}")
                 phase.notes.append(val)
             finish(item)
-            item, in_result = None, False
+            item, sub, in_result = None, None, False
             continue
         m = WAITS_RE.match(raw)
         if m:
@@ -553,10 +648,11 @@ def parse_todo(text: str) -> Todo:
             else:
                 phase.waits.append(m.group(1) or m.group(2))
             finish(item)
-            item, in_result = None, False
+            item, sub, in_result = None, None, False
             continue
-        r.error("F4", i, "unparsable line: expected `- [ ] N Name`, `  - [ ] N.M text`, `  - note: …` (phase), "
-                         "`    - why: | note: | expect: | result: | accepted: | fact: …` (item, F22, F23), `      - <kind>: <proof>` (evidence, F20), `  - waits: [<case>](<case>/README.md)`, "
+        r.error("F4", i, "unparsable line: expected `- [ ] N Name`, `  - [ ] N.M text`, `    - [ ] N.M.K text` (sub-item, F25), "
+                         "`  - note: …` (phase), `    - why: | note: | expect: | result: | accepted: | fact: …` (item, F22, F23; "
+                         "two spaces deeper under a sub-item), `      - <kind>: <proof>` (evidence, F20), `  - waits: [<case>](<case>/README.md)`, "
                          "or after `## Later`: `  - [ ] Lk text — since: YYYY-MM-DD` (F24)")
     finish(item)
     return r

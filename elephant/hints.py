@@ -40,7 +40,7 @@ def pick(moment: str, **ctx) -> Optional[str]:
 
 # ---- in progress ----------------------------------------------------------------------------------
 def _todo_add(item: grammar.Item, **_) -> Optional[str]:
-    ref = f"{item.n}.{item.m}"
+    ref = f"{item.ref}"
     if not item.why:
         return f"the owner will read {ref} without you — say what it is for: el todo why {ref} \"…\" — el help todo"
     if not item.expect:
@@ -63,7 +63,7 @@ def _todo_expect(item: grammar.Item, phase: grammar.Phase, **_) -> Optional[str]
         shared = mine & theirs
         if shared:
             k, w = sorted(shared)[0]
-            ref, oref = f"{item.n}.{item.m}", f"{other.n}.{other.m}"
+            ref, oref = f"{item.ref}", f"{other.ref}"
             return (f"[{k}: {w}] is also the artifact of {oref} — one artifact, one item: is {ref} a step of {oref}? "
                     f"then el todo note {oref} \"…\" and el todo cancel {ref} \"step of {oref}\"; or name what {ref} leaves of its own — el help practice")
     return None
@@ -78,7 +78,7 @@ def _link_path(proof: str) -> str:
 def _todo_done(items: List[grammar.Item], proofs, **_) -> Optional[str]:
     kinds = {k for k, _ in proofs}
     if kinds == {"owner"}:
-        ref = f"{items[0].n}.{items[0].m}" if len(items) == 1 else "N.M"
+        ref = f"{items[0].ref}" if len(items) == 1 else "N.M"
         return (f"owner is the word that counts, and the hardest to check later — a file or a run behind it? "
                 f"a second done adds it: el todo done {ref} file:… \"…\" — el help evidence")
     return None
@@ -95,10 +95,10 @@ def _log(typ: str, text: str = "", project: Optional[Path] = None, item: Optiona
     if typ == "RESULT":
         if item is None:
             return None
-        ref = f"{item.n}.{item.m}"
+        ref = f"{item.ref}"
         return (f"this RESULT names no item — TODO, where the owner looks, does not move: {ref} ended? el todo done {ref} <kind> "
-                f"\"…\" writes the RESULT itself · a step of {ref} → el todo note {ref} \"…\" · a step with its own proof → "
-                f"el todo add {item.n} \"…\" --before {ref}, then done it — el help todo")
+                f"\"…\" writes the RESULT itself · a step of {ref} → el todo note {ref} \"…\" · a step with its own proof (a probe, "
+                f"a path tried — a refuted one too) → el todo add {ref} \"…\", a sub-item {ref}.K, then done it — el help todo")
     if typ != "PROBLEM" or re.search(r"\.howto/[\w./-]+\.md", text):
         return None
     return ("will it bite again? write the recipe now, while you remember: .howto/<verb>.md, first line `when: <the error "
@@ -168,7 +168,7 @@ def _entry(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal], p
     if untyped:
         it = untyped[0]
         cands.append(f"{len(untyped)} older tick(s) carry no kind of evidence — attach one when you know it: "
-                     f"el todo done {it.n}.{it.m} file:… \"…\" — el help evidence")
+                     f"el todo done {it.ref} file:… \"…\" — el help evidence")
     # events, not entries: the events of one minute share one entry header, and the choice must move with
     # every write — a long session then sees every applicable hint, without a state file
     events = sum(len(e.events) for e in journal.entries) if journal is not None else 0

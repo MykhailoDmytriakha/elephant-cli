@@ -29,6 +29,7 @@ EXAMPLES = """examples
   el todo add 3 "grep the DEV trace" --expect "[run: trace shows the outbound call]" --fact "checkout calls the pricing API for the pair"   the expected fact
   el todo done 3.4 run:"grep 3 traces -> no outbound call" "trace read" --fact "in 3 DEV traces, no outbound pricing call"   the fact as it turned out, within what was seen
   el facts                              the fact chain: ✓ established · · expected · ? under question · ✗ dead branches — what the next agent builds on
+  el todo add 3.2 "probe: the code drops late events" --fact "it drops them" · el todo cancel 3.2.3 "not needed"   a sub-item 3.2.1 under 3.2 (F25): the paths of a question, a cancelled one stays in sight; 3.2 ends when each has
   el phase plan 3 "Answer" --goal "why and how to re-enable [file: research/answer.md] [run: curl → 200]"   the phase's own promise; the Digest holds it to it
   el help practice                      how strong agents lead a case — weak against strong, by moment; every `hint:` points here
   el help people                        a card per person the cases deal with: .cases/people/<name>.md, `summary:` as line 2; cases link to it
@@ -163,9 +164,9 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("todo", help="add · done · edit · move · drop · hold · resume items — N.M is an item's number for life: drop and move never renumber", allow_abbrev=False)
     s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note", "expect", "fact", "show",
                                       "accept", "brief"])
-    s.add_argument("ref", help="phase number for add (N), item for the rest (N.M); done/reopen/cancel also take a range N.A-N.B or a list \"N.A, N.B\"")
+    s.add_argument("ref", help="phase number for add (N) — or an item (N.M) to add a sub-item N.M.K under it (F25); item for the rest (N.M or N.M.K); done/reopen/cancel also take a range N.A-N.B (N.M.A-N.M.B) or a list \"N.A, N.B\"")
     s.add_argument("text", nargs="*", default=[], help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: the KIND of evidence, then what came out — file:<path> · ref:<trace> · run:\"<command → outcome>\" · owner (el help evidence); for cancel/reopen: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
-    s.add_argument("--before", help="add only: put the new item before N.K instead of at the end (numbers never change, positions do)")
+    s.add_argument("--before", help="add only: put the new item before N.K (a sub-item: before N.M.J) instead of at the end (numbers never change, positions do)")
     s.add_argument("--why", help="add only: what the item is for, one line (F22) — later: el todo why N.M \"…\"")
     s.add_argument("--note", action="append", help="add only, repeatable: a constraint, who to call, what to bring, a link (F22) — later: el todo note N.M \"…\"")
     s.add_argument("--expect", help="add only: what done will look like, proofs in brackets [file: …] [run: …] [owner] (F22) — later: el todo expect N.M \"…\"")
@@ -393,7 +394,7 @@ def _run(argv=None) -> int:
                 ref = args.ref
                 # a list typed with spaces — `el todo done 3.2, 3.4 "why"` — reaches argparse as ref `3.2,` plus
                 # text `3.4`: the numbers are gathered back into the ref (done · reopen · cancel · note take lists)
-                while ref.endswith(",") and parts and re.fullmatch(r"\d+\.\d+,?", parts[0]):
+                while ref.endswith(",") and parts and re.fullmatch(r"\d+\.\d+(?:\.\d+)?,?", parts[0]):
                     ref += " " + parts.pop(0)
                 args.ref = ref
                 text = " ".join(parts)
