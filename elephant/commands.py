@@ -60,8 +60,24 @@ def _phase_of(todo: grammar.Todo, case: Optional[Path] = None) -> str:
 
 
 def _flying(case: Path, todo: grammar.Todo) -> Optional[grammar.Phase]:
-    """The phase in flight: not closed and opened (its phase file exists) — one at a time (P8)."""
-    return next((p for p in sorted(todo.phases, key=lambda x: x.n) if not p.done and _phase_file(case, p.n, p.name).exists()), None)
+    """The phase in flight: not closed, not paused for a detour (F26), and opened (its phase file exists) — one at a time (P8)."""
+    return next((p for p in sorted(todo.phases, key=lambda x: x.n)
+                 if not p.done and not p.held and _phase_file(case, p.n, p.name).exists()), None)
+
+
+def _resume_after(todo: grammar.Todo, n: int) -> List[grammar.Phase]:
+    """F26: the detour N ended (closed or cancelled) — the phase it paused is in flight again, by itself: the return
+    address the owner asked for (2026-10-06). Detours inside detours unwind one at a time, each to the one it paused."""
+    back = [p for p in todo.phases if not p.done and p.held_for() == n]
+    for p in back:
+        p.held, p.hold_reason = False, ""
+    return back
+
+
+def _say_resumed(case: Path, todo: grammar.Todo, back: List[grammar.Phase], n: int, out: Outcome) -> None:
+    for p in back:
+        nxt = next((it for it in p.items if not it.done and not it.held), None)
+        out.say(f"phase {p.n} {p.name} resumed — the detour {n} is over" + (f"; next: {nxt.ref} {nxt.text}" if nxt else ""))
 
 
 # ---- TODO rendering (machine-owned text) ---------------------------------------------------------
@@ -148,11 +164,7 @@ def _owes_acceptance(todo: grammar.Todo, two_hands: bool) -> bool:
 def render_todo(todo: grammar.Todo, two_hands: bool = False, root_mode: bool = False) -> str:
     out = [f"# {todo.title}", ""] + ([grammar.LEGEND, ""] if _owes_acceptance(todo, two_hands) else [])
     for p in sorted(todo.phases, key=lambda x: x.n):
-        mark = "x" if p.done else " "
-        head = f"- [{mark}] {p.n} {p.name}"
-        if p.summary:
-            head += f" — {_link_phase_paths(p.summary)}"
-        out.append(head)
+        out.append(_phase_head(p))
         out += [f"  - note: {n}" for n in p.notes]  # F22: what the phase has to know, parked until it runs
         for it in [i for i in p.items if not i.held] + [i for i in p.items if i.held]:
             out += _item_block(it, two_hands and not p.done)  # a closed phase is history: the rule has no force there
@@ -160,6 +172,17 @@ def render_todo(todo: grammar.Todo, two_hands: bool = False, root_mode: bool = F
             out.append(f"  - waits: {_case_link(w, root_mode)}")
     out += _later_section(todo)
     return "\n".join(out) + "\n"
+
+
+def _phase_head(p: grammar.Phase) -> str:
+    """The phase line: `[x]` closed · `[~]` paused for a detour, its hold last (F26) · `[ ]` open or planned."""
+    mark = "x" if p.done else ("~" if p.held else " ")
+    head = f"- [{mark}] {p.n} {p.name}"
+    if p.summary:
+        head += f" — {_link_phase_paths(p.summary)}"
+    if p.held and not p.done:
+        head += f"{grammar.PHASE_HOLD_SUFFIX}{p.hold_reason}"
+    return head
 
 
 def _later_block(it: grammar.Item) -> List[str]:
@@ -183,11 +206,7 @@ def render_todo_entry(todo: grammar.Todo, two_hands: bool = False, root_mode: bo
     out = [f"# {todo.title}", ""] + ([grammar.LEGEND, ""] if _owes_acceptance(todo, two_hands) else [])
     collapsed = 0
     for p in sorted(todo.phases, key=lambda x: x.n):
-        mark = "x" if p.done else " "
-        head = f"- [{mark}] {p.n} {p.name}"
-        if p.summary:
-            head += f" — {_link_phase_paths(p.summary)}"
-        out.append(head)
+        out.append(_phase_head(p))
         out += [f"  - note: {n}" for n in p.notes]
         for it in [i for i in p.items if not i.held] + [i for i in p.items if i.held]:
             if it.done:
@@ -301,12 +320,12 @@ def _set_state_line(readme: str, prefix: str, value: Optional[str]) -> str:
 
 
 def progress_line(todo: grammar.Todo, case: Optional[Path] = None) -> str:
-    """`✓` closed · `▶` opened (its phase file exists) · no mark = planned (F3)."""
+    """`✓` closed · `▶` opened (its phase file exists) · `⏸` paused for a detour (F26) · no mark = planned (F3)."""
     parts = []
     for p in sorted(todo.phases, key=lambda x: x.n):
         opened = case is not None and _phase_file(case, p.n, p.name).exists()
         cancelled = _cancelled(p)
-        mark = (" ✗" if cancelled else " ✓") if p.done else (" ▶" if opened else "")
+        mark = (" ✗" if cancelled else " ✓") if p.done else (" ⏸" if p.held else " ▶" if opened else "")
         parts.append(f"{p.n} {p.name}{mark}")
     return " · ".join(parts) if parts else "(no phases yet)"
 
@@ -3062,8 +3081,12 @@ def _thread_line(case: Path, todo: grammar.Todo, readme_body: str, order_lines: 
         parts.append("no phase yet: el phase open 1 \"Name\" --goal \"…\"" if not todo.phases else "every phase ended: el done \"…\"")
     else:
         pgoal = _phase_goal(case, phase) or (phase.summary or "")
+        waiting = [p for p in todo.phases if not p.done and p.held_for() == phase.n]  # F26: what this detour paused
         parts.append(f"phase {phase.n} {phase.name}" + (f" «{order._short(pgoal, 60)}»" if pgoal else "")
-                     + ("" if _phase_file(case, phase.n, phase.name).exists() else " (planned)"))
+                     + ("" if _phase_file(case, phase.n, phase.name).exists() else " (planned)")
+                     + (f" (a detour: {', '.join(f'{p.n} {p.name}' for p in waiting)} paused for it, resumes when it ends)" if waiting else ""))
+        if phase.held:  # paused, and what it was paused for is no longer in flight: the hand puts it back
+            parts.append(f"paused for «{order._short(phase.hold_reason, 50)}», nothing in flight: el phase resume {phase.n}")
         blocked = _blocking(case, todo)
         open_items = [it for it in phase.items if not it.done]
         ready = [it for it in open_items if not it.held and f"{it.ref}" not in blocked]
@@ -3582,10 +3605,13 @@ def _open_blockers(case: Path, todo: grammar.Todo, n: int, why: str = "", out: O
     below = [p for p in todo.phases if p.n < n]
     skipped = sorted((p for p in below if not p.done and not _phase_file(case, p.n, p.name).exists()), key=lambda p: p.n)
     missing: List[str] = []
-    for f in (p for p in todo.phases if not p.done and p.n != n and _phase_file(case, p.n, p.name).exists()):
-        # one phase in flight, wherever it stands in the numbering (P8)
+    for f in (p for p in todo.phases if not p.done and not p.held and p.n != n and _phase_file(case, p.n, p.name).exists()):
+        # one phase in flight, wherever it stands in the numbering (P8); a reason pauses it for this one (F26)
+        if why:
+            continue
         missing.append(f"phase {f.n} {f.name} is still open — close it first (P8): el phase close {f.n} \"…\" "
-                       f"· or cancel it: el phase cancel {f.n} \"why\"")
+                       f"· or cancel it: el phase cancel {f.n} \"why\" · or, when something came up that goes first, "
+                       f"pause it for this one: el phase open {n} --why \"what came up\" ({f.n} resumes when {n} ends)")
     if skipped and not why:  # planned, never opened: phases run in order — unless something found says otherwise
         s0 = skipped[-1]
         missing.append(f"phase {s0.n} {s0.name} is planned and not opened — phases run in order: el phase open {s0.n} · or, if it is "
@@ -3625,6 +3651,9 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
     missing = _open_blockers(case, todo, n, why, out)
     if missing:
         raise StoreError("cannot open phase %d:\n  " % n + "\n  ".join(missing), 4)
+    pausing = _flying(case, todo) if why else None  # F26: the phase in flight steps aside for this one, with the reason
+    if pausing is not None and pausing.n == n:
+        pausing = None
     below = [p for p in todo.phases if p.n < n]
     skipped = sorted((p for p in below if not p.done and not _phase_file(case, p.n, p.name).exists()), key=lambda p: p.n)
     renamed = None
@@ -3648,6 +3677,8 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
             out.say(f"phase {n} carries {len(existing.notes)} note(s) in TODO — read them; they move into the phase file at close")
     if existing is None:
         todo.phases.append(grammar.Phase(n, name, False, 0))
+    if pausing is not None:
+        pausing.held, pausing.hold_reason = True, f"phase {n} {name} — {why}"
     had_default = _default_next_in_state(_readme_text(case))
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
@@ -3656,10 +3687,15 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
     early = []
     if skipped and why:  # the order was changed by something found: said once, with the reason, under this phase
         early = log(case, "DECISION", f"фаза {n} раньше запланированных {', '.join(str(p.n) for p in skipped)} — {why}", f"p{n}").lines
+    if pausing is not None:  # the paused phase's own story says why it stood, and for what
+        early += log(case, "DECISION", f"фаза {pausing.n} {pausing.name} на паузе ради фазы {n} {name} — {why}", f"p{pausing.n}").lines
     out.lines = early + log(case, "PHASE", opened, f"p{n}").lines + out.lines
     out.say(f"phase {n} {name} is open → TODO.md, README.md State"
             + (f" · before the planned {', '.join(str(p.n) for p in skipped)} — they stay planned; the next boundary decides their order"
                if skipped and why else ""))
+    if pausing is not None:
+        out.say(f"phase {pausing.n} {pausing.name} paused: [~] hold — waiting for phase {n} {name}; it resumes by itself when {n} "
+                f"closes or is cancelled (F26) · its items stay as they are, work in it stays legal")
     if _two_hands(_readme_text(case)) and not _scope_agreed(_journal(case), n):
         out.warn(f"phase {n} opened without the owner's agreed scope (this case's rule: two hands) → el phase agree {n} \"the owner's words\"")
     _case_promise_hint(case, todo, n, out)
@@ -3707,6 +3743,11 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
             # planned, never opened, and it COULD open: the pipeline is intact, so walk it (feedback
             # 2026-09-09: `close` died with «phases/22-….md is missing (F12)» and the agent wrote the file
             # by hand). Opening is the one place the gates on the previous phase run and PHASE is logged.
+            cur = _flying(case, todo)
+            if cur is not None and cur.n != n:  # behind no unfinished phase, beside one in flight: the detour is the way (F26)
+                raise StoreError(f"phase {n} {phase.name} was planned and never opened, and phase {cur.n} {cur.name} is in flight — "
+                                 f"pause it for this one: el phase open {n} --why \"what came up\" ({cur.n} resumes when {n} ends), "
+                                 f"then el phase close {n} \"…\"", 4)
             raise StoreError(f"phase {n} {phase.name} was planned and never opened — nothing to close yet: "
                              f"el phase open {n} (creates phases/{pf.name} from the plan), "
                              f"then el phase close {n} \"…\"", 4)
@@ -3814,8 +3855,9 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
             text.extend(_item_block_for_phase_file(case, pf, it))
     store.write_file(pf, re.sub(r"\n{3,}", "\n\n", "\n".join(text)).rstrip("\n") + "\n")
     rel = f"phases/{pf.name}"
-    phase.done, phase.items, phase.notes = True, [], []
+    phase.done, phase.items, phase.notes, phase.held, phase.hold_reason = True, [], [], False, ""
     phase.summary = f"{said} · {date} · {_phase_link(pf.name)}" if rel not in summary else said
+    back = _resume_after(todo, n)  # F26: a detour closed — what it paused is in flight again
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
     ran = ""
@@ -3828,6 +3870,7 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     later = _later_boundary_line(todo)
     if later:
         out.say(later)
+    _say_resumed(case, todo, back, n, out)
     hints.attach(out, "phase_close", n=n, events=evs_here)
     if alongside:
         out.say(f"closed from the plan, out of turn — phase {alongside[0].n} {alongside[0].name} is still {alongside[1]}, "
@@ -3979,7 +4022,7 @@ def _cancel_phase(case: Path, todo: grammar.Todo, phase: grammar.Phase, why: str
     store.write_file(pf, "\n".join(lines).rstrip("\n") + "\n")
     items = ", ".join(f"{it.ref}" for it in phase.items if not it.done)
     waits = ", ".join(phase.waits)
-    phase.done, phase.items, phase.waits, phase.notes = True, [], [], []
+    phase.done, phase.items, phase.waits, phase.notes, phase.held, phase.hold_reason = True, [], [], [], False, ""
     phase.summary = f"снято: {why} · {date} · {_phase_link(pf.name)}"
     text = f"снята фаза {phase.n} {phase.name} — {why}"
     if items:
@@ -4002,10 +4045,34 @@ def phase_cancel(case: Path, n: int, why: str) -> Outcome:
     if phase.done:
         raise StoreError(f"phase {n} {phase.name} is already closed", 4)
     text = _cancel_phase(case, todo, phase, why, out)
+    back = _resume_after(todo, n)  # F26: a detour dropped — what it paused is in flight again
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
     out.lines = log(case, "DECISION", text, f"p{n}").lines + out.lines
     out.say(f"cancelled: phase {n} {phase.name} → one line in TODO («снято»), reason in the journal, phases/{_phase_file(case, n, phase.name).name}")
+    _say_resumed(case, todo, back, n, out)
+    return out
+
+
+def phase_resume(case: Path, n: int) -> Outcome:
+    """`el phase resume N` — a paused phase back in flight by hand (F26). It resumes by itself when its detour ends; by
+    hand only when nothing else is in flight — one phase at a time (P8)."""
+    out = Outcome()
+    todo = _todo(case, out)
+    phase = todo.phase(n)
+    if phase is None:
+        raise StoreError(f"no phase {n} in TODO.md", 4)
+    if not phase.held:
+        out.say(f"phase {n} {phase.name} is not on hold — nothing changed")
+        return out
+    cur = _flying(case, todo)
+    if cur is not None:
+        raise StoreError(f"phase {cur.n} {cur.name} is in flight — {n} resumes by itself when {cur.n} closes (el phase close {cur.n} "
+                         f"\"…\") or is cancelled (el phase cancel {cur.n} \"why\"); one phase at a time (P8)", 4)
+    phase.held, phase.hold_reason = False, ""
+    out.absorb(_write_todo(case, todo))
+    _sync_progress(case, todo, out)
+    out.say(f"phase {n} {phase.name} resumed → TODO.md, README.md State")
     return out
 
 
@@ -5122,8 +5189,16 @@ def _ended_phase_lines(case: Path, todo: grammar.Todo, journal: Optional[grammar
     `order` said everything was in place). A phase with no items says nothing — nothing ended there.
     The line names what the close still needs, so the command it offers is one the tool will take."""
     lines: List[str] = []
+    cur = _flying(case, todo)
     for p in sorted(todo.phases, key=lambda x: x.n):
         if p.done or not p.items or any(not it.done for it in p.items):
+            continue
+        prev = max((q for q in todo.phases if q.n < p.n), key=lambda q: q.n, default=None)
+        if (cur is not None and cur.n != p.n and not _phase_file(case, p.n, p.name).exists()
+                and (prev is None or prev.done)):  # L4: it cannot close from the plan, and opening asks for the detour (F26)
+            lines.append(f"phase {p.n} {p.name}: every item ended, planned and never opened while {cur.n} {cur.name} is in flight → "
+                         f"pause it for this one: el phase open {p.n} --why \"what came up\" ({cur.n} resumes when {p.n} ends), "
+                         f"then el phase close {p.n} \"what came out\"")
             continue
         needs: List[str] = []
         if journal is not None:
