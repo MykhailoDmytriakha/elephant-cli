@@ -2,7 +2,8 @@ import os
 
 # el reads the session id the agent's harness exposes (acceptance: done in one session, accepted in another);
 # the suite decides it per test and never inherits the session of the terminal that runs it
-for _key in ("CLAUDE_CODE_SESSION_ID", "EL_SESSION"):
+for _key in ("CLAUDE_CODE_SESSION_ID", "EL_SESSION", "CLAUDECODE", "CODEX_SESSION_ID", "CODEX_THREAD_ID", "CODEX_VERSION",
+             "EL_MODEL"):  # 2026-10-05 (L8): run inside Codex, three tests met its session — the harness is the test's to set
     os.environ.pop(_key, None)
 
 # a session holds its case in a temp folder (feedback 2026-09-27); the suite's sessions hold theirs in its own folder

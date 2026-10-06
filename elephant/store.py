@@ -11,7 +11,7 @@ import re
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from . import grammar, recover, stamp
 
@@ -210,7 +210,26 @@ def resolve_case(root: Path, name: Optional[str]) -> Path:
 # the case it last wrote to, or took (`case new` · `spawn` · `case use`), or first picked up. Kept outside the project,
 # in a temp folder, one line per session and project — not a config, nothing in git, gone with the machine's temp.
 # A harness that gives no session id (EL_SESSION sets one by hand) keeps the old rule: the freshest journal.
-SESSION_ENVS = ("EL_SESSION", "CLAUDE_CODE_SESSION_ID")
+SESSION_ENVS = ("EL_SESSION", "CODEX_SESSION_ID", "CLAUDE_CODE_SESSION_ID")  # the innermost harness first: Codex run from Claude Code
+# who is writing, as the harness says it (measured 2026-10-05: Claude Code sets CLAUDECODE and CLAUDE_CODE_SESSION_ID,
+# Codex sets CODEX_VERSION and CODEX_SESSION_ID; neither names the model — the agent says it once: `el sign "<model>"`)
+HARNESSES = (("CODEX_SESSION_ID", "OpenAI Codex"), ("CODEX_VERSION", "OpenAI Codex"),
+             ("CLAUDE_CODE_SESSION_ID", "Anthropic Claude Code"), ("CLAUDECODE", "Anthropic Claude Code"))
+
+
+def _session_raw() -> str:
+    for key in SESSION_ENVS:
+        val = re.sub(r"[^A-Za-z0-9]", "", os.environ.get(key) or "")
+        if val:
+            return val
+    return ""
+
+
+def clean_part(value: str, limit: int = 60) -> str:
+    """One part of a signature as el will write it: one line, no `·` (el joins the parts with it and reads them back by it),
+    at most `limit` chars. Every source — `el sign`, EL_MODEL, the file — passes here (Codex, 2026-10-05: a newline in
+    EL_MODEL wrote an `accepted:` line into TODO; `M · session x` forged the doer's session)."""
+    return " ".join((value or "").replace("·", " ").split())[:limit].strip()
 
 
 def session_id() -> str:
@@ -222,6 +241,46 @@ def session_id() -> str:
         if val:
             return val[:8]
     return ""
+
+
+def harness() -> str:
+    """«Provider Tool» of the agent running this command, from the harness's own variables; "" when nothing says."""
+    return next((name for key, name in HARNESSES if os.environ.get(key)), "")
+
+
+def _sign_file() -> Optional[Path]:
+    """The session's signature lives by the session, not by the project: one session is one model wherever it works."""
+    key = next((f"{k}={os.environ[k]}" for k in SESSION_ENVS if re.sub(r"[^A-Za-z0-9]", "", os.environ.get(k) or "")), "")
+    if not key:  # the exact id, hashed: `shared01-A` and `shared01-B`, `abc-def01` and `abcdef01` are two sessions (Codex, 2026-10-05)
+        return None
+    base = os.environ.get("EL_HANDS_DIR") or os.path.join(tempfile.gettempdir(), "elephant-hands")
+    return Path(base) / f"{hashlib.sha256(key.encode('utf-8')).hexdigest()[:24]}-sign"
+
+
+def sign(model: str, who: str = "") -> None:
+    """This session says what it is (L8, the owner's word 2026-10-05: «provider, model and number»): the model always — no
+    harness names it — and «Provider Tool» only where the harness is one el does not know. Kept by the session id."""
+    f = _sign_file()
+    if f is None:
+        raise StoreError("el keeps a signature per session and sees no session here — set one: EL_SESSION=<name> el sign \"…\" "
+                         "(Claude Code and Codex give theirs on their own)", 4)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(clean_part(model) + "\n" + clean_part(who) + "\n", encoding="utf-8")
+
+
+def signature() -> Tuple[str, str, str]:
+    """(«Provider Tool», model, session) of the hand writing now: the harness's words, the model as the agent said it
+    (`el sign`, or EL_MODEL), the session from the harness — each "" when nothing says. Provenance, not proof."""
+    model, who = clean_part(os.environ.get("EL_MODEL", "")), ""
+    f = _sign_file()
+    if f is not None and f.is_file():
+        try:
+            lines = f.read_text(encoding="utf-8").split("\n")
+        except OSError:
+            lines = []
+        model = model or (clean_part(lines[0]) if lines else "")
+        who = clean_part(lines[1]) if len(lines) > 1 else ""
+    return (who or harness()), model, session_id()
 
 
 def _hand_file(root: Path) -> Optional[Path]:

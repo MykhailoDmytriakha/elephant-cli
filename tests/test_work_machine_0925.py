@@ -53,8 +53,9 @@ class Accept(Base):
         code, out, err = run("todo", "accept", "1.1", "--by", "codex", "--run", "k6 -> p95 810 ms", "re-ran k6 and read k6.txt: p95 820 ms")
         self.assertEqual(code, 0, err)
         self.assertIn("    - accepted: codex · another session", self.read("TODO.md"))
-        self.assertIn("DECISION · принято 1.1: codex · другая сессия — re-ran k6", self.read("JOURNAL.md"))
-        self.assertIn("accepted: 1.1 by codex (another session)", out)
+        # 2026-10-05 (L8): beside the hand, the mind — this test names neither harness nor model, and the record says so
+        self.assertIn("DECISION · принято 1.1: codex · другая сессия · среда не названа — re-ran k6", self.read("JOURNAL.md"))
+        self.assertIn("accepted: 1.1 by codex (another session · harness not given)", out)
 
     def test_the_doer_session_rides_under_its_result(self):
         self.done("aaaaaaaa1111")
