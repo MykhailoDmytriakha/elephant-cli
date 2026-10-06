@@ -50,6 +50,7 @@ EXAMPLES = """examples
   el todo accept 2.3 --by codex --run "k6 → p95 810 ms" "opened k6.txt too" · el todo reopen 2.3 --by codex "cold cache: 1400 ms"   the second hand re-runs each run: proof (F23)
   el todo add later "cache warm-up on deploy" · el todo move L3 5 · el todo move 4.7 later   the general list: not for this phase, formed at the boundary (F24)
   el phase open 5 --why "the pipeline blocks the migration" · el phase close 4 "…" --rest later · el phase agree 5 "only the cache"   order found late · a dead end · the owner's scope
+  el phase open 7 "Lease" --goal "the lease signed [owner]" --why "the furniture arrives on 10.10"   a detour: the phase in flight pauses [~] and resumes by itself when 7 ends (F26)
   el readme set next "call the customer" · el readme set пауза "" (removes the line) · el readme add links "docs/contacts.md — кто есть кто"
   el phase open 3 "CLI core" --goal "single write door with tests"
   el phase plan 4 "Rollout" --goal "first users on the new build"   name the NEXT phase now, park items under it (todo add 4), open it later
@@ -179,13 +180,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--run", action="append", help="accept: one per `run:` proof of the item — the command re-run by the second hand and what came out now, joined by → (F23)")
 
     s = sub.add_parser("phase", help="plan · open · close a phase (plan = name the next one without opening it, repeat it to sharpen the goal; close needs RESULT, reflect:, align:)", allow_abbrev=False)
-    s.add_argument("action", choices=["plan", "open", "close", "cancel", "note", "agree"])
+    s.add_argument("action", choices=["plan", "open", "close", "cancel", "note", "agree", "resume"])
     s.add_argument("n", type=int)
     s.add_argument("text", nargs="?", default="", help="name for plan/open (open takes it from the plan when omitted), summary for close, why for cancel, the note for note")
     s.add_argument("--goal", help="one line; required for a new phase unless it was planned with one")
     s.add_argument("--reflect", help="close only: the lesson about how you worked — logged as `DECISION · reflect: …` in the same command (P8)")
     s.add_argument("--align", help="close only: what changes in the next plan — logged as `DECISION · align: …` in the same command (P8)")
-    s.add_argument("--why", help="open only: what was found that makes this phase run before the planned ones below — they stay planned (F24)")
+    s.add_argument("--why", help="open only: what came up that makes this phase run now — the planned ones below stay planned (F24), the phase in flight pauses for it and resumes when it ends (F26)")
     s.add_argument("--rest", help="close only: `later` — close early by the owner's word; the open items go to the general list (F24)")
     s.add_argument("--howto", help="close: the recipe question when the phase logged a PROBLEM — .howto/<verb>.md (first line `when:`) or \"none: why\" (P8)")
     s.add_argument("--edit", type=int, metavar="K", help="note only: rewrite note K in place")
@@ -453,6 +454,8 @@ def _run(argv=None) -> int:
                     out = commands.phase_open(case, args.n, args.text, args.goal, why=args.why)  # name may come from the plan
                 elif args.action == "agree":
                     out = commands.phase_agree(case, args.n, args.text)
+                elif args.action == "resume":
+                    out = commands.phase_resume(case, args.n)
                 elif args.action == "plan":
                     if not args.text:
                         raise StoreError("phase plan needs a name: `el phase plan 3 \"Rollout\" --goal \"one line\"`", 2)

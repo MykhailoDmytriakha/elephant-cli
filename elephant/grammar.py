@@ -45,7 +45,12 @@ TITLE_RE = re.compile(r"^# \S.*$")
 ENTRY_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) · (p\d+(?:\.\d+)?)$")
 EVENT_RE = re.compile(r"^  (PHASE|DECISION|PROBLEM|RESULT|[A-Z]+) · (.+)$")
 BODY_RE = re.compile(r"^    (.+)$")
-PHASE_LINE_RE = re.compile(r"^- \[( |x)\] (\d+) (.+?)(?: — (.+))?$")
+PHASE_LINE_RE = re.compile(r"^- \[( |x|~)\] (\d+) (.+?)(?: — (.+))?$")  # `~` = paused for a detour (F26)
+# F26 (the owner's word, 2026-10-06: «add a phase that goes before this one, and put the next on hold until we finish»): a
+# phase in flight paused for another phase opened with --why — `[~] N Name — <goal> · [file] — hold: phase K Name — <why>`;
+# the hold is el's line, it goes when K closes or is cancelled
+PHASE_HOLD_SUFFIX = " — hold: "
+PHASE_HOLD_FOR_RE = re.compile(r"^phase (\d+)\b")
 PHASE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*(?: [A-Za-z0-9-]+){0,2}$")  # F13: English, 1–3 words
 ITEM_RE = re.compile(r"^  - \[( |x|~|/)\] (\d+)\.(\d+) (.+)$")  # `~` = on hold · `/` = done, awaiting acceptance (F23)
 # F23 (a live report and the owner's word, 2026-09-25): in a case that asks two hands the mark is rendered from the item —
@@ -350,6 +355,13 @@ class Phase:
     items: List[Item] = field(default_factory=list)
     waits: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)  # F22: notes parked under a planned or open phase
+    held: bool = False      # F26: paused for a detour — opened, not in flight
+    hold_reason: str = ""   # `phase K Name — why`, as el writes it
+
+    def held_for(self) -> Optional[int]:
+        """The phase this one is paused for — read from el's own hold line; None when not held or written otherwise."""
+        m = PHASE_HOLD_FOR_RE.match(self.hold_reason) if self.held else None
+        return int(m.group(1)) if m else None
 
 
 def flat(items: List[Item], cancelled: bool = False) -> List[Item]:
@@ -584,6 +596,14 @@ def parse_todo(text: str) -> Todo:
         m = PHASE_LINE_RE.match(raw)
         if m:
             done, n, name, summary = m.group(1) == "x", int(m.group(2)), m.group(3).strip(), m.group(4)
+            held, hold = m.group(1) == "~", ""
+            if summary and PHASE_HOLD_SUFFIX in f" — {summary}":
+                head, hold = f" — {summary}".rsplit(PHASE_HOLD_SUFFIX, 1)
+                summary, hold = (head[3:] or None), hold.strip()
+                if not held:
+                    r.error("F26", i, f"phase {n} carries `hold:` and its mark is not `[~]` — the hold is el's line: el phase resume {n}")
+            if held and not hold:
+                r.error("F26", i, f"phase {n} is on hold with no reason — `[~] {n} Name — … — hold: phase K Name — why`")
             if n in seen:
                 r.error("F4", i, f"phase {n} appears twice")
             seen.add(n)
@@ -600,6 +620,7 @@ def parse_todo(text: str) -> Todo:
             # An open phase may carry `— <one-line intent>` (rolling wave); only closed phases need a summary.
             finish(item)
             phase, item, sub, in_result = Phase(n, name, done, i, summary), None, None, False
+            phase.held, phase.hold_reason = held, hold
             r.phases.append(phase)
             continue
         m = ITEM_RE.match(raw)

@@ -433,8 +433,19 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   list with their pockets, the gates are the same (`el help later`). The scope the owner agreed:
   `el phase agree N "the owner's words"` — at the boundary, before opening; under the case rule «two hands»
   Order names a running phase without it (`el help acceptance`).
+- a detour (F26, the owner's word 2026-10-06): life goes sideways in the middle of a phase — something comes up that
+  has to be done first («the furniture arrives: sign the lease»), or a step back must be redone («the bolt must be
+  longer»). `el phase open K "Name" --goal "…" --why "what came up"` while phase P is in flight: P pauses — `[~]` in
+  TODO with `hold: phase K Name — why`, ⏸ in progress, a DECISION in P's story — and K runs, one phase in flight
+  still. When K closes or is cancelled el resumes P by itself and names its next item: the detour has a return
+  address. K takes the next free number (numbers are for life — ⏸ ▶ show the order of work); a detour inside a
+  detour unwinds one at a time; work in a paused phase stays legal; `el phase resume P` by hand only when nothing is
+  in flight. A detour is a stage of its own (steps, gates, a file); a single step is an item `--before`, a step of
+  an item its sub-item, a branch on its own clock a nested case.
 - out of turn: work parked under a planned phase that cannot open yet (another phase running, or a planned phase below
-  it that would need `--why`) may end before its turn (it ran alongside) — `done` lets it in. Then
+  it that would need `--why`) may end before its turn (it ran alongside) — `done` lets it in. A planned phase with no
+  unfinished phase before it (planned below the one in flight) closes through a detour: `el phase open N --why "…"`,
+  then close — the refusal and Order name it (L4, Codex 2026-10-05: close and open refused each other). Otherwise
   `el phase close N "…"` closes it straight from the plan once every item ended — the file is born
   at close, the journal says it ran alongside, progress shows ✓; `open` stays refused. Every gate
   still applies, logged under that phase: `el log --phase N RESULT|DECISION "…"`. Next time, work
@@ -951,6 +962,7 @@ Diagnostics without any writes: `el doctor`. Facts that save an investigation:
 # craft (feedback 2026-09-16: `el help phase` was a wall). The list of doses stays closed; the door is wider.
 ALIASES = {
     "phase": "phases", "plan": "phases", "digest": "phases", "close": "phases", "open": "phases",
+    "detour": "phases", "detours": "phases", "pause": "phases", "paused": "phases",
     "case": "cases", "spawn": "cases", "nested": "cases", "list": "cases",
     "file": "files", "folder": "files", "folders": "files", "summary": "files",
     "limit": "limits", "numbers": "limits", "error": "errors", "exit": "errors", "codes": "errors",
