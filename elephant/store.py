@@ -213,8 +213,12 @@ def resolve_case(root: Path, name: Optional[str]) -> Path:
 SESSION_ENVS = ("EL_SESSION", "CODEX_SESSION_ID", "CLAUDE_CODE_SESSION_ID")  # the innermost harness first: Codex run from Claude Code
 # who is writing, as the harness says it (measured 2026-10-05: Claude Code sets CLAUDECODE and CLAUDE_CODE_SESSION_ID,
 # Codex sets CODEX_VERSION and CODEX_SESSION_ID; neither names the model — the agent says it once: `el sign "<model>"`)
+# VS Code sets COPILOT_AGENT=1 in the terminals its Copilot agent runs commands in (microsoft/vscode PR #316267, VS Code
+# 1.121, 2026-05-13) and gives no session id (the owner's word 2026-10-06: an item done in Copilot was signed
+# `harness ? · model ? · session ?`); last in the list — the outer harness, should a Claude Code or Codex run inside it
 HARNESSES = (("CODEX_SESSION_ID", "OpenAI Codex"), ("CODEX_VERSION", "OpenAI Codex"),
-             ("CLAUDE_CODE_SESSION_ID", "Anthropic Claude Code"), ("CLAUDECODE", "Anthropic Claude Code"))
+             ("CLAUDE_CODE_SESSION_ID", "Anthropic Claude Code"), ("CLAUDECODE", "Anthropic Claude Code"),
+             ("COPILOT_AGENT", "GitHub Copilot"))
 
 
 def _session_raw() -> str:
@@ -262,8 +266,8 @@ def sign(model: str, who: str = "") -> None:
     harness names it — and «Provider Tool» only where the harness is one el does not know. Kept by the session id."""
     f = _sign_file()
     if f is None:
-        raise StoreError("el keeps a signature per session and sees no session here — set one: EL_SESSION=<name> el sign \"…\" "
-                         "(Claude Code and Codex give theirs on their own)", 4)
+        raise StoreError("el keeps a signature per session and sees no session here — name it once in the terminal you keep: "
+                         "export EL_SESSION=<8 letters or digits> && el sign \"…\" (Claude Code and Codex give theirs on their own)", 4)
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(clean_part(model) + "\n" + clean_part(who) + "\n", encoding="utf-8")
 

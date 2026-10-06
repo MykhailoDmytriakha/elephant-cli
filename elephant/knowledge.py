@@ -795,8 +795,11 @@ records the verdict.
   independent it is — `… · another engine: OpenAI Codex · GPT-6.1 Sol · session 3f2a91c0`: same session (it checked
   itself) · same model (another hand of the same mind) · another model · another engine (another provider — the
   strongest check, other blind spots). The hand is the session, the mind is the model. Provider, tool and session come
-  from the harness (Claude Code and Codex give them); no harness names the model — say it once per session:
-  `el sign "Opus 5.5"` (`--as "Provider Tool"` for a harness el does not know; bare `el sign` shows the signature).
+  from the harness (Claude Code and Codex give them; VS Code Copilot names itself — COPILOT_AGENT — and gives no session);
+  no harness names the model — say it once per session: `el sign "Opus 5.5"` (`--as "Provider Tool"` for a harness el
+  does not know; bare `el sign` shows the signature). No session id from the harness: name one first, in the terminal
+  you keep — `export EL_SESSION=<8 letters or digits> && el sign "Gemini 3.8 Flash"` (el prints the line with a fresh
+  name); `EL_SESSION=x el sign …` lasts one command and the next done would not find it (2026-10-06).
   Who did an item is read from its signature, not guessed from the journal; an item done before 1.38.0 reads as before.
 - the marks (a live report, 2026-09-25: `[x]` on one hand's work read as «checked» to everybody): in a case with two
   hands el renders the box from the item — `[ ]` open · `[/]` done, awaiting acceptance (half of an x: one hand of

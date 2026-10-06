@@ -162,7 +162,9 @@ class TheSignatureTravels(Base):
             os.environ.pop(k, None)
         code, out, err = run("sign", "Opus 5.5")
         self.assertEqual(code, 4)
-        self.assertIn("EL_SESSION=<name> el sign", err)
+        # until 1.40.1 the advice was `EL_SESSION=<name> el sign` — a variable for one command, gone by the next done
+        # (the owner's word 2026-10-06: an agent in Copilot followed it into a refusal); now the session is named first
+        self.assertRegex(err, r"export EL_SESSION=[0-9a-f]{8} && el sign 'Opus 5\.5'")
         os.environ["EL_SESSION"] = "named01"
         self.assertEqual(run("sign", "Anthropic · Opus")[0], 2, "the parts are el's to join")
 

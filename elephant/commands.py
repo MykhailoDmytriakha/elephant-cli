@@ -8,6 +8,7 @@ import datetime as dt
 import hashlib
 import os
 import re
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -1195,7 +1196,7 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome}" + (f" ({short})" if short else "") + fact_note, f"p{phase.n}",
                      trailer=f"session: {sid}" if sid else "").lines
     if not _sign_fields(case)[1] and hints.enabled():
-        out.say(SIGN_HINT)
+        out.say(_sign_hint())
     for it in fresh:
         left = [r for r, _ in blocking.get(f"{it.ref}", []) if r not in done_now]
         if left:
@@ -1295,7 +1296,7 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
         for it, *_ in renewed:
             it.done_by = signed  # L8: a new version is a new claim, signed by the hand that made it
         if not _sign_fields(case)[1] and hints.enabled():
-            out.say(SIGN_HINT)
+            out.say(_sign_hint())
         out.absorb(_write_todo(case, todo))
         refs = ", ".join(sorted({it.ref for it, *_ in renewed}, key=lambda r: [int(x) for x in r.split(".")]))
         shown = " · ".join(f"{k} {pr}".strip() for k, pr in proofs)
@@ -2700,8 +2701,25 @@ def _engine_word(doer: str, acceptor: Tuple[str, str, str], lang: str = "en") ->
     return word[0 if lang == "en" else 1]
 
 
-SIGN_HINT = ("el does not know your model — say it once per session: el sign '<your model>' (provider, tool and session el "
-             "takes from the harness; the model goes into the done: and accepted: lines)")
+def _sign_command(model: str = "<your model>", who: str = "") -> str:
+    """The command that signs this session: `el sign '<model>'` — or, where the harness gives el no session id (VS Code
+    Copilot, a terminal by hand), the same with a session named first. The signature is kept by the session, and a variable
+    set for one command (`EL_SESSION=x el sign …`, the advice el printed until 1.40.1) is gone by the next `done` — the
+    agent in Copilot followed el's advice into a refusal (the owner's word, 2026-10-06)."""
+    as_ = f" --as '{who}'" if who else ""
+    if store.session_id():
+        return f"el sign '{model}'{as_}"
+    return f"export EL_SESSION={secrets.token_hex(4)} && el sign '{model}'{as_}"
+
+
+NO_SESSION = ("this harness gives el no session id: the export names one, and it holds while this terminal does — VS Code "
+              "Copilot keeps its terminal between commands; a harness that opens a new shell for each one cannot, and done says "
+              "`session ?` as it is")
+
+
+def _sign_hint() -> str:
+    return (f"el does not know your model — say it once per session: {_sign_command()} (provider, tool and session el takes "
+            f"from the harness; the model goes into the done: and accepted: lines)" + ("" if store.session_id() else f" · {NO_SESSION}"))
 
 
 def sign(model: Optional[str], who: Optional[str] = None) -> Outcome:
@@ -2715,15 +2733,20 @@ def sign(model: Optional[str], who: Optional[str] = None) -> Outcome:
         if not model or "·" in model or "·" in who:  # the parts are el's to join: a `·` inside one would split it on reading
             raise StoreError("el sign \"<your model>\" — the model's name as your instructions give it, e.g. el sign \"Opus 5.5\"; "
                              "provider, tool and session el takes from the harness; no `·` inside a part", 2)
+        if not store.session_id():  # the refusal carries the one command that works here, whole (2026-10-06)
+            raise StoreError(f"{store.harness() or 'this harness'} gives el no session id, and el keeps the signature by the session — "
+                             f"name this session once, in the terminal you keep working in: {_sign_command(model, who)} — the commands "
+                             f"after it in that terminal carry the name; a variable set for one command (EL_SESSION=x el sign …) is "
+                             f"gone by the next done", 4)
         store.sign(model, who)
     w, m, sid = store.signature()
     line = f"{w or 'harness ?'} · {m or 'model ?'} · session {sid or '?'}"
     out.say((f"signed: {line} — done: and accepted: lines carry it from now on" if model is not None
              else f"signature: {line} — what done: and accepted: lines would carry now"))
     if not m and hints.enabled():
-        out.say("  " + SIGN_HINT)
+        out.say("  " + _sign_hint())
     if not w:
-        out.say("  el does not know this harness — name it: el sign '<model>' --as '<Provider Tool>'")
+        out.say(f"  el does not know this harness — name it: {_sign_command(m or '<model>', '<Provider Tool>')}")
     return out
 
 
@@ -2830,7 +2853,7 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
     engine = "" if who == "owner" else " · " + (next(iter(engines)) if len(engines) == 1 else "differs by item — see accepted: lines")
     out.say(f"accepted: {refs} by {who} ({_session_word(status)}{engine}) → TODO.md (accepted: line) · DECISION in the journal")
     if who != "owner" and not mine_sign[1] and hints.enabled():
-        out.say(SIGN_HINT)
+        out.say(_sign_hint())
     if "same" in statuses:
         out.warn(f"same session as the doer — a subagent of that session, or the doer itself: el cannot tell which. A fresh session "
                  f"is a new chat, another agent, another terminal: el todo brief {ref} prints its prompt")

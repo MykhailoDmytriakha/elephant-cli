@@ -45,6 +45,7 @@ EXAMPLES = """examples
   el todo hold 3.2 "waiting for: ticket REQ-1, network team's queue" --check './check-port.sh' · el todo resume 3.2   the outside keeps it: [~], the thread names the wait and its check (el never runs it)
   el todo reopen 3.1 "the databases drifted — the result no longer holds"   a tick taken back: DECISION in the journal, the RESULT stays
   el sign "Opus 5.5"                     this session names its model once — done: and accepted: lines sign provider · tool · model · session
+  export EL_SESSION=3f9a2c1d && el sign "Gemini 3.8 Flash"   a harness with no session id (VS Code Copilot): name the session first, in the terminal you keep
   el todo brief 2.3                     the prompt for a FRESH session that accepts or returns 2.3 — a new chat, Codex, a clean subagent (el help acceptance)
   el todo accept 2.3 --by codex --run "k6 → p95 810 ms" "opened k6.txt too" · el todo reopen 2.3 --by codex "cold cache: 1400 ms"   the second hand re-runs each run: proof (F23)
   el todo add later "cache warm-up on deploy" · el todo move L3 5 · el todo move 4.7 later   the general list: not for this phase, formed at the boundary (F24)
