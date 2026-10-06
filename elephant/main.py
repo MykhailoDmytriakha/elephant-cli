@@ -461,7 +461,7 @@ def _run(argv=None) -> int:
                     out = commands.phase_note(case, args.n, args.text, edit=args.edit, drop=args.drop)
                 else:
                     if not args.text:
-                        raise StoreError("phase close needs a summary: `el phase close 3 \"what it delivered\"`", 2)
+                        raise StoreError(f"phase close needs a summary: `el phase close {args.n} \"what it delivered\"`", 2)
                     out = commands.phase_close(case, args.n, args.text, reflect=args.reflect, align=args.align, rest=args.rest,
                                                howto=args.howto)
             elif args.cmd == "readme":

@@ -1062,6 +1062,12 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     _outcome_warning(outcome, out)
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)
+    fresh_items = [it for it in items if not it.done]
+    if fresh_items and phase.n and _could_open(case, todo, phase):  # the door before the work, not after it (feedback 2026-10-05)
+        opener = f"el phase open {phase.n}" + ("" if phase.summary else " --goal '<what it delivers>'")  # a plan without a goal needs one
+        raise StoreError(f"phase {phase.n} {phase.name} is planned, not open — it can open now: {opener} "
+                         f"(its file holds the goal and the digest), then el todo done {ref} … · adding items to the plan stays "
+                         f"open; work that ends out of turn — beside a phase still running — closes from the plan", 4)
     if all(it.done for it in items):  # a proof for an old tick: an edit of the record, not a new event
         return _attach_evidence(case, todo, phase, items, proofs, outcome, out)
     if not outcome:
@@ -1538,6 +1544,26 @@ def _context_text(text: str) -> str:
             raise StoreError(f"`[{m.group(1)}: …]` is not a kind of proof{hint} — a promise in Context is [file: what] · [ref: what] · "
                              f"[run: what] · [owner]; a kind that is missing: el feedback \"…\" · el help evidence", 2)
     return text
+
+
+def _into_missing_phase(todo: grammar.Todo, to: str, ref: str) -> str:
+    """A move into a phase that is not there names the whole way at once (feedback 2026-10-05: three refusals, one rule each);
+    a closed phase takes nothing, and its number is taken — the way goes through the next free one (Codex, 2026-10-05)."""
+    dest = todo.phase(int(to))
+    n = max((p.n for p in todo.phases), default=0) + 1 if dest is not None else int(to)
+    head = (f"phase {to} is closed — it takes no more work; into an open or planned phase, or a new one, the way in one go:"
+            if dest is not None else f"phase {to} is not planned — the way in one go:")
+    return (f"{head} el phase plan {n} '<English, 1–3 words>' --goal '<what it delivers, any language>' → el todo move {ref} {n} "
+            f"→ el phase open {n} before the work on it")
+
+
+def _could_open(case: Path, todo: grammar.Todo, phase: grammar.Phase) -> bool:
+    """A planned phase (no file yet, not ended) whose previous phase has ended — `el phase open` would let it in now. The one
+    test for both doors: `done` refuses work there and `phase close` refuses to close it from the plan; a planned phase
+    behind a phase still running is out of turn, and its finished work closes from the plan (the owner's exit, 2026-09-14)."""
+    if phase.done or _phase_file(case, phase.n, phase.name).exists():
+        return False
+    return not _open_blockers(case, todo, phase.n)
 
 
 def _goal_line_index(lines: List[str]) -> Optional[int]:
@@ -2183,7 +2209,7 @@ def todo_move(case: Path, ref: str, to: str) -> Outcome:
         # number changes, said aloud (feedback 2026-09-03: re-cutting a phase meant drop + add × 15)
         dest = todo.phase(int(to))
         if dest is None or dest.done:
-            raise StoreError(f"phase {to} is missing or closed — plan it first: el phase plan {to} \"Name\"", 4)
+            raise StoreError(_into_missing_phase(todo, to, ref), 4)
         if dest is phase:
             out.say(f"{ref} is already in phase {to} — nothing changed")
             return out
@@ -2232,7 +2258,7 @@ def _take_from_later(case: Path, todo: grammar.Todo, item: grammar.Item, to: str
         raise StoreError(f"a line of the general list moves into a phase: el todo move {ref} N (N — a planned or open phase)", 2)
     dest = todo.phase(int(to))
     if dest is None or dest.done:
-        raise StoreError(f"phase {to} is missing or closed — plan it first: el phase plan {to} \"Name\" --goal \"…\"", 4)
+        raise StoreError(_into_missing_phase(todo, to, ref), 4)
     todo.later.remove(item)
     item.n, item.m, item.since = dest.n, _next_number(case, todo, dest), ""
     dest.items.append(item)
@@ -2991,7 +3017,9 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     Feedback 2026-09-03: a dated deadline outside the current phase had nowhere to live in TODO."""
     out = Outcome()
     if not grammar.PHASE_NAME_RE.match(name):
-        raise StoreError(f"phase name `{name}` must be English, 1–3 words (F13)", 2)
+        raise StoreError(f"phase name `{name}` must be English, 1–3 words, letters, digits, hyphen (F13) — it names the file "
+                         f"phases/N-name.md; the words in your language go into the goal: el phase plan {n} '<English name>' "
+                         f"--goal {_sh(name)}", 2)
     todo = _todo(case, out)
     existing = todo.phase(n)
     intent = _goal_text(goal) if goal else None
@@ -3194,29 +3222,12 @@ def _parked_line(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journ
     return ("parked: " + " · ".join(parts) + " (surfaces when the phase opens)") if parts else None
 
 
-def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional[str] = None) -> Outcome:
-    """Open phase N. One phase in flight (P8); the gates of the last closed phase below hold. A planned phase below that
-    never opened is skipped only with a reason (`--why`, F24; the owner's word, 2026-09-25: «a hidden blocker found —
-    the fifth before the third»): it stays planned — a draft whose order the boundary decides — and a DECISION says
-    what made N come first. Cancelling it to get past it would call a needed phase «not needed»."""
-    out = Outcome()
-    todo = _todo(case, out)
-    existing = todo.phase(n)
-    if not name and existing is not None and not existing.done:
-        name = existing.name  # `el phase open N` opens the planned phase under its planned name
-    if not name:
-        raise StoreError(f"phase open needs a name: `el phase open {n} \"CLI core\" --goal …` — no planned phase {n} to take it from", 2)
-    if not grammar.PHASE_NAME_RE.match(name):
-        raise StoreError(f"phase name `{name}` must be English, 1–3 words (F13)", 2)
-    if existing and existing.done:
-        raise StoreError(f"phase {n} is already closed", 4)
-    pf = _phase_file(case, n, existing.name if existing else name)
-    if existing and not existing.done and pf.exists():
-        out.say(f"phase {n} {existing.name} is already open — nothing changed")
-        return out
+def _open_blockers(case: Path, todo: grammar.Todo, n: int, why: str = "", out: Optional[Outcome] = None) -> List[str]:
+    """Why `el phase open N` would be refused now — one phase in flight (P8), a planned phase below skipped only with a
+    reason (F24), the gates of the last closed phase. `phase open` raises on them; `done` asks them, so its refusal names
+    a command that runs (feedback 2026-10-05)."""
     below = [p for p in todo.phases if p.n < n]
     skipped = sorted((p for p in below if not p.done and not _phase_file(case, p.n, p.name).exists()), key=lambda p: p.n)
-    why = " ".join((why or "").split())
     missing: List[str] = []
     for f in (p for p in todo.phases if not p.done and p.n != n and _phase_file(case, p.n, p.name).exists()):
         # one phase in flight, wherever it stands in the numbering (P8)
@@ -3232,8 +3243,37 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
     last_closed = max((p for p in below if p.done), key=lambda p: p.n, default=None)
     if last_closed is not None:
         missing = _closing_checks(case, last_closed, _journal(case, out)) + missing
+    return missing
+
+
+def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional[str] = None) -> Outcome:
+    """Open phase N. One phase in flight (P8); the gates of the last closed phase below hold. A planned phase below that
+    never opened is skipped only with a reason (`--why`, F24; the owner's word, 2026-09-25: «a hidden blocker found —
+    the fifth before the third»): it stays planned — a draft whose order the boundary decides — and a DECISION says
+    what made N come first. Cancelling it to get past it would call a needed phase «not needed»."""
+    out = Outcome()
+    todo = _todo(case, out)
+    existing = todo.phase(n)
+    if not name and existing is not None and not existing.done:
+        name = existing.name  # `el phase open N` opens the planned phase under its planned name
+    if not name:
+        raise StoreError(f"phase open needs a name: `el phase open {n} \"CLI core\" --goal …` — no planned phase {n} to take it from", 2)
+    if not grammar.PHASE_NAME_RE.match(name):
+        raise StoreError(f"phase name `{name}` must be English, 1–3 words, letters, digits, hyphen (F13) — it names the file "
+                         f"phases/N-name.md; the words in your language go into the goal: el phase open {n} '<English name>' "
+                         f"--goal {_sh(name)}", 2)
+    if existing and existing.done:
+        raise StoreError(f"phase {n} is already closed", 4)
+    pf = _phase_file(case, n, existing.name if existing else name)
+    if existing and not existing.done and pf.exists():
+        out.say(f"phase {n} {existing.name} is already open — nothing changed")
+        return out
+    why = " ".join((why or "").split())
+    missing = _open_blockers(case, todo, n, why, out)
     if missing:
         raise StoreError("cannot open phase %d:\n  " % n + "\n  ".join(missing), 4)
+    below = [p for p in todo.phases if p.n < n]
+    skipped = sorted((p for p in below if not p.done and not _phase_file(case, p.n, p.name).exists()), key=lambda p: p.n)
     renamed = None
     if existing is not None and not pf.exists() and name != existing.name:
         # a planned phase may be re-planned at opening (P8 align): the name follows the owner's word
@@ -3400,8 +3440,12 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
         pf.parent.mkdir(exist_ok=True)
         store.write_file(pf, f"# Phase {n} — {phase.name}\ngoal: {phase.summary or '—'}\nresult:\n\n## Notes\n")
         out.say(f"created: {pf.relative_to(case)} (from the plan)")
+    # el's own count of how the phase was accepted stands beside the closer's words wherever the phase is read in one line —
+    # TODO, the result line Links draws, the output (feedback 2026-10-05: «accepted by a second hand» over «same session 8»)
+    tally = _acceptance_tally(phase.items) if _case_two_hands(case) or any(it.accepted for it in phase.items) else ""
+    said = f"{summary} · acceptance: {tally}" if tally else summary
     text = pf.read_text(encoding="utf-8").split("\n")
-    text[2] = f"result: {summary}"
+    text[2] = f"result: {said}"
     goal_line = grammar.parse_phase_file("\n".join(text)).goal
     text = text[:3] + ["", "## Digest", *_digest(case, pf, phase, evs_here, goal_line)] + text[3:]
     if phase.items:
@@ -3412,7 +3456,7 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     store.write_file(pf, re.sub(r"\n{3,}", "\n\n", "\n".join(text)).rstrip("\n") + "\n")
     rel = f"phases/{pf.name}"
     phase.done, phase.items, phase.notes = True, [], []
-    phase.summary = f"{summary} · {date} · {_phase_link(pf.name)}" if rel not in summary else summary
+    phase.summary = f"{said} · {date} · {_phase_link(pf.name)}" if rel not in summary else said
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
     ran = ""
@@ -3420,7 +3464,8 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
         ran = (f" (шла параллельно фазе {alongside[2].n}, без открытия)" if alongside[2]
                else " (закрыта до своей очереди, без открытия)")
     out.lines = log(case, "PHASE", f"{phase.name} закрыта{ran} → {summary}", f"p{n}").lines + out.lines
-    out.say(f"closed: phase {n} {phase.name} → TODO.md (collapsed), {rel} (result), README.md State")
+    out.say(f"closed: phase {n} {phase.name} → TODO.md (collapsed), {rel} (result), README.md State"
+            + (f" · acceptance: {tally}" if tally else ""))
     later = _later_boundary_line(todo)
     if later:
         out.say(later)
