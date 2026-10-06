@@ -44,11 +44,11 @@ machine enters a case in one screen and continues instead of starting over; the 
 the work stands, without being in the session.
 
 Proof from the bottom up (the blueprint of a formal proof: a statement is proved when every statement it imports is):
-work is one tree — case · phase · item, one node shape at three sizes. A leaf ends one of two ways: done with evidence
-someone other than the writer can check, or cancelled with a reason. A parent never types its own status — it is
-assembled from its children. The tool is the auditor at every step: a crooked step is refused with the command that does
-it right; an unclear one is an Order line with its fix. Structure does what intelligence alone does not: many agents,
-one work.
+work is one tree — case · phase · item (an item may hold sub-items, one level down), one node shape at every size. A
+leaf ends one of two ways: done with evidence someone other than the writer can check, or cancelled with a reason. A
+parent never types its own status — it is assembled from its children. The tool is the auditor at every step: a crooked
+step is refused with the command that does it right; an unclear one is an Order line with its fix. Structure does what
+intelligence alone does not: many agents, one work.
 
 Every report and every change is weighed against four holes — name the one you see:
 - proof from the bottom up — something ended below and is not visible above, or there is no legal move up
@@ -85,6 +85,8 @@ check · a second copy of the stamp.""",
   the item text), a status the tool computes, evidence when done, and edges to other nodes. An item
   carries its pockets under it (F22): `why:` — what it is for, `note:`… — what to know, `result:` +
   proof lines — what came out (Prove2Me: statement, description, proof — separate lines, one node).
+  An item may hold sub-items N.M.K one level down (F25) — the same node again, the item assembled from them
+  as a phase from its items; deeper is a nested case.
 - the collapsed line: what a node looks like at its parent is RENDERED from the node's own
   header, never typed — a file's line from `summary:`, a phase line from `goal:` or `result:`
   (plus the path to its file), a nested case's line from its README (progress · next · closed).
@@ -261,8 +263,21 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   Nothing came out? Then it was not done: `cancel N.M "why"`.
 - the plan moves with the work: TODO is where the owner looks, and a result logged beside it (`el log RESULT` naming
   no item) moves nothing there. An item that ended → `done` (it writes the RESULT: no second `el log`) · a step of it
-  the owner should see → `el todo note N.M "…"` · a step with its own proof → `el todo add N "…" --before N.M`, then
+  the owner should see → `el todo note N.M "…"` · a step with its own proof → a sub-item `el todo add N.M "…"`, then
   `done` it · a step with its own clock → `el spawn`. el names this at the RESULT (feedback 2026-10-02).
+- sub-items N.M.K (F25; feedback and the owner's word, 2026-10-06: a spike's probes and their dead ends stayed in the
+  chat, and the owner reads the question with its probes under it): `el todo add 2.3 "probe: the code drops late events"
+  --expect "[run: grep …]" --fact "the code drops them"` → `2.3.1`, under 2.3, four spaces in. A sub-item is an item one
+  level down — pockets, `done` with its proof and `--fact`, hold, cancel, reopen, accept, show, all by `N.M.K`.
+  · a path refuted is DONE with what it proved — `--fact "the code does not drop them"`: the next agent does not try it
+    again; a path dropped untried is `cancel 2.3.4 "why"` — `[-]`, it STAYS in sight with its reason, as part of how
+    the question was answered (a cancelled item leaves TODO; a cancelled sub-item does not)
+  · the item is assembled from its sub-items: `done 2.3` is refused while one is open, `cancel 2.3` ends the open ones
+    with the same reason, a sub-item changes its end only after `reopen 2.3`; el draws the tally on the item line
+    (`— sub-items: 2 done · 1 cancelled · 1 on hold`) — never typed
+  · one level only: no sub-items under a sub-item — work that deep, or on its own clock, is a nested case (`el spawn`)
+  · `move 2.3.4 2.3.1` (before) · `move 2.3.4 last` · `move 2.3.4 K` — out from under 2.3 as an item of phase K (a
+    probe that grew) · `move 2.3.4 later`; the item moves to another phase with its sub-items
 - waiting for the outside — a ticket in another team's queue, an approval, a reply: `el todo hold N.M "waiting for:
   what, whose"` — `[~]`, not ours to do now and not broken; `[ ]` would read «do me now». The reason is required; the
   entry's thread names the wait; it came → `el todo resume N.M`, then do it. Is there a command that tells the wait
@@ -524,7 +539,7 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
 - closed a phase                        → `el phase close N "…"` (does TODO+journal+README itself)
 - took a measurement                    → `el log RESULT "…"` + the number in README State
 - a step of an item ended               → TODO moves, not only the journal: the item ended → `done`; a step of
-                                          it → `el todo note N.M`; a step with its own proof → `todo add --before N.M`
+                                          it → `el todo note N.M`; a step with its own proof → `el todo add N.M` (a sub-item)
 - a piece of work has a date            → `— due: YYYY-MM-DD` at the end of the item; the case
                                           deadline → `el readme set due "YYYY-MM-DD · what"`
 - an item is no longer needed           → `el todo cancel N.M "why"` (not done, not drop)
@@ -630,6 +645,17 @@ RESULT AND FACT
           the result is the work, the fact is what is now known WITHIN what was observed — where, how many, what
           would refute it; the next agent builds on the fact (el facts) and knows how far it reaches
 
+A QUESTION WITH NO KNOWN PATH (a spike)
+  weak    one item «investigate the drop», three probes in the chat, two of them dead ends — TODO stands still and the
+          next agent tries the same dead ends again (feedback 2026-10-06)
+  strong  el todo add 2 "find why the metric drops at 02:00" --why "…" --expect "cause reproduced [run: …]"
+          el todo add 2.1 "probe: the code drops late events" --expect "[run: grep …]" --fact "the code drops them"
+          el todo done 2.1.1 run:"grep -rn late_event src -> no filter" "no filter in the code" \
+            --fact "the code does not drop late events (searched src, not the vendored libs)"
+          el todo cancel 2.1.3 "not needed: 2.1.4 found the cause first" · el todo done 2.1 … once each has ended
+          each path a sub-item under the question, in the order taken; a refuted one is done with what it proved, a
+          dropped one stays in sight with its reason — the owner reads the question and how it was answered, top down
+
 DONE
   weak    el todo done 3.2 owner "done"                                  — the agent's word dressed as the owner's
   weak    el todo done 3.2 file:testing/what-i-did.md "see the write-up"  — the agent's own text with a link on it
@@ -731,6 +757,10 @@ proved statements of a theory: found and proved once, then built on, not re-deri
   State is read again before you stop: still true → `el readme touch`. Written at `done` with `--fact`, it rides the
   same RESULT (feedback 2026-10-05 asked the anchor to stay put; kept: a RESULT is knowledge, the owner's word 2026-09-17).
 - the chain has edges: `— after: N.K` says what a fact rests on; `el todo show N.M` prints the inputs.
+- a question with no known path (a spike): its paths are sub-items under it (`el todo add N.M "probe: …" --fact "…"`,
+  F25) — the expected fact is the hypothesis; a path tried and refuted is DONE with the fact as it turned out (negative
+  knowledge is knowledge: the next agent does not walk it again); a path dropped untried is cancelled with its reason
+  and stays in sight (✗ in `el facts`). The question ends when each path has (el help todo).
 - a fact carries its bounds (feedback 2026-09-22: four samples read as «the fallback is always safe», a direct
   API response as end to end): what was observed, where, how many — and, when it matters, what would refute it.
   Not seen is not absent · a sample is not always · a direct call is not end to end · the owner's decision (keep
@@ -859,7 +889,7 @@ TODO: ≤ 200 lines (100 before 0.20: a rollout through five environments × 17 
   proof lines under it are el's — reported, not counted, and written whole: el cuts nothing in README, TODO or a phase
   file (the owner's word, 2026-09-25 — a cut part is lost to the reader; `result:`, `closed:`, `last:`, Links, the TODO
   phase line and the Digest carry the whole text);
-  phase name — English, 1–3 words; no items deeper than N.M.
+  phase name — English, 1–3 words; items go one level down at most — sub-items N.M.K (F25); deeper is a nested case.
 JOURNAL: event headline ≤ 200 chars (soft 180 — said once, by `el log`, for the line you just wrote); long text
   splits automatically into headline + up to 5 body lines of ≤ 160 chars; body beyond that → put the story in
   the phase file.
@@ -921,6 +951,8 @@ ALIASES = {
     "limit": "limits", "numbers": "limits", "error": "errors", "exit": "errors", "codes": "errors",
     "item": "todo", "items": "todo", "pocket": "todo", "pockets": "todo", "note": "todo", "notes": "todo",
     "due": "todo", "after": "todo", "dates": "todo", "done": "evidence", "proof": "evidence", "proofs": "evidence",
+    "sub": "todo", "subitem": "todo", "sub-item": "todo", "sub-items": "todo", "spike": "todo", "probe": "todo",
+    "hypothesis": "todo", "investigation": "todo",
     "kind": "evidence", "kinds": "evidence", "expect": "practice", "hint": "practice", "hints": "practice",
     "best": "practice", "practices": "practice", "craft": "practice", "log": "journal", "event": "journal",
     "events": "journal", "problem": "journal", "decision": "journal", "result": "journal", "stamps": "stamp",

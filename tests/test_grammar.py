@@ -158,9 +158,15 @@ class TodoTests(unittest.TestCase):
         r = grammar.parse_todo(TODO_OK.replace("write the grammar", "w" * 101))
         self.assertIn("F13", rules(r.errors))
 
-    def test_third_level_rejected(self):
+    def test_third_level_is_a_sub_item_fourth_rejected(self):
+        # until 1.40.0 a third level was refused (F13); the owner's word 2026-10-06 made it a sub-item (F25) — the
+        # fourth level stays refused: deeper is a nested case
         r = grammar.parse_todo(TODO_OK.replace("  - [ ] 2.2 write the grammar\n", "  - [ ] 2.2 write the grammar\n    - [ ] 2.2.1 deeper\n"))
-        self.assertIn("F13", rules(r.errors))
+        self.assertTrue(r.ok, r.errors)
+        self.assertEqual([s.ref for s in r.phases[1].items[-1].subs], ["2.2.1"])
+        r = grammar.parse_todo(TODO_OK.replace("  - [ ] 2.2 write the grammar\n",
+                                               "  - [ ] 2.2 write the grammar\n    - [ ] 2.2.1 deeper\n      - [ ] 2.2.1.1 deepest\n"))
+        self.assertIn("F25", rules(r.errors))
 
     def test_item_under_wrong_phase(self):
         r = grammar.parse_todo(TODO_OK.replace("  - [ ] 2.2", "  - [ ] 3.2"))
