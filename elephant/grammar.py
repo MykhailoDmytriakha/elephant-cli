@@ -100,7 +100,7 @@ WAITS_RE = re.compile(r"^  - waits: (?:\[[^\]\s]+\]\((?:\.cases/)?([^)\s/]+)/REA
 # the State line el draws at a parent for every case its phases wait for (F6) — from `waits:`, never typed
 DRAWN_WAIT_RE = re.compile(r"^- ждёт: \[([^\]\s]+)\]\((?:\.cases/)?\1/README\.md\)$")
 PHASE_NOTE_RE = re.compile(r"^  - note: (.+)$")                      # F22: a note under a phase line
-POCKET_RE = re.compile(r"^    - (why|note|expect|result|fact|accepted):(?: (.+))?$")  # F22: an item's pockets; F23: accepted
+POCKET_RE = re.compile(r"^    - (why|note|expect|result|fact|done|accepted):(?: (.+))?$")  # F22: an item's pockets; F23: done · accepted
 EVIDENCE_LINE_RE = re.compile(r"^(?:    |      )- (file|ref|run|owner)(?:: (.+))?$")  # F20: one line per proof
 # L8 (feedback and the owner's word, 2026-10-02): a file proof of the case carries the version it was done against —
 # `- file: [note.txt](docs/note.txt) · #1a2b3c4d`, the first 8 hex of the sha256 of its content, written by `done` only
@@ -111,6 +111,11 @@ def split_fingerprint(proof: str):
     """`[x](docs/x.txt) · #1a2b3c4d` → ("[x](docs/x.txt)", "1a2b3c4d"); a proof without one → (proof, "")."""
     m = FINGERPRINT_RE.match(proof)
     return (m.group(1), m.group(2)) if m else (proof, "")
+# L8: `done:` exactly as el writes it — one regex for the door and for reading, so they cannot disagree on the session
+# (Codex, 2026-10-05); no part holds `·` (store.clean_part), a repair's carrier is the only tail
+_SIGN = r"[^·]+? · [^·]+? · session [^\s·]+"
+SIGN_LINE_RE = re.compile(rf"^(?P<who>[^·]+?) · (?P<model>[^·]+?) · session (?P<sid>[^\s·]+) · \d{{4}}-\d{{2}}-\d{{2}}"
+                          rf"(?: · carried after a cut-off close by {_SIGN})?$")
 POCKET_KINDS = ("why", "note", "expect", "result", "fact")  # the agent's pockets; `accepted:` is el's (F23)
 # F22 `expect:` — what done will look like, written BEFORE the work; the proofs it names stand in brackets,
 # `[file: docs/x.md] [run: k6 → p95] [owner]`, so `done` can hold the record to its own promise.
@@ -289,6 +294,9 @@ class Item:
     # el never runs it (the owner's word, 2026-09-22), the entry names it; it lives and goes with the hold. Last field:
     # items are built positionally
     hold_check: str = ""
+    # L8 (the owner's word, 2026-10-05: «provider, model and number»): who did it — `Anthropic Claude Code · Opus 5.5 ·
+    # session 70cc2077 · 2026-10-05`, written by `done` on the item itself, so who did it is read, not guessed from the journal
+    done_by: str = ""
 
     @property
     def kind(self) -> str:
@@ -333,7 +341,7 @@ def parse_todo(text: str) -> Todo:
     # F4 counts what the agent writes — phase and item lines, notes, why, waits. Lines el renders from
     # `done` (`result:` and the evidence under it) are named, not counted: the agent cannot shorten them.
     rendered = sum(1 for ln in lines if EVIDENCE_LINE_RE.match(ln) or ln == LEGEND
-                   or (POCKET_RE.match(ln) and ln.startswith(("    - result:", "    - accepted:"))))
+                   or (POCKET_RE.match(ln) and ln.startswith(("    - result:", "    - done:", "    - accepted:"))))
     own = len(lines) - rendered
     if own > TODO_MAX_LINES:
         aside = f" (plus {rendered} result lines el renders, not counted)" if rendered else ""
@@ -474,6 +482,16 @@ def parse_todo(text: str) -> Todo:
                 r.error("F22", i, f"`{m.group(1)}:` under no item — a pocket line belongs under `  - [ ] N.M …`")
                 continue
             pocket, val = m.group(1), (m.group(2) or "").strip()
+            if pocket == "done":  # L8: el's line, the doer's signature, written by `el todo done` only
+                if not SIGN_LINE_RE.match(val):
+                    r.error("F23", i, f"item {item.n}.{item.m}: `done:` is not the line el writes — `<provider tool> · <model> · session <id> · "
+                                      f"<date>`; el writes it at done, nobody types it")
+                if not item.done:
+                    r.error("F23", i, f"item {item.n}.{item.m} is open and carries `done:` — the signature comes with `done`, or the tick is missing")
+                if item.done_by:
+                    r.error("F23", i, f"item {item.n}.{item.m} has two `done:` lines — one doer per tick, the journal keeps the rest")
+                item.done_by, in_result = val, False
+                continue
             if pocket == "accepted":  # F23: el's line, written by `el todo accept` over a done item only
                 if not item.done:
                     r.error("F23", i, f"item {item.n}.{item.m} is open and carries `accepted:` — only a done item is accepted, "

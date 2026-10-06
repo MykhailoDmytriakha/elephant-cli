@@ -268,9 +268,11 @@ class DigestAtClose(Base):
         self.assertIn("- reflect: спрашивать «зачем» до похода\n- align: к заседанию подготовить копии\n"
                       "- howto: none: секретарь один, рецепт не нужен\n", pf)
         self.assertIn("\n## Notes\n", pf)
+        # 2026-10-05 (L8): each done item now carries the hand that did it, `done: … · session …`, after its story
+        unsigned = re.sub(r"\n  - done: [^\n]*", "", nofp(pf))
         self.assertIn("## Items at close\n- 1.1 ✓ оплатить пошлину\n  - why: без оплаты вернут\n  - result: оплачено\n"
                       "    - file: [receipt.pdf](../evidence/receipt.pdf)\n- 1.2 ✓ согласовать дату — [адвокат](../docs/permit.pdf)\n"
-                      "  - result: 24 сентября\n    - owner\n", nofp(pf))
+                      "  - result: 24 сентября\n    - owner\n", unsigned)
         self.assertNotIn("- note:", self.read("TODO.md"), "the phase notes travelled into the file")
         code, out, err = run("check")
         self.assertEqual(code, 0, out + err)

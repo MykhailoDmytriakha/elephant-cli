@@ -43,6 +43,7 @@ EXAMPLES = """examples
   el relink docs/old.md none            gone for good, or an example written as a link: the links become literal text
   el todo hold 3.2 "waiting for: ticket REQ-1, network team's queue" --check './check-port.sh' · el todo resume 3.2   the outside keeps it: [~], the thread names the wait and its check (el never runs it)
   el todo reopen 3.1 "the databases drifted — the result no longer holds"   a tick taken back: DECISION in the journal, the RESULT stays
+  el sign "Opus 5.5"                     this session names its model once — done: and accepted: lines sign provider · tool · model · session
   el todo brief 2.3                     the prompt for a FRESH session that accepts or returns 2.3 — a new chat, Codex, a clean subagent (el help acceptance)
   el todo accept 2.3 --by codex --run "k6 → p95 810 ms" "opened k6.txt too" · el todo reopen 2.3 --by codex "cold cache: 1400 ms"   the second hand re-runs each run: proof (F23)
   el todo add later "cache warm-up on deploy" · el todo move L3 5 · el todo move 4.7 later   the general list: not for this phase, formed at the boundary (F24)
@@ -84,7 +85,7 @@ options: --case <name or suffix> (or EL_CASE) picks the case; exit codes 0 ok ·
 
 HELP_TOPIC = {"log": "journal", "todo": "todo", "phase": "phases", "readme": "readme", "case": "cases", "spawn": "cases", "facts": "facts",
               "done": "cases", "feedback": "feedback", "migrate": "migrate", "mv": "order", "relink": "order",
-              "order": "order", "check": "errors", "doctor": "errors", "status": "start"}
+              "order": "order", "check": "errors", "doctor": "errors", "status": "start", "sign": "acceptance"}
 # The form of every other command carries its meaning in its placeholders (N.M, TYPE, old new); feedback's
 # three free texts do not — the agent must know what is valuable to the reader before writing a word, so
 # a wrong call prints the whole dose, not one example line.
@@ -238,6 +239,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("facts", help="the fact chain of the case in hand — established · expected · under question · dead branches; rendered from the fact: lines", allow_abbrev=False)
     sub.add_parser("doctor", help="read-only diagnostics: what el sees from here; changes nothing", allow_abbrev=False)
     sub.add_parser("status", help="where the case stands — the same screen as bare `el` (git/oc/cf habit)", allow_abbrev=False)
+    s = sub.add_parser("sign", help="this session names its model once — done: and accepted: lines carry provider · tool · model · session", allow_abbrev=False)
+    s.add_argument("model", nargs="?")
+    s.add_argument("--as", dest="who", help="«Provider Tool» for a harness el does not know")
     s = sub.add_parser("help", help="examples; `el help <topic>` opens a knowledge dose", allow_abbrev=False)
     s.add_argument("topic", nargs="?")
     return p
@@ -352,6 +356,10 @@ def _run(argv=None) -> int:
                 tip = hints.pick("case_new", root=root)
                 if tip:
                     print(f"hint: {tip}")
+            return 0
+        if args.cmd == "sign":  # by the session, not the project: it works before the first case
+            out = commands.sign(args.model, args.who)
+            print("\n".join(out.lines))
             return 0
         root = store.find_root()
         if args.cmd == "case":

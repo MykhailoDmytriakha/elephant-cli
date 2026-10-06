@@ -109,10 +109,13 @@ def _item_block(it: grammar.Item, two_hands: bool = False) -> List[str]:
         if it.result:
             lines.append(f"    - result: {it.result}")
         lines += [f"{deeper}- {k}: {pr}" if pr else f"{deeper}- {k}" for k, pr in it.evidence]
-    if it.done and it.accepted:  # F23: who accepted the result, from which session — el's line, like `result:`
-        lines.append(f"    - accepted: {it.accepted}")
     if it.fact:  # expected while open, established once done — the line the fact chain is made of
         lines.append(f"    - fact: {it.fact}")
+    # the story of the step first (why · expected · result · fact), then the hands: who did it, who accepted it
+    if it.done and it.done_by:  # L8: provider · tool · model · session — el's line, written by done
+        lines.append(f"    - done: {it.done_by}")
+    if it.done and it.accepted:  # F23: who accepted the result, from which session, with what mind — el's line
+        lines.append(f"    - accepted: {it.accepted}")
     return lines
 
 
@@ -1082,10 +1085,14 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     blocking = _blocking(case, todo)
     done_now = {f"{phase.n}.{it.m}" for it in fresh}
     was = {f"{phase.n}.{it.m}": (list(it.evidence), it.result) for it in already}
+    signed = f"{_sign_text(case)} · {_now()[0]}"
     for it in fresh:
         it.done, it.held, it.hold_reason = True, False, ""
         it.evidence = list(proofs)
+        it.done_by = signed  # L8: who did it, on the item itself — read later, never guessed from the journal
     renewed = [it for it in already if _merge_proofs(case, it, proofs)]  # L8: the same door as a done on done items
+    for it in renewed:
+        it.done_by = signed  # a new version is a new claim, and this hand made it
     owed_again = [it for it in renewed if it.accepted]
     for it in owed_again:
         it.accepted = ""
@@ -1108,6 +1115,8 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     sid = session_id()
     out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome}" + (f" ({short})" if short else "") + fact_note, f"p{phase.n}",
                      trailer=f"session: {sid}" if sid else "").lines
+    if not _sign_fields(case)[1] and hints.enabled():
+        out.say(SIGN_HINT)
     for it in fresh:
         left = [r for r, _ in blocking.get(f"{phase.n}.{it.m}", []) if r not in done_now]
         if left:
@@ -1193,6 +1202,11 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
         owed = [it for it, *_ in renewed if it.accepted]
         for it in owed:
             it.accepted = ""
+        signed = f"{_sign_text(case)} · {_now()[0]}"
+        for it, *_ in renewed:
+            it.done_by = signed  # L8: a new version is a new claim, signed by the hand that made it
+        if not _sign_fields(case)[1] and hints.enabled():
+            out.say(SIGN_HINT)
         out.absorb(_write_todo(case, todo))
         mine = sorted({it.m for it, *_ in renewed})
         refs = ", ".join(f"{phase.n}.{m}" for m in mine)
@@ -2311,7 +2325,7 @@ def todo_reopen(case: Path, ref: str, why: str, by: Optional[str] = None) -> Out
         tag = f" (приёмка: {who} · {_session_word(_session_status(journal, phase, items[0], who), 'ru')})"
     for it in items:
         # the result, its proofs and its acceptance go with the tick; why/notes stay; the RESULT stays in the journal
-        it.done, it.result, it.evidence, it.accepted = False, "", [], ""
+        it.done, it.result, it.evidence, it.accepted, it.done_by = False, "", [], "", ""
     out.absorb(_write_todo(case, todo))
     refs = _refs(phase, items)
     verb = "возвращён" if len(items) == 1 else "возвращены"
@@ -2336,6 +2350,7 @@ def todo_reopen(case: Path, ref: str, why: str, by: Optional[str] = None) -> Out
 # acceptor catches «done is not what was expected»; «expected is not what the owner meant» only the owner catches.
 SESSION_ENVS = store.SESSION_ENVS
 SESSION_WORDS = {"another": ("another session", "другая сессия"), "same": ("same session", "та же сессия"),
+                 "mixed": ("sessions differ by item — see accepted: lines", "по-разному по пунктам — см. accepted:"),
                  "unknown": ("session not given", "сессия не указана"), "owner": ("the owner's word", "слово владельца")}
 ACCEPTOR_RE = re.compile(r"[A-Za-z][\w.-]{0,23}")
 RETURN_RE = re.compile(r"^(.+?) возвращ(?:ён|ены) в работу — ")
@@ -2348,6 +2363,73 @@ RULE_TWO_HANDS = "rule: two hands — the owner agrees each phase's scope, a fre
 
 
 session_id = store.session_id  # one reader of the harness's session id: the hand (store) and acceptance (F23)
+
+
+def _sign_fields(case: Path) -> Tuple[str, str, str]:
+    """(«Provider Tool», model, session) of the hand writing now — the harness's words and the agent's `el sign`."""
+    return store.signature()
+
+
+def _sign_text(case: Path) -> str:
+    """`Anthropic Claude Code · Opus 5.5 · session 70cc2077` — the hand as a line; what nothing says is `?`, never guessed."""
+    who, model, sid = _sign_fields(case)
+    return f"{who or 'harness ?'} · {model or 'model ?'} · session {sid or '?'}"
+
+
+def _sign_parse(line: str) -> Tuple[str, str, str]:
+    """A signature line back into (who, model, session) — "" where it says `?`; a line el did not write gives ("", "", "")."""
+    m = grammar.SIGN_LINE_RE.match(line or "")  # the same form the TODO door checks: what passes is what is read
+    if not m:
+        return "", "", ""
+    clean = lambda v, q: "" if v in (q, "?") else v
+    return clean(m.group("who"), "harness ?"), clean(m.group("model"), "model ?"), clean(m.group("sid"), "?")
+
+
+def _engine_word(doer: str, acceptor: Tuple[str, str, str], lang: str = "en") -> str:
+    """How independent the second hand is, by mind (the owner's word, 2026-10-05): another engine (another provider) ·
+    another model · the same model — or why el cannot tell. The hand is the session; the mind is the model."""
+    d_who, d_model, _ = _sign_parse(doer)
+    a_who, a_model, _ = acceptor
+    if not doer:
+        word = ("doer not signed", "автор без подписи")
+    elif not d_who or not a_who:  # independence el cannot see is not independence (Codex, 2026-10-05)
+        word = ("harness not given", "среда не названа")
+    elif not d_model or not a_model:
+        word = ("model not given", "модель не названа")
+    elif d_who.split()[0].casefold() != a_who.split()[0].casefold():
+        word = ("another engine", "другой движок")
+    elif d_model.casefold() != a_model.casefold():
+        word = ("another model", "другая модель")
+    else:
+        word = ("same model", "та же модель")
+    return word[0 if lang == "en" else 1]
+
+
+SIGN_HINT = ("el does not know your model — say it once per session: el sign '<your model>' (provider, tool and session el "
+             "takes from the harness; the model goes into the done: and accepted: lines)")
+
+
+def sign(model: Optional[str], who: Optional[str] = None) -> Outcome:
+    """`el sign "Opus 5.5"` — this session says its model once (L8, the owner's word 2026-10-05: «provider, model and
+    number»); the harness gives provider, tool and session. `--as "Provider Tool"` names a harness el does not know. Bare
+    `el sign` shows the signature el would write now. Provenance, not proof: el records what it was told."""
+    out = Outcome()
+    if model is not None:
+        model = " ".join(model.split())
+        who = " ".join((who or "").split())
+        if not model or "·" in model or "·" in who:  # the parts are el's to join: a `·` inside one would split it on reading
+            raise StoreError("el sign \"<your model>\" — the model's name as your instructions give it, e.g. el sign \"Opus 5.5\"; "
+                             "provider, tool and session el takes from the harness; no `·` inside a part", 2)
+        store.sign(model, who)
+    w, m, sid = store.signature()
+    line = f"{w or 'harness ?'} · {m or 'model ?'} · session {sid or '?'}"
+    out.say((f"signed: {line} — done: and accepted: lines carry it from now on" if model is not None
+             else f"signature: {line} — what done: and accepted: lines would carry now"))
+    if not m and hints.enabled():
+        out.say("  " + SIGN_HINT)
+    if not w:
+        out.say("  el does not know this harness — name it: el sign '<model>' --as '<Provider Tool>'")
+    return out
 
 
 def _session_word(status: str, lang: str = "en") -> str:
@@ -2377,6 +2459,8 @@ def _result_names(text: str, ref: str) -> bool:
 
 def _doer_session(journal: grammar.Journal, phase: grammar.Phase, item: grammar.Item) -> str:
     """The session under the newest `done` RESULT of the item (the `session:` body line), "" when none was given."""
+    if item.done_by:  # L8: the signature done wrote on the item — provenance by construction, not a reading of the text
+        return _sign_parse(item.done_by)[2]
     ref = f"{phase.n}.{item.m}"
     for e in journal.entries:  # newest first
         for ev in e.events:
@@ -2426,7 +2510,12 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
     reruns = _reruns(ref, who, [pr for it in items for k, pr in it.evidence if k == "run"], runs or [])
     journal = _journal(case, out)
     date, _ = _now()
-    status = _session_status(journal, phase, items[0], who)
+    statuses = [_session_status(journal, phase, it, who) for it in items]
+    status = statuses[0] if len(set(statuses)) == 1 else "mixed"  # a range of two doers is said as such (Codex, 2026-10-05)
+    mine_sign, mine_text = _sign_fields(case), _sign_text(case)
+    engines = {_engine_word(it.done_by, mine_sign) for it in items}
+    engine_ru = "" if who == "owner" else " · " + (_engine_word(items[0].done_by, mine_sign, "ru") if len(engines) == 1
+                                                     else "по-разному по пунктам — см. accepted:")
     left, differs = list(reruns), []
     for it in items:  # the --run words go to the item proofs in order: each item counts its own re-runs
         proofs = [pr for k, pr in it.evidence if k == "run"]
@@ -2434,15 +2523,19 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
         ran = [r for r in mine if not _outcome(r).startswith("not run")]
         tally = (f" · re-ran {len(ran)} of {len(mine)}" + (f" ({len(mine) - len(ran)} not run)" if len(ran) < len(mine) else "")
                  if mine else "")
-        it.accepted = f"{who} · {_session_word(_session_status(journal, phase, it, who))} · {date}{tally}"
+        engine = "" if who == "owner" else f" · {_engine_word(it.done_by, mine_sign)}: {mine_text}"  # L8: the mind beside the hand
+        it.accepted = f"{who} · {_session_word(_session_status(journal, phase, it, who))} · {date}{tally}{engine}"
         differs += [(it, pr, r) for pr, r in zip(proofs, ran) if _outcome(pr).casefold() != _outcome(r).casefold()]
     out.absorb(_write_todo(case, todo))
     refs = _refs(phase, items)
     body = "".join(f"\nre-run: {r}" for r in reruns[:4]) + (f"\nre-run: … +{len(reruns) - 4} more" if len(reruns) > 4 else "")
     said = f": «{text}»" if who == "owner" else f" — {text}"
-    out.lines += log(case, "DECISION", f"принято {refs}: {who} · {_session_word(status, 'ru')}{said}{body}", f"p{phase.n}").lines
-    out.say(f"accepted: {refs} by {who} ({_session_word(status)}) → TODO.md (accepted: line) · DECISION in the journal")
-    if status == "same":
+    out.lines += log(case, "DECISION", f"принято {refs}: {who} · {_session_word(status, 'ru')}{engine_ru}{said}{body}", f"p{phase.n}").lines
+    engine = "" if who == "owner" else " · " + (next(iter(engines)) if len(engines) == 1 else "differs by item — see accepted: lines")
+    out.say(f"accepted: {refs} by {who} ({_session_word(status)}{engine}) → TODO.md (accepted: line) · DECISION in the journal")
+    if who != "owner" and not mine_sign[1] and hints.enabled():
+        out.say(SIGN_HINT)
+    if "same" in statuses:
         out.warn(f"same session as the doer — a subagent of that session, or the doer itself: el cannot tell which. A fresh session "
                  f"is a new chat, another agent, another terminal: el todo brief {ref} prints its prompt")
     elif status == "unknown":
@@ -2751,6 +2844,8 @@ def _acceptance_line(todo: grammar.Todo, readme_body: str, journal: Optional[gra
 
 
 RERAN_RE = re.compile(r"\bre-ran (\d+) of \d+")
+# L8: the tail `accept` adds — `· another engine: <signature>` — is the acceptor's identity, never read as the verdict
+ENGINE_TAIL_RE = re.compile(r" · (?:another engine|another model|same model|model not given|doer not signed|harness not given): .*$")
 
 
 def _acceptance_tally(items: List[grammar.Item]) -> str:
@@ -2768,7 +2863,7 @@ def _acceptance_tally(items: List[grammar.Item]) -> str:
         kinds[word] = kinds.get(word, 0) + 1
     tail = " · ".join(f"{w} {n}" for w, n in kinds.items())
     runs = sum(1 for it in done for k, _ in it.evidence if k == "run")
-    reran = sum(int(m.group(1)) for it in acc for m in [RERAN_RE.search(it.accepted)] if m)
+    reran = sum(int(m.group(1)) for it in acc for m in [RERAN_RE.search(ENGINE_TAIL_RE.sub("", it.accepted))] if m)
     return (f"{len(acc)} of {len(done)} done accepted" + (f" — {tail}" if tail else "")
             + (f" · re-ran {reran} of {runs} run proof(s)" if runs else ""))
 
@@ -3944,7 +4039,16 @@ def _case_tally(case: Path, todo: grammar.Todo, out: Outcome) -> str:
     return _acceptance_tally(items) if _two_hands(_readme_text(case, out)) or any(it.accepted for it in items) else ""
 
 
-def _deliver_cancel_to_parent(root: Path, case: Path, why: str, out: Outcome) -> None:
+def _child_sign(case: Path, messenger: bool) -> str:
+    """The signature of a child's outcome at its parent: the hand that ended the child — or, when the parent's half is
+    delivered after a cut-off close, «unknown» with the hand that only carried it (Codex, 2026-10-05: the repair signed the
+    carrier as the doer)."""
+    if messenger:
+        return f"harness ? · model ? · session ? · {_now()[0]} · carried after a cut-off close by {_sign_text(case)}"
+    return f"{_sign_text(case)} · {_now()[0]}"
+
+
+def _deliver_cancel_to_parent(root: Path, case: Path, why: str, out: Outcome, messenger: bool = False) -> None:
     parent = store.parent_case(case, root)
     if parent is None:
         return
@@ -3955,18 +4059,19 @@ def _deliver_cancel_to_parent(root: Path, case: Path, why: str, out: Outcome) ->
             m = _next_number(parent, ptodo, p)
             p.items.append(grammar.Item(p.n, m, True, f"снято: {why}", 0,
                                         evidence=[("file", _child_readme_link(parent, case))]))
+            p.items[-1].done_by = _child_sign(case, messenger)  # L8: the hand that ended the child, or «unknown» on a repair
     out.absorb(_write_todo(parent, ptodo))
     _write_readme(parent, _readme_text(parent, out), out)  # `ждёт:` of this child is drawn no more (F6)
     out.lines += log(parent, "DECISION", f"снято → {why} · {case.name}/").lines
     out.say(f"parent updated: {parent.name}")
 
 
-def _deliver_to_parent(root: Path, case: Path, summary: str, out: Outcome) -> None:
+def _deliver_to_parent(root: Path, case: Path, summary: str, out: Outcome, messenger: bool = False) -> None:
     """The parent's half of a close: the awaited phase stops waiting and gets the child's outcome as a done item, the
     parent's journal hears of it. One helper for both ends of a child — done and cancelled («снято: <why>», which the parent
     records as a DECISION) — and for a close whose parent half was cut off (L7): the parent hears the same either way."""
     if summary.startswith("снято: "):
-        return _deliver_cancel_to_parent(root, case, summary[len("снято: "):], out)
+        return _deliver_cancel_to_parent(root, case, summary[len("снято: "):], out, messenger)
     parent = store.parent_case(case, root)
     if parent is None:
         return
@@ -3981,6 +4086,7 @@ def _deliver_to_parent(root: Path, case: Path, summary: str, out: Outcome) -> No
             # (F20: the tool does not write a tick without a kind): file → the child's README
             p.items.append(grammar.Item(p.n, m, True, summary, 0,  # the agent's words only; the proof line names the case
                                         evidence=[("file", _child_readme_link(parent, case))]))
+            p.items[-1].done_by = _child_sign(case, messenger)  # L8: the hand that ended the child, or «unknown» on a repair
     out.absorb(_write_todo(parent, ptodo))
     _write_readme(parent, _readme_text(parent, out), out)  # `ждёт:` of this child is drawn no more (F6)
     # the child always reports to its parent, however it was created (F18): an awaited child
@@ -3997,7 +4103,7 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> O
         parent = store.parent_case(case, root)
         if parent is None or not any(case.name in p.waits for p in _todo(parent, out).phases):
             raise StoreError(f"{case.name} is closed already «{recorded}» — nothing to close, and no parent waits for it", 4)
-        _deliver_to_parent(root, case, recorded, out)
+        _deliver_to_parent(root, case, recorded, out, messenger=True)
         out.say(f"{case.name} was closed already — its outcome as recorded «{recorded}» is delivered to the parent; "
                 f"nothing in {case.name} was written again")
         return out
@@ -4813,10 +4919,10 @@ def _closed_phase_items(case: Path, p: grammar.Phase) -> List[grammar.Item]:
             items.append(grammar.Item(p.n, int(m.group(1)), m.group(2) == "✓", text, 0, after=after,
                                       evidence=[(kind, proof)] if kind else []))
             continue
-        pocket = re.fullmatch(r"  - (why|note|expect|result|fact|accepted): (.+)", ln)
+        pocket = re.fullmatch(r"  - (why|note|expect|result|fact|done|accepted): (.+)", ln)
         if pocket and items:
-            setattr(items[-1], pocket.group(1) if pocket.group(1) != "note" else "notes",
-                    pocket.group(2) if pocket.group(1) != "note" else items[-1].notes + [pocket.group(2)])
+            name = {"note": "notes", "done": "done_by"}.get(pocket.group(1), pocket.group(1))
+            setattr(items[-1], name, items[-1].notes + [pocket.group(2)] if name == "notes" else pocket.group(2))
             continue
         ev = re.fullmatch(r"\s+- (file|ref|run|owner)(?:: (.+))?", ln)
         if ev and items:

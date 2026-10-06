@@ -755,6 +755,14 @@ records the verdict.
   refuses without them and names them. Could not run one here — `--run "<command> → not run: why"`, counted as not
   re-run (`re-ran 0 of 1 (1 not run)`), said, not hidden. A result that differs is a return, not an acceptance.
   el runs nothing itself — it asks and records what was said. The owner's word needs no re-run.
+- signed hands (L8, the owner's word 2026-10-05: «provider, model and number»): `done` writes under the item
+  `done: Anthropic Claude Code · Opus 5.5 · session 70cc2077 · 2026-10-05`, and `accept` adds its own signature with how
+  independent it is — `… · another engine: OpenAI Codex · GPT-6.1 Sol · session 3f2a91c0`: same session (it checked
+  itself) · same model (another hand of the same mind) · another model · another engine (another provider — the
+  strongest check, other blind spots). The hand is the session, the mind is the model. Provider, tool and session come
+  from the harness (Claude Code and Codex give them); no harness names the model — say it once per session:
+  `el sign "Opus 5.5"` (`--as "Provider Tool"` for a harness el does not know; bare `el sign` shows the signature).
+  Who did an item is read from its signature, not guessed from the journal; an item done before 1.38.0 reads as before.
 - the marks (a live report, 2026-09-25: `[x]` on one hand's work read as «checked» to everybody): in a case with two
   hands el renders the box from the item — `[ ]` open · `[/]` done, awaiting acceptance (half of an x: one hand of
   two) · `[x]` accepted, finished · `[~]` on hold. A legend under the TODO title says so while an item is owed. The
