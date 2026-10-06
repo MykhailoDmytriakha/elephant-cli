@@ -513,7 +513,9 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   done accepted — the owner's word 16 · re-ran 0 of 16 run proof(s)` — and the parent draws its line about the child from
   it (el help acceptance). The tally is el's drawing: it is not counted in the README budget.
 - the parent's Links carries a `cases:` block rendered from each child's own README (progress ·
-  next; closed ones as a count plus the latest few) — never typed by hand (F18); a child from before
+  next; closed ones as a count plus the latest few) — never typed by hand (F18), redrawn at every write of the child's
+  README, so the parent's file reads the child as it is now (L5, 2026-10-06; a parent README edited by hand waits for
+  its own next write — el does not rebuild another case's file from a child's command); a child from before
   el shows as legacy → migrate, a child whose stamped README el cannot parse any more as BROKEN →
   check; both hold the parent open.
 - Root mode: `el case new --root "my app" --goal "…"` makes the PROJECT FOLDER itself the top
