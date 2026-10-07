@@ -44,6 +44,14 @@ class Outcome:
                 f"{report.recovered.name}: re-enter them with el, then run: rm '{report.recovered}' (S4)")
         elif report.bypassed:
             self.warnings.append(f"{report.path.name}: written bypassing Elephant — content was valid, stamp renewed (S4)")
+        if report.bypassed and HAND_EDIT_REPORT not in self.warnings:  # once per command, however many files it wrote
+            self.warnings.append(HAND_EDIT_REPORT)
+
+
+# The one moment el sees a workaround (the owner's word, 2026-10-06): a hand edit past the stamp is often a command el
+# lacks or one the agent could not find — both are reports (depth 1 and 2), and only the agent knows which it was.
+HAND_EDIT_REPORT = ("edited by hand because el had no command for it, or you could not find one? "
+                    "el feedback \"…\" — unasked, then go on (el help feedback)")
 
 
 def _now():
@@ -4768,6 +4776,9 @@ def feedback(title: str, expected: str, actual: str, why: str, acceptance: str, 
             sections += [f"## {heading}", text_.strip(), ""]
     path.write_text("\n".join(sections), encoding="utf-8")
     out.say(f"feedback written: {path}")
+    # the report is a pause, not the end of the work (the owner's word, 2026-10-06: stop, write, go on, tell at the end)
+    out.say(f"go on by your workaround · in your case: el log PROBLEM \"el: {title} — workaround: …\" · "
+            "at the end tell the owner the report is there")
     return out
 
 

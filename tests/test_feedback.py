@@ -123,7 +123,7 @@ class FeedbackCommand(unittest.TestCase):
                              "--onboarding", "enough")
         self.assertEqual(code, 0, err)
         self.assertIn("feedback written: ", out)
-        path = Path(out.split("feedback written: ", 1)[1].strip())
+        path = Path(out.split("feedback written: ", 1)[1].split("\n", 1)[0].strip())
         text = path.read_text()
         for piece in ("# log rejects names", "## Reproduction", "## Actual", "## Expected", "date: "):
             self.assertIn(piece, text)

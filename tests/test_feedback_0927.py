@@ -50,14 +50,14 @@ class OnboardingWord(unittest.TestCase):
         code, out, err = run("feedback", "t", "--actual", "a", "--expected", "e", "--acceptance", "a test",
                              "--onboarding", word)
         self.assertEqual(code, 0, err)
-        text = Path(out.split("feedback written: ", 1)[1].strip()).read_text()
+        text = Path(out.split("feedback written: ", 1)[1].split("\n", 1)[0].strip()).read_text()
         self.assertIn(f"## Onboarding\n{word}\n", text)
         self.assertLess(text.index("## Acceptance"), text.index("## Onboarding"), "the block last, after the wall itself")
 
     def test_enough_is_a_full_answer(self):
         code, out, err = run("feedback", "t", "--actual", "a", "--expected", "e", "--onboarding", "enough")
         self.assertEqual(code, 0, err)
-        self.assertIn("## Onboarding\nenough\n", Path(out.split("feedback written: ", 1)[1].strip()).read_text())
+        self.assertIn("## Onboarding\nenough\n", Path(out.split("feedback written: ", 1)[1].split("\n", 1)[0].strip()).read_text())
 
 
 class Doses(unittest.TestCase):
@@ -76,8 +76,10 @@ class Doses(unittest.TestCase):
         self.assertIn("el feedback", knowledge.resolve("onboarding"), "the onboarding dose names the channel back")
 
     def test_the_block_itself_did_not_grow(self):
-        # the word travels through the report, not through the block every agent reads at every start
-        self.assertNotIn("feedback", knowledge.ONBOARDING_BLOCK)
+        # the word travels through the report, not through the block every agent reads at every start; the block
+        # names the reflex (the owner's word, 2026-10-06), never the report's form — that is the dose's
+        for flag in ("--onboarding", "--actual", "--expected"):
+            self.assertNotIn(flag, knowledge.ONBOARDING_BLOCK)
 
 
 if __name__ == "__main__":
