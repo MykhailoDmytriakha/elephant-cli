@@ -14,6 +14,8 @@ EXEMPLAR = """a well-led item looks like this — pockets in the owner's words, 
 # The block an agent's instruction file carries (CLAUDE.md · AGENTS.md · GEMINI.md) — one source: `el onboarding` writes it
 # between marks with a fingerprint, the entry keeps it fresh, ONBOARDING.md shows the same text (a test holds them equal).
 # The owner's word, 2026-09-25: a strong push is not a long one — why, the rhythm in three moments, one IMPORTANT line.
+# The owner's word, 2026-10-06: the report reflex — el cannot see its own defect, so it cannot say so in the moment; the
+# agent that hits the wall is the only sensor, and the permission to report unasked is given here, before el speaks.
 ONBOARDING_BLOCK = """## Elephant — память работы в `.cases/`
 
 Ты начинаешь без памяти, и следующий агент — тоже ты. Чего нет в `el` — сделанного, решений, причин, — для него не существует. Форму держит `el`: порядок, отказы, подсказки; содержание — ты.
@@ -21,6 +23,8 @@ ONBOARDING_BLOCK = """## Elephant — память работы в `.cases/`
 **Начало — `el`.** Первая строка `thread:` — цель → фаза → пункт → шаг. Перескажи владельцу не его словами: что из этого следует, чего он не сказал (помечай «вывожу»), что спросишь. Его же слова в ответ — эхо, а не понимание.
 
 **Работа — пункт за пунктом.** **IMPORTANT: закончил пункт — сразу `el todo done N.M <вид> "что вышло"`, не в конце сессии** (вид — `file:путь` · `ref:след` · `run:"команда → исход"` · `owner`). Решение — `el log DECISION "что · вместо чего · почему"`. `.howto/` — что здесь уже умеют, по рецепту на задачу: берёшься за задачу — открой её рецепт, упёрся — `grep -ril "<слова ошибки>" .howto/`; решил новое — `el log PROBLEM` и рецепт `.howto/<глагол>.md` с первой строкой `when: <слова беды>`, чтобы следующий не решал заново. Не для этой фазы — `el todo add later "…"`.
+
+**`el` подвёл — отзыв сразу, не спрашивая.** Отказал там, где работа права; строка без честной починки или врёт; пришлось обойти `el` или гадать — прервись и запиши `el feedback "…"`, пока точный вывод перед глазами (форма — `el help feedback`), и работай дальше обходом. Разрешения не нужно; в конце скажи владельцу, что отзыв лежит.
 
 **Конец — снова `el`.** Order чист, State правдив: `el readme set next "…"`, а если всё верно — `el readme touch`. Сделанное принимает свежая сессия: `el todo brief N.M` печатает для неё задание; `[/]` в TODO — сделано, ждёт приёмки. Ты — вторая рука: перезапусти каждое `run:` и принеси, что вышло сейчас — `el todo accept N.M --by <ты> --run "команда → исход" "…"`.
 
@@ -67,7 +71,8 @@ The principles a fix is held to:
 - an action is not an event: the journal grows only from what changes the next reader's knowledge
 - two ends for every branch — done with evidence or cancelled with a reason — and a way back with a reason (reopen)
 - instructions do not retell the tool: knowledge lives in `el help`, a project carries one short block (el onboarding)
-- the system grows only from live use: a report from a real case → a principle → a change → a measurement → a test
+- the system grows only from live use: a report from a real case → a principle → a change → a measurement → a test;
+  the agent that hit the wall writes the report itself, at once and unasked — it is the only one who saw it
 
 Rules and life (the owner's word, 2026-09-29): sometimes you hold to the rule, sometimes to life, and the two do not always
 agree. The tool never pretends they do: every rule has a legal way out for life — the owner's word, a cancel with a reason,
@@ -571,6 +576,9 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
     "feedback": """feedback — telling Elephant it is wrong (the door when the tool does not let you through honestly)
 el refused what the work needs, a printed line has no honest fix, a kind or a form is missing? Do not
 forge the record (no `done` on a cancelled item, no path written as text) — report it and go on by a workaround.
+No asking (the owner's word, 2026-10-06): you are the only one who saw the wall — el cannot see its own defect. Write
+the report the moment you notice, while the exact output is in front of you, go on with your work, and at the end tell
+the owner the report is there. A wall you worked around in silence is met by the next agent again.
   el feedback "short title" --actual "…" --expected "…" --onboarding "…" [--repro "…"] [--why "…"] [--acceptance "…"]
   title          what el did wrong, in a few words — it becomes the file name
   --actual       what el printed or wrote, verbatim, with the exit code — what happened, not what you feared
@@ -849,7 +857,9 @@ records the verdict.
 An agent starts with no memory; what it reads first is its instruction file — CLAUDE.md (Claude Code), AGENTS.md (Codex,
 Cursor, Copilot and most others), GEMINI.md. The Elephant block there is the push: why (you have no memory, the next agent
 is you), the rhythm in three moments (start with `el` and retell with surplus · tick each item at once · end with `el`),
-one IMPORTANT line. The rest el says itself, in the moment: `thread:`, Order, `hint:`.
+one IMPORTANT line, and the report reflex — el let you down → `el feedback` at once, unasked (the owner's word,
+2026-10-06: el cannot see its own defect, so the habit is needed before el speaks). The rest el says itself, in the
+moment: `thread:`, Order, `hint:`.
 - `el onboarding` — where the block is, it is refreshed there; where it is nowhere, el picks the file the running agent
   reads (CLAUDE.md under Claude Code, else an instruction file that exists, else AGENTS.md) and adds the block at the end.
   Your own text is never touched; a link (CLAUDE.md → AGENTS.md) is one file.
