@@ -166,7 +166,7 @@ class LegacyCase(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertNotIn("legacy file(s)", out)
         # the archive is never nagged about summaries
-        self.assertNotIn("legacy/", out.split("## Order")[1])
+        self.assertNotIn("legacy/", out.split("## Order")[1].split("— the case on disk")[0])  # the Order block only (above the body since 2026-10-07)
 
     def test_a_phase_closed_by_migration_does_not_block_the_next_one(self):
         (self.case / "TODO.md").write_text("# TODO\n\n## Completed obligations\n- [x] wire the SDK client\n- [x] smoke test on SIT\n", encoding="utf-8")

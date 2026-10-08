@@ -90,7 +90,7 @@ class People(unittest.TestCase):
         code, out, _ = run("case", "new", "fine", "--goal", "g")
         self.assertIn("hint: 1 people card(s) in .cases/people/ — link the ones this case deals with", out)
         run("readme", "add", "links", "секретарь — назначает даты заседаний · по телефону не отвечает · приём лично по вторникам")
-        hint = run()[1].rstrip().splitlines()[-1]
+        hint = next(ln for ln in run()[1].splitlines() if ln.startswith("hint: "))
         self.assertIn("Links line 1 repeats people/court-secretary-3.md — link the card instead: el readme edit links 1", hint)
         code, out, _ = run("help", "practice")
         self.assertIn("PEOPLE", out)

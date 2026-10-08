@@ -130,13 +130,13 @@ check · a second copy of the stamp.""",
   subordinate to what, and one direction: a debt below is a step of the thread, not a second voice.""",
 
     "start": """a day with el
-1. `el` (or `el status`) — prints the case in hand: README (the "now"), TODO (phases), journal
-   headlines, `dates:` and `unblocked:` when the case has dates or dependencies, and the `## Order`
-   block: what is out of order and the command that fixes each line. Read this, nothing else; the first
-   line, `thread:`, says what is subordinate to what. Then retell it to the owner — not in the owner's words:
+1. `el` (or `el status`) — prints the case in hand, what to do now first: `thread:`, the counts (`dates:`,
+   `unblocked:`, `acceptance:` …), the `## Order` block — what is out of order and the command that fixes each
+   line — and a `hint:`; then, under a mark line, the case on disk: README (the "now"), TODO (phases), journal
+   headlines. The head is what to read even when the screen is cut. `thread:` says what is subordinate to what. Then retell it to the owner — not in the owner's words:
    where the case stands, the next step, what follows from it that nobody said (marked as your inference) and
    what you would ask; words that repeat the owner's words prove nothing (el help practice: RETELLING) — then go. How the whole
-   thing fits together: `el help model`. The last line may be a `hint:` — el saw something in the case you
+   thing fits together: `el help model`. The line under Order may be a `hint:` — el saw something in the case you
    can do better; do it, or say why not. How strong agents lead a case: `el help practice`.
 2. Work as usual. When something is worth remembering — `el log <TYPE> "…"`.
 3. Every new file in docs/ research/ … starts with `summary: <one line>` right under its title —
@@ -240,7 +240,8 @@ happened. Now the lower layer is visible from the top, and the top is rendered f
   changed → `el readme set next "…"`; still true as it stands → `el readme touch` (moves the
   anchor only). Both put `as of` on the newest journal entry; el cannot tell truth, only freshness.
 - `el readme --file README.md` rewrites the whole file — rare; el re-renders what it owns.
-  Bare `el readme` (nothing piped) prints the README and these doors — it writes nothing.
+  Bare `el readme` (nothing piped) prints the entry's head — thread, counts, Order, hint — then the README and these
+  doors; it writes nothing. A stdin left open and empty is not a write: after half a second it is a question.
 - text with `$` (sums): single quotes — inside double quotes the shell eats `$150` and el refuses
   the trace it leaves (a double space, an orphan `.72`) rather than record a hole.""",
 

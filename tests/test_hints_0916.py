@@ -148,19 +148,23 @@ class Hints(Base):
         self.assertEqual(code, 0, err)
         self.assertIn("hint: the Digest of phase 1 holds no PROBLEM and no DECISION", out)
 
-    def test_entry_hint_is_last_derived_and_rotates_with_the_journal(self):
+    def test_entry_hint_sits_under_order_derived_and_rotates_with_the_journal(self):
+        # since 2026-10-07 the hint stands right under Order, above the case body: fresh agents read the entry as
+        # `el | head -60` and never saw a last line (the polygon; the owner's word: «turn it over»)
+        hint_of = lambda out: next((ln for ln in out.splitlines() if ln.startswith("hint: ")), "")
         self.open_case()
         code, out, _ = run()
         lines = out.rstrip().splitlines()
-        self.assertTrue(lines[-1].startswith("hint: how strong agents lead a case"), "nothing specific yet: the onboarding hint")
+        self.assertTrue(hint_of(out).startswith("hint: how strong agents lead a case"), "nothing specific yet: the onboarding hint")
+        self.assertLess(lines.index(hint_of(out)), lines.index("— the case on disk: README · TODO · journal headlines —"))
         self.assertEqual(out.count("\nhint: "), 1)
         run("phase", "plan", "2", "Rollout", "--goal", "r")   # specific: an empty planned phase
         run("todo", "add", "1", "a")                          # specific: items without pockets
         run("todo", "add", "1", "b")
-        seen = {run()[1].rstrip().splitlines()[-1]}
+        seen = {hint_of(run()[1])}
         for text in ("a", "b", "c", "d"):
             run("log", "DECISION", text)  # every write moves the choice
-            seen.add(run()[1].rstrip().splitlines()[-1])
+            seen.add(hint_of(run()[1]))
         self.assertGreater(len(seen), 1, "a long session sees more than one hint")
         self.assertTrue(any("phase 2 Rollout? park it" in h for h in seen), seen)
         self.assertTrue(any("items carry pockets" in h for h in seen), seen)
