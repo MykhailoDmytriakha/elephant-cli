@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -155,7 +156,12 @@ def read(case: Path, name: str) -> str:
     p = file_path(case, name)
     if not p.exists():
         raise StoreError(f"{p} is missing (L3)", 4, recovery="el doctor")
-    return p.read_text(encoding="utf-8")
+    try:
+        return p.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:  # a refusal with its door, never a traceback on every entry (Codex, 2026-10-08)
+        raise StoreError(f"{p} is not UTF-8 text (byte {e.start}) — el writes UTF-8 only, so something else wrote it", 4,
+                         recovery=f"iconv -f latin1 -t utf-8 {shlex.quote(str(p))} > {shlex.quote(str(p) + '.utf8')} && "
+                                  f"mv {shlex.quote(str(p) + '.utf8')} {shlex.quote(str(p))} && el check")
 
 
 def todo_of(case: Path) -> grammar.Todo:

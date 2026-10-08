@@ -72,7 +72,8 @@ class SpawnLinksBothWays(Base):
         body, _ = stamp.split(self.read(self.parent(), "README.md"))
         parsed = grammar.parse_readme(body)
         # fill Decisions so that the README holds one line over the limit if the drawn line counted
-        filler = grammar.README_MAX_LINES + 1 - (parsed.lines - parsed.rendered_lines)
+        opened = sum(1 for ln in parsed.sections["State"] if ln.startswith("- opened: "))  # drawn too (2026-10-08)
+        filler = grammar.README_MAX_LINES + 1 + opened - (parsed.lines - parsed.rendered_lines)
         full = body.replace("## Decisions\n", "## Decisions\n" + "".join(f"- d{k}\n" for k in range(filler)), 1)
         self.assertEqual([f for f in grammar.parse_readme(full).errors if f.rule == "F2"], [])
         typed = full.replace("\n- ждёт: [", "\n- x: [")  # the same line, typed by the agent: counted

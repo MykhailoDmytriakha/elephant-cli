@@ -798,6 +798,15 @@ proved statements of a theory: found and proved once, then built on, not re-deri
 - `fact:` is the fifth pocket. Expected while the item is open (`el todo add … --fact "…"`, `el todo fact N.M
   "…"`), established once done. `done` on an item with an expected fact asks for the verdict: `--fact confirmed`
   · `--fact "the fact as it turned out"` · `--fact -` (none came out). The journal RESULT carries it.
+- `el todo fact N.M =` keeps the result's words as the fact — one symbol; a sharper fact: `el todo fact N.M "…"`.
+- the entry shows the newest facts themselves under the `facts:` count — the next agent reads what is known first.
+- many facts at once — paths tried and closed, things measured, each with its source — live in a document, not in
+  pockets: a table «what was tried · why closed · reopen if · source» is the strong form. Name it in Context:
+  `el readme add context "knowledge: [doors.md](docs/doors.md) — what it holds"`. From then on the entry of EVERY
+  case of the project — a new one too — says `knowledge: …` with the command that reads it, and `el facts` lists it.
+  Measured (2026-10-08): a fresh agent planning in a new case never opened a sibling case's document without that line
+  and proposed closed paths again; with it, it read the document at its third call. A phase close names the door when
+  the case keeps documents and none is named; el does not judge which one is knowledge — you do.
 - `el facts` renders the chain: ✓ established · · expected (open) · ? under question (rests on an item that is
   open again — refuted, and el never reopens the dependents itself: finish the base, rewire `after`, or reopen)
   · ✗ dead branch (cancelled, with its reason, from the journal). Done items without a fact are counted as work.

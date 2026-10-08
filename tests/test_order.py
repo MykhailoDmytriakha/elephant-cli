@@ -49,15 +49,17 @@ class Summaries(Base):
         r = self.readme()
         self.assertIn("- docs/ — рабочие документы", r)
         self.assertIn("  - [a.md](docs/a.md) — лист под звонок", r)
-        self.assertIn("  - [b.md](docs/b.md) — summary: missing", r)
+        self.assertIn("  - [b.md](docs/b.md)\n", r)  # the link alone: no instruction in the owner's page (2026-10-08)
+        self.assertNotIn("summary: missing", r)
         self.assertIn("  - other: build.sh", r)
         self.assertIn("1 file(s) without `summary:` — docs/b.md", out)
 
-    def test_folder_without_description_gets_a_placeholder_and_an_order_line(self):
+    def test_folder_without_description_is_a_bare_line_and_an_order_line(self):
         self.doc("research/facts.md", "# F\nsummary: факты\n")
         code, out, err = run()
         self.assertEqual(code, 0, err)
-        self.assertIn('- research/ — (describe this folder: el readme add links "research/ — …")', self.readme())
+        self.assertIn("- research/\n", self.readme())  # Order names the gap; README carries no instruction (2026-10-08)
+        self.assertNotIn("describe this folder", self.readme())
         self.assertIn("folder research/ has no description", out)
         run("readme", "add", "links", "research/ — установленные факты")
         code, out, err = run()

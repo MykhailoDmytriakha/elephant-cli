@@ -32,7 +32,7 @@ EVENT_BODY_LINES = 5
 
 README_SECTIONS = ["Context", "State", "Decisions", "Problems", "Links"]
 CLOSED_TALLY_RE = re.compile(r" · acceptance: \d+ of \d+ done accepted.*$")  # el's tail on `closed:` (F23), not counted
-STATE_OWNED = ("progress", "last", "as of", "closed")  # State lines el writes (F3): whole, not the agent's to shorten
+STATE_OWNED = ("opened", "progress", "last", "as of", "closed")  # State lines el writes (F3): whole, not the agent's to shorten
 JOURNAL_TYPES = {"PHASE", "DECISION", "PROBLEM", "RESULT"}
 # F20 (2026-09-14, the owner's word): a done item carries the KIND of its evidence — a closed list, on
 # purpose. file = a thing in the case anyone can open · ref = a trace outside the case a person can
@@ -727,7 +727,12 @@ def parse_readme(text: str) -> Readme:
     # so is the `ждёт:` line el draws for a nested case the phase waits for (F6) — the agent cannot shorten it
     drawn_wait = [ln for ln in r.sections.get("State", []) if DRAWN_WAIT_RE.match(ln)]
     drawn_tail += sum(len(ln.encode("utf-8")) + 1 for ln in drawn_wait)
-    own_lines, own_bytes = r.lines - r.rendered_lines - len(drawn_wait), r.bytes - r.rendered_bytes - drawn_tail
+    # and the `opened:` line el draws first in State from the journal (2026-10-08; Codex: a README at its limit refused
+    # the next write once el added it)
+    drawn_open = [ln for ln in r.sections.get("State", []) if ln.startswith("- opened: ")]
+    drawn_tail += sum(len(ln.encode("utf-8")) + 1 for ln in drawn_open)
+    own_lines = r.lines - r.rendered_lines - len(drawn_wait) - len(drawn_open)
+    own_bytes = r.bytes - r.rendered_bytes - drawn_tail
     aside = (f" (Links rendered by el: {r.rendered_lines} lines / {r.rendered_bytes} bytes more, not counted)"
              if rendered else "")
     if own_lines > README_MAX_LINES or own_bytes > README_MAX_BYTES:

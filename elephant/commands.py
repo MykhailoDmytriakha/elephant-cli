@@ -376,12 +376,52 @@ def _derive_readme(case: Path, body: str) -> str:
         journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
         # entries run newest first, events inside an entry are appended — the newest RESULT is the LAST one of its entry
         # (feedback 2026-10-05: two RESULTs in one minute showed the older one as `last:`)
+        opened = _opened_line(journal, parsed) if not journal.errors else None
+        if opened:  # where the case started, first in State (the owner, 2026-10-08: «I opened the README and could not find
+            text = _set_first_state_line(text, "opened: ", opened)  # what I started with»)
         last = next((ev for ev in journal.newest_first() if ev.type == "RESULT"), None)
         if last:  # the whole RESULT — headline and body — never cut (the owner's word, 2026-09-25)
             text = _set_state_line(text, "last: ", _event_words(last))
     except StoreError:
         pass
     return _blank_before_headings(text)
+
+
+def _opened_line(journal: grammar.Journal, parsed) -> Optional[str]:
+    """`opened: <date> — with the goal above`, or `— the goal then: «…»` once the Context goal is no longer the one the case
+    opened with — drawn from the journal's first entry, never typed. The cold reader (2026-10-08): given a finished case's
+    README alone, eleven of sixteen readers answered «not in the README» to «what did you ask for, and when»; with this
+    line, two. The goal at opening is the journal's `дело открыто:` event, kept whole."""
+    if not journal.entries:
+        return None
+    first = journal.entries[-1]  # entries run newest first
+    ev = first.events[0] if first.events else None
+    words = _event_words(ev) if ev is not None else ""
+    opening = next((o for o in ("дело открыто: ", "проект открыт: ") if words.startswith(o)), "")  # case new · root mode
+    then = words[len(opening):].strip() if opening else ""
+    if not then:
+        return first.date
+    norm = lambda s: " ".join(s.split()).rstrip(".…")  # noqa: E731
+    context = " ".join(ln.strip() for ln in parsed.sections.get("Context", []) if ln.strip() and not ln.startswith("- "))
+    if norm(context).startswith(norm(then)):  # the whole goal: a cut would hide a rewrite past it (Codex, 2026-10-08)
+        return f"{first.date} — with the goal above"
+    return f"{first.date} — the goal then: «{then}»"
+
+
+def _set_first_state_line(readme: str, prefix: str, value: str) -> str:
+    """The `- <prefix>` line as the first line of `## State` — moved there if it stood elsewhere."""
+    out, in_state = [], False
+    for ln in readme.rstrip("\n").split("\n"):
+        if ln.startswith("## "):
+            in_state = ln == "## State"
+            out.append(ln)
+            if in_state:
+                out.append(f"- {prefix}{value}")
+            continue
+        if in_state and ln.startswith(f"- {prefix}"):
+            continue
+        out.append(ln)
+    return "\n".join(out) + "\n"
 
 
 def _draw_waits(case: Path, readme: str, waits: List[str]) -> str:
@@ -1986,6 +2026,7 @@ def _promise_lines(case: Path, todo: grammar.Todo) -> List[str]:
 
 
 FACT_NONE = ("-", "—", "no", "none")
+FACT_FROM_RESULT = "="  # `el todo fact N.M =` — the result's words, kept as the fact
 
 
 def todo_fact(case: Path, ref: str, text: str) -> Outcome:
@@ -1997,6 +2038,11 @@ def todo_fact(case: Path, ref: str, text: str) -> Outcome:
     todo = _todo(case, out)
     phase, item = _find_item(todo, ref)
     text = " ".join(text.split())
+    if text == FACT_FROM_RESULT:  # the words of the result are the fact (2026-10-08): the cheapest honest answer at done
+        if not item.done or not item.result:
+            raise StoreError(f"`=` takes the words of {ref}'s result as its fact — {ref} has no result yet; "
+                             f"say the fact: el todo fact {ref} '…'", 4)
+        text = item.result
     old = item.fact
     item.fact = "" if text in FACT_NONE or not text else _pocket_text("fact", text, ref)
     out.absorb(_write_todo(case, todo))
@@ -4049,6 +4095,9 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     if later:
         out.say(later)
     _say_resumed(case, todo, back, n, out)
+    offer = _knowledge_offer(case)
+    if offer:
+        out.say(offer)
     hints.attach(out, "phase_close", n=n, events=evs_here)
     if alongside:
         out.say(f"closed from the plan, out of turn — phase {alongside[0].n} {alongside[0].name} is still {alongside[1]}, "
@@ -4627,7 +4676,7 @@ def case_new(root: Path, name: str, goal: str, parent: Optional[Path] = None) ->
     links = [f"- parent: [{parent.name}]({back}) · фаза {_phase_of(store.todo_of(parent))[1:]}"] if parent else []
     d, t = _now()
     readme_text = "\n".join([
-        f"# {title}", "", "## Context", goal, *_default_rules(), "", "## State", "- progress: (no phases yet)",
+        f"# {title}", "", "## Context", goal, *_default_rules(), "", "## State", f"- opened: {d} — with the goal above", "- progress: (no phases yet)",
         f"- next: {DEFAULT_NEXT}", f"- as of: {d} {t} · p0 (1 event)", "",
         "## Decisions", "", "## Problems", "", "## Links", *links, ""])
     store_write_fresh(case, "README.md", readme_text)
@@ -4745,7 +4794,7 @@ def project_new(root: Path, name: str, goal: str) -> Outcome:
     goal = _context_text(goal)
     d, t = _now()
     store_write_fresh(project, "README.md", "\n".join([
-        f"# {title}", "", "## Context", goal, *_default_rules(), "", "## State", "- progress: (no phases yet)",
+        f"# {title}", "", "## Context", goal, *_default_rules(), "", "## State", f"- opened: {d} — with the goal above", "- progress: (no phases yet)",
         f"- next: {DEFAULT_NEXT}", f"- as of: {d} {t} · p0 (1 event)", "",
         "## Decisions", "", "## Problems", "", "## Links", ""]))
     store_write_fresh(project, "TODO.md", f"# TODO — {title}\n")
@@ -5661,10 +5710,13 @@ def _entry_head(case: Path, root: Path, readme_body: str, todo: grammar.Todo, jo
         out.say(acceptance, "")  # done by one hand, accepted by another (F23) — counted; the gaps are Order lines
     facts_line = _facts_line(case, todo, None) if not todo.errors else None
     if facts_line:
-        out.say(facts_line, "")  # the fact chain in numbers; the chain itself: el facts
+        out.say(facts_line, *_facts_shown(case, todo, journal if not journal.errors else None), "")  # the facts themselves
     howto = _howto_line(case)
     if howto:
-        out.say(howto, "")  # what the project already knows how to do — before the task, not only when stuck
+        out.say(howto, "")
+    known = knowledge_line(root)
+    if known:
+        out.say(known, "")  # what the project already knows, before the plan (the polygon, 2026-10-08)  # what the project already knows how to do — before the task, not only when stuck
     # what to do now comes first, the case on disk after it (the polygon, 2026-10-07; the owner's word: «turn it over»):
     # fresh agents read the entry as `el | head -60`, and Order and the hint, last, were never seen — 21K chars on a
     # 63-file case. The hint stood last because a model weighs the last line most; a line it never reads weighs nothing.
@@ -5872,6 +5924,11 @@ def facts(case: Path, journal: Optional[grammar.Journal] = None) -> Outcome:
     work_only = sum(1 for its in (i for _, i in per_phase) for it in its if it.done and not it.fact)
     out.say(f"facts — {case.name} · {len(established) - len(question)} established · {len(question)} under question · "
             f"{len(pending)} expected · {len(dead)} dead branch(es) · {work_only} done item(s) without a fact (work, not knowledge)")
+    docs = _knowledge_docs(store.find_root())
+    if docs:  # what the project knows by document — every case's, not this one's alone
+        out.say(f"knowledge documents of the project ({len(docs)}) — read before you plan:")
+        for k, name, f, summary in docs:
+            out.say(f"  {name} ({k.name})" + (f" — {summary}" if summary else "") + f" — cat {_sh_path(_from_here(f))}")
     for p, its in per_phase:
         rows = [it for it in its if it.fact]
         dead_here = [d for d in dead if d[0].startswith(f"{p.n}.")]
@@ -5893,7 +5950,7 @@ def facts(case: Path, journal: Optional[grammar.Journal] = None) -> Outcome:
                 out.say(f"        expect: {it.expect}")
         for ref, text, why, date in sorted(dead_here):
             out.say(f"  ✗ {ref} {text}   ← снято {date}: {why}")
-    if len(out.lines) == 1:
+    if not any(ln.startswith(("phase ", "knowledge documents")) for ln in out.lines[1:]):
         out.say("  no fact lines yet — a done item that established something: el todo fact N.M \"what is now known\"; "
                 "what it is for: el help facts")
     return out
@@ -5910,6 +5967,98 @@ def _howto_line(case: Path) -> Optional[str]:
         return None
     return (f"howto: {len(names)} recipe(s) — what this project already knows how to do: {' · '.join(names)} — "
             f"taking a task, open its recipe; stuck: grep -ril \"<words>\" .howto/")
+
+
+# ---- knowledge documents (the polygon and the owner's word, 2026-10-08) ------------------------------------------------
+# Agents keep what they found in a document — a table of closed paths with a source on every row (155 rows in one run,
+# 33 of 41 digests of a live migration) — never one fact per item (0 facts in 371 done; asked 7 times, answered 0). The
+# owner: «why not record links to these documents?». Measured the same day: the next agent, planning in a NEW case while
+# the knowledge lay in a sibling case, never opened it (0 of 2) and proposed two closed paths again in each plan; with a
+# line on the entry naming the document — opened at its third call (2 of 2), closed paths kept out. Printing the content
+# on entry added nothing to the line. So: a link line in Context, the entry of every case of the project names it.
+KNOWLEDGE_LINE_RE = re.compile(r"^- knowledge:\s*(.*)$")
+KNOWLEDGE_SHOWN = 3  # documents named on the entry; `el facts` lists every one
+
+
+def _knowledge_docs(root: Path) -> List[Tuple[Path, str, Path, str]]:
+    """(case, name, file, summary) for every `- knowledge: [name](path)` line in the Context of any case of the project —
+    open or closed: knowledge outlives the case that found it. A link that does not resolve is the README's own refusal
+    (F16), never named here."""
+    found: List[Tuple[Path, str, Path, str]] = []
+    try:
+        cases = store.all_cases(root)
+    except StoreError:
+        return found
+    for c in cases:
+        try:
+            body = stamp.split(store.read(c, "README.md"))[0]
+        except (StoreError, OSError, ValueError):  # UnicodeDecodeError too: a legacy README never breaks the entry (Codex, 2026-10-08)
+            continue
+        parsed = grammar.parse_readme(body)
+        if parsed.errors:
+            continue
+        for ln in parsed.sections.get("Context", []):
+            m = KNOWLEDGE_LINE_RE.match(ln)
+            if not m:
+                continue
+            for name, target in re.findall(r"\[([^\]]+)\]\(([^)\s]+)\)", m.group(1)):
+                f = (store.file_path(c, "README.md").parent / target.split("#")[0]).resolve()
+                if f.is_file():
+                    found.append((c, name, f, _doc_summary(f)))
+    return found
+
+
+def _doc_summary(f: Path) -> str:
+    return (order.read_summary(f) or "") if f.suffix.lower() == ".md" else ""  # the canonical scan, as Links reads it
+
+
+def _sh_path(p: str) -> str:
+    """A path the agent runs as printed: bare when the shell keeps it whole, quoted otherwise (Codex, 2026-10-08:
+    `cat docs/q&a.md` ran `cat docs/q` in the background)."""
+    return p if re.fullmatch(r"[\w./@%+,:=-]+", p) else _sh(p)
+
+
+def _from_here(f: Path) -> str:
+    try:
+        return Path(os.path.relpath(f, Path.cwd())).as_posix()
+    except ValueError:
+        return str(f)
+
+
+def knowledge_line(root: Path) -> Optional[str]:
+    """`knowledge: …` — what this project already knows, by document, with the command that reads it: on the entry of
+    every case and at `case new`, the moment a task starts."""
+    docs = _knowledge_docs(root)
+    if not docs:
+        return None
+    shown = docs[:KNOWLEDGE_SHOWN]
+    parts = " · ".join(f"{name} ({c.name})" + (f": {summary}" if summary else "") for c, name, _, summary in shown)
+    more = f" · +{len(docs) - len(shown)} more — el facts" if len(docs) > len(shown) else ""
+    return (f"knowledge: {len(docs)} document(s) of what this project already knows — {parts}{more} — before you plan or "
+            f"propose a step, read it: cat {' '.join(_sh_path(_from_here(f)) for _, _, f, _ in shown)}")
+
+
+def _knowledge_offer(case: Path) -> Optional[str]:
+    """At a phase close — the exit of a piece of work (the owner's word, 2026-10-07: «at the output facts should be
+    written»): when the case keeps documents and names none as knowledge, one line with the door and its documents. el
+    does not judge which document is knowledge; it names the door and the candidates, once per close."""
+    try:
+        body = stamp.split(store.read(case, "README.md"))[0]
+    except StoreError:
+        return None
+    parsed = grammar.parse_readme(body)
+    if parsed.errors or any(KNOWLEDGE_LINE_RE.match(ln) for ln in parsed.sections.get("Context", [])):
+        return None
+    listed = {k[1].split("/")[0] for k in (order._classify(ln.lstrip(), case) for ln in parsed.sections.get("Links", []))
+              if k[0] == "folder"}  # root mode reads only the folders README lists, as Links does (Codex, 2026-10-08)
+    docs = [d for f in order.content_folders(case, _is_project(case), listed) for d in f.all_docs() if d.summary]
+    if not docs:
+        return None
+    docs.sort(key=lambda d: -d.path.stat().st_size)
+    names = " · ".join(d.rel for d in docs[:3]) + (f" +{len(docs) - 3}" if len(docs) > 3 else "")
+    return (f"knowledge: does a document of this case hold what the project now knows — paths closed, things measured, "
+            f"each with its source? name it, and the entry of every case shows it: el readme add context \"knowledge: "
+            f"[name](path) — what it holds\" — this case's documents: {names} · none is: go on — el help facts")
 
 
 def _facts_line(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal]) -> Optional[str]:
@@ -5930,6 +6079,30 @@ def _facts_line(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journa
                 "true that the next step stands on (not every item has one): el todo fact N.M '…' · el help facts")
     return (f"facts: {len(est) - len(q)} established" + (f" · {len(q)} under question" if q else "")
             + (f" · {len(pend)} expected" if pend else "") + " — el facts")
+
+
+FACTS_SHOWN = 8  # the newest facts on the entry; the whole chain is `el facts`
+
+
+def _facts_shown(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal] = None) -> List[str]:
+    """The facts themselves on the entry, the newest first (the owner's word, 2026-10-07: «with a million of context,
+    3–6 thousand on entry is nothing — what matters is that it reads all of it»): the next agent stands on what is
+    known before its first command, instead of a count it would have to open. A fact under question says so."""
+    by_ref = {f"{it.ref}": it for it in _all_items(todo)}
+    changed = {f"{it.ref}" for p, it, *_ in _changed_proofs(case, todo)}
+    est = [it for it in _all_items(todo) if it.done and it.fact]
+    if journal is not None:  # newest by the journal — the RESULT that last named the item — not by TODO position (Codex)
+        events = [ev for ev in journal.newest_first() if ev.type == "RESULT"]
+        age = {f"{it.ref}": next((k for k, ev in enumerate(events) if _result_names(ev.text, f"{it.ref}")), len(events))
+               for it in est}
+        est = sorted(est, key=lambda it: age[f"{it.ref}"], reverse=True)  # oldest first, as the TODO order was
+    lines = []
+    for it in reversed(est[-FACTS_SHOWN:]):
+        q = any(r in by_ref and not by_ref[r].done for r in it.after) or f"{it.ref}" in changed
+        lines.append(f"  {'?' if q else '✓'} {it.ref} {it.fact}" + ("  (under question: el facts)" if q else ""))
+    if len(est) > FACTS_SHOWN:
+        lines.append(f"  … {len(est) - FACTS_SHOWN} more — el facts")
+    return lines
 
 
 def order_cmd(root: Path, case: Path, adopt: bool = False) -> Outcome:

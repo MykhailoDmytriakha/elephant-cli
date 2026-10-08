@@ -30,6 +30,7 @@ EXAMPLES = """examples
   el todo add 3 "grep the DEV trace" --expect "[run: trace shows the outbound call]" --fact "checkout calls the pricing API for the pair"   the expected fact
   el todo done 3.4 run:"grep 3 traces -> no outbound call" "trace read" --fact "in 3 DEV traces, no outbound pricing call"   the fact as it turned out, within what was seen
   el facts                              the fact chain: ✓ established · · expected · ? under question · ✗ dead branches — what the next agent builds on
+  el readme add context "knowledge: [doors.md](docs/doors.md) — paths closed, each with its source"   a document of what is known: the entry of every case names it
   el todo add 3.2 "probe: the code drops late events" --fact "it drops them" · el todo cancel 3.2.3 "not needed"   a sub-item 3.2.1 under 3.2 (F25): the paths of a question, a cancelled one stays in sight; 3.2 ends when each has
   el phase plan 3 "Answer" --goal "why and how to re-enable [file: research/answer.md] [run: curl → 200]"   the phase's own promise; the Digest holds it to it
   el help practice                      how strong agents lead a case — weak against strong, by moment; every `hint:` points here
@@ -448,6 +449,9 @@ def _run(argv=None) -> int:
             case = commands.case_new(root, args.name, args.goal)
             store.hold(root, case)  # the session that opened the case holds it (feedback 2026-09-27)
             print(f"created: {case.relative_to(root.parent)} — now `el phase open 1 <Name> --goal \"…\"`")
+            known = commands.knowledge_line(root)
+            if known:  # the moment a task starts: what the project already knows (the polygon, 2026-10-08)
+                print(known)
             if commands._default_rules():  # the case was born with two hands: said at the moment it begins
                 print("this case asks two hands: a fresh session accepts each done item (el todo brief N.M), the owner agrees "
                       "each phase's scope (el phase agree N) — el help acceptance; the owner may drop the rule: el readme drop context 1")
@@ -641,6 +645,13 @@ def _run(argv=None) -> int:
             seen = store.record_wall(called, e.code, "\n".join(_refusal_lines(e, [])))  # the refusal itself, first line first
             if seen >= 2:  # el sees it circling (the polygon, 2026-10-07: the same refusal three times, no report)
                 lines = _refusal_lines(e, restored, seen=seen)
+        if args is not None and args.cmd in (None, "status") and e.code == 4 and "every case here is closed" in str(e):
+            try:  # the moment a new task begins in a finished project: what it already knows, above the door (2026-10-08)
+                known = commands.knowledge_line(store.find_root())
+            except StoreError:
+                known = None
+            if known:
+                lines[-1:-1] = [f"  {known}"]
         if args is not None and args.cmd in (None, "status"):
             # the entry explains itself on stdout (feedback #4) — and only there: printed to both streams,
             # a terminal with 2>&1 showed the same refusal twice, as two failures (feedback 2026-09-14)
