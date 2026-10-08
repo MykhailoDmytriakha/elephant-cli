@@ -41,6 +41,9 @@ KNOWN_KINDS = {"docs", "research", "logs", "meetings", "jira", "data", "inbox", 
 POINTER_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)|`([^`]+)`|(?<![\w/])((?:[\w.-]+/)+[\w.-]*)")
 FOLDER_LINE_RE = re.compile(r"^- (?:`|\[)?([\w.-]+(?:/[\w.-]+)*)/(?:`|\]\([\w./-]+\))?(?:\s*[—–-]\s*(.*))?$")  # `docs/` or nested `docs/notes/`
 STATE_ANCHOR_RE = re.compile(r"^- as of: (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?: · (p\d+(?:\.\d+)?))?(?: \((\d+) events?\))?\s*$", re.M)
+# What el wrote into Links before 1.49.0 for a folder without a description and a file without `summary:` — an instruction
+# to the agent inside the owner's page (the cold reader, 2026-10-08: six of sixteen readers took it for an unfinished
+# template). Read back as «no description» so an old README re-renders clean; Order alone names the gap now.
 PLACEHOLDER_FOLDER = "(describe this folder:"
 PLACEHOLDER_FILE = "summary: missing"
 LINK_RE = re.compile(r"(\]\()([^)\s]+)(\))")  # a markdown link target
@@ -387,7 +390,7 @@ def render_links(case: Path, root_mode: bool, manual_lines: List[str]) -> Tuple[
         if desc:
             blocks.append(f"- {f.name}/ — {desc}")
         else:
-            blocks.append(f"- {f.name}/ — {PLACEHOLDER_FOLDER} el readme add links \"{f.name}/ — …\")")
+            blocks.append(f"- {f.name}/")  # the gap is Order's to name; README is the owner's page, not el's to-do list
         _render_folder(f, 1, folder_desc, fallback, rendered, blocks)
     # a line the agent wrote for a file Elephant does not render here (outside the content folders) is
     # never dropped: it stays among the manual lines — `line added` must stay true (feedback 2026-09-03)
@@ -406,7 +409,7 @@ def _render_folder(f: Folder, depth: int, folder_desc: Dict[str, str], fallback:
         if summary:
             out.append(f"{ind}- [{d.path.name}]({d.rel}) — {summary}")  # whole: a limit asks the source (Order), never cuts the copy
         else:
-            out.append(f"{ind}- [{d.path.name}]({d.rel}) — {PLACEHOLDER_FILE} → add `summary: …` as line 2")
+            out.append(f"{ind}- [{d.path.name}]({d.rel})")  # no summary: the link alone — Order names the gap
     plain = []
     for name, rel in f.other:
         desc = fallback.get(rel)
