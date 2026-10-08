@@ -21,3 +21,7 @@ os.environ["EL_ONBOARDING"] = "0"
 # a new case carries the rule «two hands» from `case new` (feedback 2026-09-25); the suite's cases are written without it
 # unless a test switches it on (tests/test_two_hands_default_0925.py) — hundreds of older tests close a phase by one hand
 os.environ["EL_TWO_HANDS"] = "0"
+
+# el recites where the agent stands every 10 calls of a session (2026-10-07); the suite's sessions make hundreds of calls,
+# so it is off unless a test switches it on (tests/test_recitation_1007.py)
+os.environ["EL_RECITE"] = "0"

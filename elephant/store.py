@@ -367,6 +367,61 @@ def mark_walls_asked(n: int) -> None:
         pass
 
 
+def _calls_file() -> Optional[Path]:
+    f = _walls_file()
+    return f.with_name(f.name[:-len("-walls.jsonl")] + "-calls.json") if f is not None else None
+
+
+def _calls_state() -> dict:
+    c = _calls_file()
+    try:
+        st = json.loads(c.read_text(encoding="utf-8")) if c is not None and c.is_file() else {}
+    except (OSError, ValueError):
+        st = {}
+    return st if isinstance(st, dict) else {}
+
+
+def _calls_write(st: dict) -> None:
+    c = _calls_file()
+    if c is None:
+        return
+    c.parent.mkdir(parents=True, exist_ok=True)
+    c.write_text(json.dumps(st), encoding="utf-8")
+
+
+def count_call() -> Tuple[int, int, int]:
+    """Count this session's el calls, every call (the polygon, 2026-10-07: in 17 of 35 sessions an agent made ten and
+    more el calls in a row without ticking anything, and 14 sessions ended without State). Returns (calls, the call of
+    the last successful `done`, the call el last recited at); (0, 0, 0) when no session is known. Never raises."""
+    try:
+        if _calls_file() is None:
+            return 0, 0, 0
+        st = _calls_state()
+        st["n"] = int(st.get("n", 0)) + 1
+        _calls_write(st)
+        return st["n"], int(st.get("last_done", 0)), int(st.get("recited", 0))
+    except Exception:  # noqa: BLE001 — counting must never break a command
+        return 0, 0, 0
+
+
+def mark_done(n: int) -> None:
+    try:
+        st = _calls_state()
+        st["last_done"] = n
+        _calls_write(st)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def mark_recited(n: int) -> None:
+    try:
+        st = _calls_state()
+        st["recited"] = n
+        _calls_write(st)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def sign(model: str, who: str = "") -> None:
     """This session says what it is (L8, the owner's word 2026-10-05: «provider, model and number»): the model always — no
     harness names it — and «Provider Tool» only where the harness is one el does not know. Kept by the session id."""

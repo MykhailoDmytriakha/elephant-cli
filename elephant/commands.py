@@ -4350,6 +4350,36 @@ def readme_touch(case: Path) -> Outcome:
     return out
 
 
+RECITE_EVERY = 10  # el calls between two recitations — the owner's number (2026-10-07: «a command every 10 calls?»)
+
+
+def recitation(root: Path, case: Path, calls: int, last_done: int) -> List[str]:
+    """Two lines in the middle of the work: where you are, and what is not ticked yet (the owner's word, 2026-10-07; the
+    field: Manus rewrites its todo at every step and recites it at the end of the context, or the model loses the goal
+    within ~50 calls — convergence 6 of the world survey). The entry says it once; a long session needs it again."""
+    try:
+        readme_body = _readme_text(case, Outcome())
+        todo = grammar.parse_todo(stamp.split(store.read(case, "TODO.md"))[0])
+        journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
+        issues = _order_lines(case, root, readme_body, journal)
+        thread = _thread_line(case, todo, readme_body, issues) if not todo.errors else None
+    except StoreError:
+        return []
+    lines = [f"recite (every {RECITE_EVERY} el calls): {thread}" if thread else f"recite (every {RECITE_EVERY} el calls):"]
+    flight = todo.current()
+    owed = [it for it in grammar.flat(flight.items) if not it.done and not it.cancelled] if flight else []
+    since = calls - last_done if last_done else calls
+    parts = [f"since your last done — {since} el call(s)" if last_done else f"no done yet this session — {calls} el call(s)"]
+    if flight:
+        shown = ", ".join(it.ref for it in owed[:5]) + (f" (+{len(owed) - 5})" if len(owed) > 5 else "")
+        parts.append(f"open in phase {flight.n}: {shown}" if owed else f"phase {flight.n}: nothing open")
+    if issues:
+        parts.append(f"Order: {len(issues)} → el order")
+    tail = f" · finished one? el todo done {owed[0].ref} <kind> \"…\"" if owed else ""
+    lines.append("recite: " + " · ".join(parts) + tail)
+    return lines
+
+
 def _walls_question(out: Outcome) -> None:
     """At the end of a session — `next:` set or State confirmed — el names the walls it kept and asks once whether any
     stood where the work was right (the polygon, 2026-10-07: the agents told the owner what blocked them, in Problems

@@ -1,5 +1,6 @@
 """Command line for `el` (C1–C9): ten commands, text output, exit codes 0/1/2/3/4, no prompts."""
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -265,6 +266,23 @@ SHELL_TRACES = (
 TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact", "howto", "run", "check")
 
 
+RECITE_SKIP = {None, "status", "help", "feedback", "sign", "onboarding", "check", "order", "case"}
+
+
+def _recite(args, root: Optional[Path], case: Optional[Path], calls) -> List[str]:
+    """Every RECITE_EVERY el calls of a session, the next command that works on the case says where the agent stands
+    (the owner's idea, 2026-10-07). Every call counts; the entry, the doses and the root-wide commands do not recite."""
+    n, last_done, recited = calls
+    if args.cmd == "todo" and getattr(args, "action", "") == "done" and n:  # reached only on success
+        store.mark_done(n)
+        last_done = n
+    if (not n or root is None or case is None or os.environ.get("EL_RECITE", "1") == "0" or args.cmd in RECITE_SKIP
+            or n - recited < commands.RECITE_EVERY):
+        return []
+    store.mark_recited(n)
+    return commands.recitation(root, case, n, last_done)
+
+
 def _invoked(argv: List[str]) -> str:
     """The command a call names, read from argv itself — a refusal of argparse comes before `args` exists."""
     it = iter(argv)
@@ -350,6 +368,7 @@ def _run(argv=None) -> int:
         if glued:
             raise StoreError(glued, 2)
         args = parser.parse_args(argv)  # a wrong call raises StoreError(2) in el's voice — see Parser.error
+        calls = store.count_call()  # every call counts, whatever it does; the recitation below speaks on a case command
         trace = shell_trace(args)
         if trace:
             raise StoreError(trace, 2)
@@ -572,6 +591,7 @@ def _run(argv=None) -> int:
                 return 2
             if store.touched() and args.cmd not in (None, "status", "spawn"):
                 store.hold(root, case)  # the case this session last wrote to stays its hand (spawn holds the child)
+        out.lines += _recite(args, locals().get("root"), locals().get("case"), calls)
         for w in out.warnings:
             print(f"warning: {w}", file=sys.stderr)
         print("\n".join(out.lines))
