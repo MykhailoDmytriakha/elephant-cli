@@ -525,10 +525,12 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   cases from before el (README never stamped, outside the grammar) as one count line — `--all` names
   every closed and legacy one, `el --case <name> migrate` reads a legacy case; current marked *;
   `el case use <name>` — switch the hand.
-- The hand is the session's: the case it last wrote to or took (case new · spawn · case use), else the freshest
-  journal, which it then holds — another agent writing in the same tree does not move it. `--case <name>` names a case
-  for one command (a write there moves the hand, a look does not). A harness that gives el no session id keeps the
-  freshest journal: set EL_SESSION, or pass --case. One agent works one case at a time.
+- The hand is the session's: the case it last wrote to or took (case new · spawn · case use), else the case a write
+  was last aimed at — where the last agent stopped, even if its last word was `readme touch` — which it then holds;
+  another agent writing in the same tree does not move it. `--case <name>` names a case for one command (a write there
+  moves the hand, a look does not). A harness that gives el no session id keeps that rule: set EL_SESSION, or pass
+  --case. One agent works one case at a time. In a tree the entry names the other open cases by their top: a parent
+  with `(+K open nested)` — its own Links list its children.
 - Rule of nesting: know what to do → an item N.M; do NOT know the cause / needs its own research /
   longer than a session → `el spawn "name" --goal "…"` — a nested case of the same shape inside
   the parent. Parent and child point at each other with links the editor opens: the parent's phase shows
@@ -983,6 +985,9 @@ README and TODO filled 27 KB). A folder with no README where el stamped nothing 
 counts it with the legacy ones and `--all` names it — BROKEN is only a case el wrote that broke since.""",
 
     "errors": """exit codes and what to do
+A refusal reads from both ends: its first line is what is wrong (`el: ERROR [exit N] …`), its last line is the door — the
+    command that gets you through (`recovery: …`, or the message's own last line); `| tail -1` and `| head -1` each
+    keep half. What el adds (this legend, the same-wall question, the files put back) sits between them.
 0 — done. 1 — internal error. 2 — wrong usage: the message names what is missing, prints the command's
     examples (for `feedback` its whole dose) and `el help <topic>`; the library's bare `usage:` line is never the answer.
 3 — rule violation: the write was REFUSED, no file was touched — a command is one change: what it wrote before the

@@ -214,7 +214,7 @@ def resolve_case(root: Path, name: Optional[str]) -> Path:
 # another agent's. Many agents on one tree is the model (each writes its own leaf), so the hand belongs to the session:
 # the case it last wrote to, or took (`case new` · `spawn` · `case use`), or first picked up. Kept outside the project,
 # in a temp folder, one line per session and project — not a config, nothing in git, gone with the machine's temp.
-# A harness that gives no session id (EL_SESSION sets one by hand) keeps the old rule: the freshest journal.
+# A harness that gives no session id (EL_SESSION sets one by hand) keeps the old rule: the case a write was last aimed at.
 SESSION_ENVS = ("EL_SESSION", "CODEX_SESSION_ID", "CLAUDE_CODE_SESSION_ID")  # the innermost harness first: Codex run from Claude Code
 # who is writing, as the harness says it (measured 2026-10-05: Claude Code sets CLAUDECODE and CLAUDE_CODE_SESSION_ID,
 # Codex sets CODEX_VERSION and CODEX_SESSION_ID; neither names the model — the agent says it once: `el sign "<model>"`)
@@ -279,7 +279,7 @@ def wall_key(text: str) -> str:
     """One wall, whatever its numbers, quoted words and paths: `phase 2 is missing` and `phase 5 is missing` are the same
     wall, so are two missing files; a refusal whose first line only announces a list (`cannot close phase N:`) is keyed
     by the list's first line too, so two different blockers are two walls (Codex review, 2026-10-07)."""
-    lines = [ln for ln in (text or "").split("\n") if ln.strip()]
+    lines = [ln for ln in (text or "").split("\n") if ln.strip() and not re.match(r"\s*exit \d = ", ln)]  # not the legend
     first = lines[0] if lines else ""
     if first.rstrip().endswith(":") and len(lines) > 1:
         first = first + " " + lines[1].strip()
@@ -372,21 +372,28 @@ def _calls_file() -> Optional[Path]:
     return f.with_name(f.name[:-len("-walls.jsonl")] + "-calls.json") if f is not None else None
 
 
-def _calls_state() -> dict:
-    c = _calls_file()
-    try:
-        st = json.loads(c.read_text(encoding="utf-8")) if c is not None and c.is_file() else {}
-    except (OSError, ValueError):
-        st = {}
-    return st if isinstance(st, dict) else {}
-
-
-def _calls_write(st: dict) -> None:
+def _calls_update(change) -> Optional[dict]:
+    """Read, change and write the session's call state under one lock (Codex review, 2026-10-07: 144 parallel calls of one
+    session stored 142 — a subagent beside its parent reads the same count). None when no session is known."""
     c = _calls_file()
     if c is None:
-        return
+        return None
     c.parent.mkdir(parents=True, exist_ok=True)
-    c.write_text(json.dumps(st), encoding="utf-8")
+    with c.open("a+", encoding="utf-8") as fh:
+        _locked(fh)
+        fh.seek(0)
+        try:
+            st = json.loads(fh.read() or "{}")
+        except ValueError:
+            st = {}
+        if not isinstance(st, dict):
+            st = {}
+        change(st)
+        fh.seek(0)
+        fh.truncate()
+        fh.write(json.dumps(st))
+        fh.flush()
+        return st
 
 
 def count_call() -> Tuple[int, int, int]:
@@ -394,32 +401,34 @@ def count_call() -> Tuple[int, int, int]:
     more el calls in a row without ticking anything, and 14 sessions ended without State). Returns (calls, the call of
     the last successful `done`, the call el last recited at); (0, 0, 0) when no session is known. Never raises."""
     try:
-        if _calls_file() is None:
+        st = _calls_update(lambda st: st.__setitem__("n", int(st.get("n", 0)) + 1))
+        if st is None:
             return 0, 0, 0
-        st = _calls_state()
-        st["n"] = int(st.get("n", 0)) + 1
-        _calls_write(st)
-        return st["n"], int(st.get("last_done", 0)), int(st.get("recited", 0))
+        return int(st["n"]), int(st.get("last_done", 0)), int(st.get("recited", 0))
     except Exception:  # noqa: BLE001 — counting must never break a command
         return 0, 0, 0
 
 
 def mark_done(n: int) -> None:
     try:
-        st = _calls_state()
-        st["last_done"] = n
-        _calls_write(st)
+        _calls_update(lambda st: st.__setitem__("last_done", max(n, int(st.get("last_done", 0)))))
     except Exception:  # noqa: BLE001
         pass
 
 
-def mark_recited(n: int) -> None:
+def claim_recital(n: int, every: int) -> bool:
+    """Take the recitation due at call n — once: two processes that both reach it recite once (Codex, 2026-10-07)."""
+    claimed = []
+
+    def change(st):
+        if n - int(st.get("recited", 0)) >= every:
+            st["recited"] = n
+            claimed.append(True)
     try:
-        st = _calls_state()
-        st["recited"] = n
-        _calls_write(st)
+        _calls_update(change)
     except Exception:  # noqa: BLE001
-        pass
+        return False
+    return bool(claimed)
 
 
 def sign(model: str, who: str = "") -> None:
@@ -466,7 +475,20 @@ def hold(root: Path, case: Path):
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(os.path.relpath(case.resolve(), root.resolve().parent), encoding="utf-8")
     except (OSError, ValueError):
-        pass  # a hand that cannot be kept falls back to the freshest journal, as before
+        pass  # a hand that cannot be kept falls back to the case a write was last aimed at, as before
+
+
+def mark_aimed(case: Path):
+    """The case a write command was aimed at bumps its JOURNAL.md mtime, no content change — what `case use` does (the
+    live migration of 2026-10-07: the last agent's last write was `readme touch` on a map — no journal line — and the
+    next session, following the freshest journal, landed in a finished child while three items of the map waited for
+    its hand; by README mtime instead, a child's write that redraws its parent's README would move the hand up)."""
+    try:
+        j = file_path(case, "JOURNAL.md")
+        if j.exists():
+            os.utime(j)
+    except OSError:
+        pass
 
 
 def held(root: Path) -> Optional[Path]:
@@ -482,8 +504,8 @@ def held(root: Path) -> Optional[Path]:
 
 
 def hand(root: Path, explicit: Optional[str] = None) -> Path:
-    """The case in hand: flag > EL_CASE > the case this session holds > open case with the freshest JOURNAL.md,
-    which the session then holds (P2, C9; feedback 2026-09-27)."""
+    """The case in hand: flag > EL_CASE > the case this session holds > the open case a write was last aimed at (its
+    JOURNAL.md mtime, `mark_aimed`), which the session then holds (P2, C9; feedback 2026-09-27)."""
     name = explicit or os.environ.get("EL_CASE")
     if name:
         return resolve_case(root, name)
@@ -495,7 +517,7 @@ def hand(root: Path, explicit: Optional[str] = None) -> Path:
     if not open_cases:
         raise StoreError(f"every case here is closed ({len(cases)}) — nothing to pick up", 4,
                          recovery="el case list · el case new \"name\" --goal \"…\"")
-    def freshness(c: Path):
+    def freshness(c: Path):  # the journal's mtime marks the case a command was last aimed at (`mark_aimed`)
         j = file_path(c, "JOURNAL.md")
         return j.stat().st_mtime if j.exists() else 0
 
