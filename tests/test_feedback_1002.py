@@ -114,7 +114,7 @@ class AcceptanceNamesBothDoors(Base):
     def test_owed_items_side_by_side_take_a_range(self):
         run("todo", "done", "1.1-1.2", "run:make test → OK", "ok")
         line = self.entry_line("acceptance: ")
-        self.assertIn("a fresh session: el todo brief 1.1", line)
+        self.assertIn("el todo brief 1.1", line)  # the brief door (since 2026-10-07 it names the hand reading it)
         self.assertIn('el todo accept 1.1-1.2 --by owner "…"', line)
 
     def test_an_open_item_between_them_makes_it_a_list(self):

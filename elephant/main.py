@@ -532,7 +532,7 @@ def _run(argv=None) -> int:
             # a terminal with 2>&1 showed the same refusal twice, as two failures (feedback 2026-09-14)
             print("\n".join(lines))
             if e.code == 4 and "no `.cases/`" in str(e):
-                print(knowledge.ONBOARDING)
+                print(knowledge.onboarding_start(Path.cwd()))
         else:
             print("\n".join(lines), file=sys.stderr)
         return e.code

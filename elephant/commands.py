@@ -643,6 +643,21 @@ def _item_beside(case: Path, todo: grammar.Todo, phase: str, text: str) -> Optio
     return (ready or open_items or [None])[0]
 
 
+# The types agents reach for that the journal does not keep, and the door that does (the polygon, 2026-10-07: told «put
+# your questions to me in the case», Haiku wrote `el log QUESTION`, was refused with the list alone and put the question
+# into Decisions — a question is not a decision; Sonnet made a file of its own). A question is not an event until answered.
+TYPE_DOORS = (
+    ({"QUESTION", "QUESTIONS", "Q", "ASK", "OWNER", "ВОПРОС"},
+     "a question to the owner is not an event until it is answered: it blocks an item → el todo hold N.M \"waiting for the "
+     "owner: <question>\" (the entry names the wait) · it blocks nothing yet → el readme add problems \"question to the owner: "
+     "<question>\" · the answer, when it comes → el log DECISION \"…\" and drop the line"),
+    ({"NOTE", "NOTES", "INFO", "COMMENT", "ЗАМЕТКА"},
+     "a note lives where it is needed: under an item → el todo note N.M \"…\" · on a phase → el phase note N \"…\""),
+    ({"FACT", "FACTS", "ФАКТ"},
+     "a fact is knowledge under the item it came from: el todo fact N.M \"…\" (el facts draws the chain)"),
+)
+
+
 def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: str = "", typed: bool = False) -> Outcome:
     """`trailer` — a provenance body line el adds under the event (`session: 1a2b3c4d` under a RESULT, F23): kept out of
     the headline, so the entry, which shows headlines only, does not change; dropped when the body is already full.
@@ -651,7 +666,8 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: s
     out = Outcome()
     typ = typ.upper()
     if typ not in grammar.JOURNAL_TYPES:
-        raise StoreError(f"unknown type `{typ}` — allowed: PHASE · DECISION · PROBLEM · RESULT (F8)", 2)
+        door = next((d for words, d in TYPE_DOORS if typ in words), "")
+        raise StoreError(f"unknown type `{typ}` — allowed: PHASE · DECISION · PROBLEM · RESULT (F8)" + (f"\n  {door}" if door else ""), 2)
     event_lines, split = _render_event(typ, text)
     if trailer and len(event_lines) - 1 < grammar.EVENT_BODY_LINES:
         event_lines = event_lines + [f"    {trailer}"]
@@ -2002,6 +2018,24 @@ def todo_expect(case: Path, ref: str, text: str) -> Outcome:
     return out
 
 
+def _no_phase_for_add(todo: grammar.Todo, n: int) -> str:
+    """Why `todo add N` has nowhere to go, and the door from each state (the polygon, 2026-10-07: Haiku and Sonnet sent
+    items into phases they meant to plan next, read «phase 2 is missing or closed» and retried it three times — one line
+    named two states and no way out). A missing phase is planned first; a closed one is history, the work goes on elsewhere."""
+    free = max((p.n for p in todo.phases), default=0) + 1
+    flight = todo.current()
+    elsewhere = (f"el todo add {flight.n} \"…\" (phase {flight.n} {flight.name} is the one in flight)" if flight else "")
+    later = "not for a phase yet: el todo add later \"…\""
+    phase = todo.phase(n)
+    if phase is not None:  # closed: its items are history
+        doors = " · ".join(d for d in (elsewhere, f"a new phase: el phase plan {free} \"Name\" --goal \"…\"", later) if d)
+        return f"phase {n} {phase.name} is closed — its items are history, nothing is added to it: {doors}"
+    plan = (f"el phase plan {n} \"Name\" --goal \"…\", then this add" if n == free
+            else f"phases are numbered in order and the next free number is {free}: el phase plan {free} \"Name\" --goal \"…\", "
+                 f"then el todo add {free} \"…\"")
+    return f"phase {n} does not exist yet — plan it first: {plan} (a planned phase takes items before it opens) · {later}"
+
+
 def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why: str = "", notes: Optional[List[str]] = None,
              expect: str = "", fact: str = "") -> Outcome:
     """Add item N.M (M = next free) to an open or planned phase N; `ref` is the phase number.
@@ -2022,7 +2056,7 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why:
     todo = _todo(case, out)
     phase = todo.phase(int(ref))
     if phase is None or phase.done:
-        raise StoreError(f"phase {ref} is missing or closed", 4)
+        raise StoreError(_no_phase_for_add(todo, int(ref)), 4)
     text, due, after = _split_suffixes(text)
     at = len(phase.items)
     if before:
@@ -2673,6 +2707,7 @@ def todo_reopen(case: Path, ref: str, why: str, by: Optional[str] = None) -> Out
 # acceptor catches «done is not what was expected»; «expected is not what the owner meant» only the owner catches.
 SESSION_ENVS = store.SESSION_ENVS
 SESSION_WORDS = {"another": ("another session", "другая сессия"), "same": ("same session", "та же сессия"),
+                 "subagent": ("clean-context subagent", "субагент с чистым контекстом"),
                  "mixed": ("sessions differ by item — see accepted: lines", "по-разному по пунктам — см. accepted:"),
                  "unknown": ("session not given", "сессия не указана"), "owner": ("the owner's word", "слово владельца")}
 ACCEPTOR_RE = re.compile(r"[A-Za-z][\w.-]{0,23}")
@@ -2821,7 +2856,11 @@ def _session_status(journal: grammar.Journal, phase: grammar.Phase, item: gramma
     mine, doer = session_id(), _doer_session(journal, phase, item)
     if not mine or not doer:
         return "unknown"
-    return "same" if mine == doer else "another"
+    if mine != doer:
+        return "another"
+    # the owner's word, 2026-10-07: «a subagent from the same session with a clean context, that knows nothing — that is a
+    # clean hand». el cannot see the context, only the session: the kind is what the acceptor says, recorded as said
+    return "subagent" if who == "subagent" else "same"
 
 
 def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Optional[List[str]] = None) -> Outcome:
@@ -2882,8 +2921,12 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
     if who != "owner" and not mine_sign[1] and hints.enabled():
         out.say(_sign_hint())
     if "same" in statuses:
-        out.warn(f"same session as the doer — a subagent of that session, or the doer itself: el cannot tell which. A fresh session "
-                 f"is a new chat, another agent, another terminal: el todo brief {ref} prints its prompt")
+        out.warn(f"same session as the doer, and not said to be a subagent — recorded as the doer checking itself. A clean hand: "
+                 f"a subagent with a clean context (hand it el todo brief {ref}; it accepts --by subagent), the next session, "
+                 f"another agent, or the owner's word")
+    elif "subagent" in statuses:
+        out.say("  a subagent of the doer's session, recorded as you say: a clean context counts as a second hand (the owner's "
+                "word, 2026-10-07) — the brief was all it knew")
     elif status == "unknown":
         out.say("  session not given — recorded as reported (EL_SESSION, or the harness's own session id, tells more)")
     for it, pr, r in differs:  # two records compared word for word, the meaning is the acceptor's — shown, not refused
@@ -2985,8 +3028,20 @@ def todo_brief(case: Path, ref: str) -> Outcome:
     readme_body = _readme_text(case)
     by_ref = {f"{it.ref}": it for it in _all_items(todo)}
     name = case.name
-    out.say(f"brief · acceptance of {_refs(phase, items)} — for a FRESH session: a new chat, another agent, a subagent with a clean "
-            f"context. Paste everything below the line.", "---",
+    # which hand is reading (the polygon, 2026-10-07: a fresh Haiku session ran `el todo brief`, read «for a FRESH
+    # session, paste it», took the paste for someone else's job and left eleven items to «a separate session» — itself)
+    mine = session_id()
+    doers = {_sign_parse(it.done_by)[2] for it in items if it.done_by} - {""}
+    if mine and doers and mine not in doers:
+        reader = (f"done in session {', '.join(sorted(doers))}, you are another — this brief is YOUR task: do what is below "
+                  f"the line yourself, then run one verdict.")
+    elif mine and doers == {mine}:
+        reader = ("done in this session — not yours to judge: paste everything below the line to a FRESH hand — a subagent "
+                  "with a clean context (it answers --by subagent) or the next session.")
+    else:
+        reader = ("for a FRESH hand: another session, another agent, or a subagent with a clean context — paste everything "
+                  "below the line.")
+    out.say(f"brief · acceptance of {_refs(phase, items)} — {reader}", "---",
             "You accept or return work done in an Elephant case. You were not in the session that did it: judge by the things, "
             "not by the words.",
             f"project folder: {project}  ·  case: {os.path.relpath(case, project)}")
@@ -3193,6 +3248,27 @@ def _unaccepted_lines(case: Path, todo: grammar.Todo, readme_body: str) -> List[
             f"(this case's rule: two hands; the owner's word instead: el todo accept {first} --by owner \"…\"{many})"]
 
 
+def _second_hand_doors(items: List[grammar.Item], first: str, span: str, journal: Optional[grammar.Journal] = None) -> str:
+    """Who can accept these now, said to the session that reads it (the polygon, 2026-10-07: sixteen items done by one
+    Haiku session waited four sessions — each fresh one read «a fresh session accepts», took the doer for itself and asked
+    the owner to drop the rule; Sonnet accepted through subagents and el called it «same session»). el knows the doer's
+    session from the signature and its own from the harness — so it says which hand the reader is, and every door."""
+    mine = session_id()
+    doers = {(_sign_parse(it.done_by)[2] if it.done_by else (_doer_session(journal, None, it) if journal is not None else ""))
+             for it in items} - {""}
+    run = " --run \"<command> → what came out now>\"" if any(k == "run" for it in items for k, _ in it.evidence) else ""
+    owner = f"the owner's word said to you: el todo accept {span} --by owner \"…\""
+    sub = (f"a subagent with a clean context — hand it el todo brief {first} as its prompt, it answers "
+           f"el todo accept {first} --by subagent{run} \"what it checked\"")
+    if mine and doers and mine not in doers:
+        return (f"done in session {', '.join(sorted(doers))}, you are another — you are the second hand: el todo brief {first} "
+                f"says what to check, then el todo accept {span} --by <you>{run} \"what you checked\" · or return it: "
+                f"el todo reopen {first} --by <you> \"why\" · {owner}")
+    if mine and doers == {mine}:
+        return f"done in this session, so not yours to accept: {sub} · or the next session · or {owner}"
+    return f"another hand accepts: a fresh session, or {sub} · or {owner}"
+
+
 def _acceptance_line(todo: grammar.Todo, readme_body: str, journal: Optional[grammar.Journal], changed: int = 0) -> Optional[str]:
     """`acceptance: 3 of 7 done accepted — another session 2 · the owner's word 1 · returned by an acceptor 1` on entry,
     when the case asks for two hands or anything was accepted or returned by an acceptor."""
@@ -3217,9 +3293,11 @@ def _acceptance_line(todo: grammar.Todo, readme_body: str, journal: Optional[gra
         between = {it.m for p in todo.phases if p.n == n for it in p.items if same[0] <= it.m <= same[-1]}
         if len(same) > 1:  # a range only when nothing else lies inside it — an open item in it would be refused
             span = f"{n}.{same[0]}-{n}.{same[-1]}" if between == set(same) else ", ".join(f"{n}.{m}" for m in same)
+    doors = (_second_hand_doors([it for it in owed if f"{it.ref}" == first or it.n == owed[0].n], first, span, journal) if owed
+             else f"a fresh session: el todo brief {first} · the owner's word said to you: el todo accept {span} --by owner \"…\"")
     return (f"acceptance: {_acceptance_tally(done)}" + (f" · returned by an acceptor {by_acceptor}" if by_acceptor else "")
             + (f" · {changed} on a version since changed" if changed else "")  # L8: the verdict was of other bytes
-            + f" — a fresh session: el todo brief {first} · the owner's word said to you: el todo accept {span} --by owner \"…\"")
+            + f" — {doors}")
 
 
 RERAN_RE = re.compile(r"\bre-ran (\d+) of \d+")
@@ -3804,8 +3882,9 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
                        f"el todo done N.M <kind> \"what came out\" · el todo cancel N.M \"why\" (or cancel the phase: el phase cancel {n} \"why\")")
     unaccepted = [f"{it.ref}" for it in grammar.flat(phase.items) if it.done and not it.accepted]
     if unaccepted and _two_hands(_readme_text(case)):  # F23: this case asked for two hands — the close waits for the second
-        missing.append(f"phase {n}: done items not accepted — {', '.join(unaccepted)} (this case's rule: two hands): a fresh session "
-                       f"accepts or returns — el todo brief {unaccepted[0]} · or the owner's word: el todo accept {unaccepted[0]} --by owner \"…\"")
+        owed = [it for it in grammar.flat(phase.items) if it.done and not it.accepted]
+        missing.append(f"phase {n}: done items not accepted — {', '.join(unaccepted)} (this case's rule: two hands): "
+                       + _second_hand_doors(owed, unaccepted[0], unaccepted[0] if len(owed) == 1 else ", ".join(unaccepted)))
     for _, it, path, was, now in _changed_proofs(case, todo, [phase]):  # L8: the close would stand on bytes nobody claimed
         ref = it.ref
         missing.append(f"phase {n}: {ref} proof {path} changed since done (#{was} → now #{now}) — {_changed_moves(ref, path)}")

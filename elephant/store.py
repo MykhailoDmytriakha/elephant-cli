@@ -69,9 +69,12 @@ def find_root(start: Optional[Path] = None) -> Path:
     for d in [here, *here.parents]:
         if (d / CASES_DIR).is_dir():
             return d / CASES_DIR
+    # root mode writes README.md here, so it is named only where none is (the polygon, 2026-10-07: Haiku took the
+    # --root advice in a project with its own README.md and walked into the next refusal)
+    root = ("" if (here / "README.md").exists() else
+            " — or, if THIS folder is the project itself: el case new --root \"name\" --goal \"…\"")
     raise StoreError(f"no `{CASES_DIR}/` directory found from {here} upwards", 4,
-                     recovery="cd to the project root, or start: el case new \"name\" --goal \"…\" — or, if THIS folder "
-                              "is the project itself: el case new --root \"name\" --goal \"…\"")
+                     recovery=f"cd to the project root, or start: el case new \"name\" --goal \"…\"{root}")
 
 
 def is_case_dir(p: Path) -> bool:

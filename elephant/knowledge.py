@@ -18,7 +18,7 @@ EXEMPLAR = """a well-led item looks like this — pockets in the owner's words, 
 # agent that hits the wall is the only sensor, and the permission to report unasked is given here, before el speaks.
 ONBOARDING_BLOCK = """## Elephant — память работы в `.cases/`
 
-Ты начинаешь без памяти, и следующий агент — тоже ты. Чего нет в `el` — сделанного, решений, причин, — для него не существует. Форму держит `el`: порядок, отказы, подсказки; содержание — ты.
+Ты начинаешь без памяти, и следующий агент начнёт так же — у него будет только `el`. Чего нет в `el` — сделанного, решений, причин, — для него не существует. Форму держит `el`: порядок, отказы, подсказки; содержание — ты.
 
 **Начало — `el`.** Первая строка `thread:` — цель → фаза → пункт → шаг. Перескажи владельцу не его словами: что из этого следует, чего он не сказал (помечай «вывожу»), что спросишь. Его же слова в ответ — эхо, а не понимание.
 
@@ -26,7 +26,7 @@ ONBOARDING_BLOCK = """## Elephant — память работы в `.cases/`
 
 **`el` подвёл — отзыв сразу, не спрашивая.** Отказал там, где работа права; строка без честной починки или врёт; пришлось обойти `el` или гадать — прервись и запиши `el feedback "…"`, пока точный вывод перед глазами (форма — `el help feedback`), и работай дальше обходом. Разрешения не нужно; в конце скажи владельцу, что отзыв лежит.
 
-**Конец — снова `el`.** Order чист, State правдив: `el readme set next "…"`, а если всё верно — `el readme touch`. Сделанное принимает свежая сессия: `el todo brief N.M` печатает для неё задание; `[/]` в TODO — сделано, ждёт приёмки. Ты — вторая рука: перезапусти каждое `run:` и принеси, что вышло сейчас — `el todo accept N.M --by <ты> --run "команда → исход" "…"`.
+**Конец — снова `el`.** Order чист, State правдив: `el readme set next "…"`, а если всё верно — `el readme touch`. Сделанное принимает другая рука — свежая сессия или субагент с чистым контекстом: `el todo brief N.M` печатает ему задание; `[/]` в TODO — сделано, ждёт приёмки. `[/]` прошлой сессии принимаешь ты — для неё ты вторая рука: перезапусти каждое `run:` и принеси, что вышло сейчас — `el todo accept N.M --by <ты> --run "команда → исход" "…"`.
 
 README, TODO, JOURNAL — только через `el`: правку руками ловит отпечаток. Строки `hint:` и `Order` — команды тебе, с номером: сделай или скажи, почему нет. Знание дозами: `el help start`, потом `el help <тема>`.
 
@@ -36,6 +36,14 @@ ONBOARDING = """start here — no `.cases/` from this folder upwards
   el case new "name" --goal "goal in the owner's words"        a case folder under .cases/
   el case new --root "name" --goal "…"                          or: this folder IS the project (root mode)
 then: `el` shows where the case stands · `el help start` — how a day goes · `el help where` — what goes where"""
+
+
+def onboarding_start(here) -> str:
+    """The start-here dose for this folder: root mode writes README.md here, so a folder with its own README.md is not
+    offered it (the polygon, 2026-10-07: Haiku took the advice and walked into the next refusal)."""
+    if (here / "README.md").exists():
+        return "\n".join(ln for ln in ONBOARDING.split("\n") if "--root" not in ln)
+    return ONBOARDING
 
 TOPICS = {
     "philosophy": """philosophy — why Elephant exists and what every change and every report is weighed against
@@ -78,7 +86,9 @@ Rules and life (the owner's word, 2026-09-29): sometimes you hold to the rule, s
 agree. The tool never pretends they do: every rule has a legal way out for life — the owner's word, a cancel with a reason,
 a phase out of turn with its reason — and the record says which one was held, at every level it rises to. A rule with no
 way out teaches to fake; a way out with no trace dissolves the rule. Life that hits the same rule again and again changes
-the rule — by a measurement from a live case, not by a complaint.
+the rule — by a measurement from a live case, not by a complaint. And the tool does not get stuck inside its own rules
+(the owner's word, 2026-10-07): when the way agents actually work shows a better form, the form follows the reality —
+a fresh agent run session after session on a real case is such a measurement.
 
 A report is not a spec: it is weighed against these, and the fix goes to the hole, not to the symptom — sometimes as an
 honest alternative to what was asked. Decided not to do: an external database or JSONL as the source of truth · hidden
@@ -798,8 +808,9 @@ its own task — a supervisor did: the same model with a clean context. el launc
 records the verdict.
 - `el todo brief N.M` — the prompt for a FRESH session (a new chat, another agent, a subagent with a clean context):
   the case goal, the phase goal, the item with the owner's `why`, what was expected before the work, what the doer
-  says came out, the proofs as paths from the project, the two verdict commands. No second agent at hand? The owner
-  pastes it into a new chat.
+  says came out, the proofs as paths from the project, the two verdict commands. Its first line says which hand reads
+  it: done in another session — the task is yours, do it; done in this one — paste it to a clean subagent or the next
+  session. No second agent at hand? The owner pastes it into a new chat.
 - the verdict — `el todo accept N.M --by codex --run "make test → 12 OK" "what you checked and how"` → under the item
   `accepted: codex · another session · 2026-09-25 · re-ran 1 of 1` and `DECISION · принято N.M: …` with a body line
   `re-run: …` per command; the return — `el todo reopen N.M --by codex "what is missing or wrong"` → the tick and the
@@ -826,8 +837,14 @@ records the verdict.
   mark is rendered, not written: `done` makes `[/]`, `accept` makes `[x]`, `reopen` makes `[ ]`. A case without the
   rule keeps `[x]` for done.
 - the session: `done` writes the doer's session under its RESULT (`session: 1a2b3c4d` — EL_SESSION, else the
-  harness's id; Claude Code sets CLAUDE_CODE_SESSION_ID); `accept` compares: another session · same session ·
-  session not given · the owner's word. Provenance, not proof: a subagent shares its parent's session id.
+  harness's id; Claude Code sets CLAUDE_CODE_SESSION_ID); `accept` compares: another session · clean-context subagent
+  (`--by subagent` in the doer's session) · same session · session not given · the owner's word. Provenance, not proof:
+  a subagent shares its parent's session id.
+- a subagent with a clean context is a clean hand (the owner's word, 2026-10-07: «a subagent from the same session with a
+  clean context, that knows nothing — that is a clean hand»): hand it `el todo brief N.M` as its prompt, it answers
+  `el todo accept N.M --by subagent …` and the line says `clean-context subagent` — el sees the session, not the context,
+  so the kind is recorded as said. The entry and the close name the hand you are: items done in another session are
+  yours to accept; items done in this one go to a subagent, the next session or the owner.
 - `--by self` is refused: a self-acceptance is not an acceptance. The owner's word passes: `--by owner "the owner's
   words, as said"` — el writes them as a quote (`слово владельца: «…»`), never as the agent's account of them; one word
   for many items is one quote over a range, and the record shows it was one word.
