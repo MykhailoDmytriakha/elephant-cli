@@ -1189,7 +1189,12 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     if all(it.done for it in items):  # a proof for an old tick: an edit of the record, not a new event
         return _attach_evidence(case, todo, phase, items, proofs, outcome, out)
     if not outcome:
-        raise StoreError(f"done needs what came out (F20): el todo done {ref} {' '.join(tokens)} \"what came out\" — "
+        # the proof came, the words did not — said as such, and the command printed whole, each proof quoted (an agent's
+        # report through `el feedback --wall`, pm-haiku-7, 2026-10-07: the refusal echoed a proof with spaces unquoted,
+        # and the agent read it as a quoting error, not as the missing second argument)
+        quoted = " ".join(t if re.fullmatch(r"[\w.:/@+-]+", t) else _sh(t) for t in tokens)
+        raise StoreError(f"done needs what came out (F20) — the proof is here, the words are not: the outcome is a separate "
+                         f"argument after the proof(s), in your words: el todo done {ref} {quoted} \"what came out\" — "
                          f"nothing came out? then it was not done: el todo cancel {ref} \"why\"", 2)
     # the `result:` line is el's (rendered from done) and it is whole: not counted in any limit, never cut (the owner's word,
     # 2026-09-25 — it reverses 2026-09-16, when el shortened it with «…»: the part cut off was lost to the owner reading TODO)
@@ -1449,9 +1454,10 @@ def _next_number(case: Path, todo: grammar.Todo, phase: grammar.Phase) -> int:
     except StoreError:
         journal = None
     if journal is not None:
-        # a sum, a version or a share is not an item: `$1.27`, `v1.2`, `1.5%` (the polygon, 2026-10-07: a run's cost
-        # «$1.27» in the journal made the next item of phase 1 «1.28», and `done 1.5` was refused)
-        pat = re.compile(rf"(?<![\w.$€£₽]){phase.n}\.(\d+)(?![\d.%])")
+        # a sum, a version, a share, a time or a measure is not an item: `$1.27`, `v1.2`, `1.5%`, `16.09`, `16.639s` (the
+        # polygon, 2026-10-07: a run's cost «$1.27» made the next item of phase 1 «1.28»; a time «сбой 16.09» in a
+        # headline made the next item of phase 16 «16.10» — an item number never starts with 0 and never runs into a unit)
+        pat = re.compile(rf"(?<![\w.$€£₽]){phase.n}\.(?!0)(\d+)(?![0-9A-Za-z.%])")  # «2.5проверен» is 2.5 (Codex)
         for e in journal.entries:
             for ev in e.events:
                 for m in pat.finditer(ev.text):
@@ -2320,6 +2326,20 @@ def _later_phase(todo: grammar.Todo) -> grammar.Phase:
     return grammar.Phase(0, "Later", False, 0, items=todo.later)
 
 
+def _closed_item_refusal(todo: grammar.Todo, phase: grammar.Phase, ref: str) -> str:
+    """An item of a closed phase is history, and the refusal says so — not «no item» (an agent's report through
+    `el feedback --wall`, the polygon, 2026-10-07: it re-checked 2.5 of a closed phase, wanted to add the proof, read
+    «no item 2.5 in TODO.md» about an item it could see in the phase file, and tried twice). New work on old work is new
+    work: an item where work runs now, naming the old one."""
+    flight = todo.current()
+    doors = ([f"el todo add {flight.n} \"re-check {ref}: …\" (phase {flight.n} {flight.name} is the one in flight; its "
+              f"done carries the new proof)"] if flight else [])
+    doors.append(f"not for a phase yet: el todo add later \"re-check {ref}: …\"")
+    kind = "cancelled" if _cancelled(phase) else "closed"
+    return (f"{ref} points into phase {phase.n} {phase.name}, {kind} — the items of a {kind} phase are history, kept in its "
+            f"file under phases/; they take no new proof or tick. New work on one is new work: " + " · ".join(doors))
+
+
 def _find_item(todo: grammar.Todo, ref: str):
     ml = LATER_REF_RE.fullmatch(ref.strip())
     if ml:
@@ -2332,11 +2352,11 @@ def _find_item(todo: grammar.Todo, ref: str):
     if not m:
         raise StoreError(f"`{ref}` — use N.M, e.g. 2.3 (a sub-item: N.M.K; a line of the general list: Lk)", 2)
     phase = todo.phase(int(m.group(1)))
+    if phase is not None and phase.done:  # before «no item»: a closed phase folds to one line, its items are in its file
+        raise StoreError(_closed_item_refusal(todo, phase, ref.strip()), 4)
     item = next((it for it in phase.items if it.m == int(m.group(2))), None) if phase else None
     if item is None:
         raise StoreError(f"no item {m.group(1)}.{m.group(2)} in TODO.md", 4)
-    if phase.done:
-        raise StoreError(f"phase {phase.n} is closed — its items live in the phase file now", 4)
     if m.group(3):  # F25: a sub-item under its item
         sub = next((s for s in item.subs if s.k == int(m.group(3))), None)
         if sub is None:
@@ -4256,6 +4276,8 @@ def readme_set(case: Path, prefix: str, text: str) -> Outcome:
     body = _set_state_line(_readme_text(case, out), f"{prefix}: ", text)
     _write_readme(case, body, out, anchor=True)
     out.say(f"README State: `- {prefix}: …` set (as of the newest journal entry)")
+    if prefix.lower() == "next":
+        _walls_question(out)
     return out
 
 
@@ -4324,7 +4346,34 @@ def readme_touch(case: Path) -> Outcome:
     _readme_sections(case, out)
     _write_readme(case, _readme_text(case, out), out, anchor=True)
     out.say("README State: confirmed current — `as of` anchored to the newest journal entry, nothing else changed")
+    _walls_question(out)
     return out
+
+
+def _walls_question(out: Outcome) -> None:
+    """At the end of a session — `next:` set or State confirmed — el names the walls it kept and asks once whether any
+    stood where the work was right (the polygon, 2026-10-07: the agents told the owner what blocked them, in Problems
+    and in their last message, and none told el). Asked once per new wall: a question repeated on every write is a
+    reminder, and reminders are not read."""
+    walls = store.session_walls()
+    asked = store.walls_asked()
+    if len(walls) <= asked:
+        return
+    fresh = walls[asked:]  # only what was not named yet: a recount of the whole session is a reminder (pm-haiku-6)
+    heads: List[str] = []
+    for w in fresh:
+        h = _wall_head(w)
+        if store.wall_key(h) not in {store.wall_key(x) for x in heads}:
+            heads.append(h)
+    shown = " · ".join(f"«{order._short(h, 70)}»" for h in heads[:3]) + (f" · +{len(heads) - 3} more" if len(heads) > 3 else "")
+    # the question is the one the agent can answer honestly (the polygon, pm-haiku-6: «did any stand where your work was
+    # right?» drew «no» five times — every refusal was fair, and the real defects of the day were refusals that left the
+    # agent guessing and retrying, which it blamed on itself)
+    since = "this session" if asked == 0 else "since el last asked"
+    out.say(f"{since} el refused you {len(fresh)} time(s) — {shown}: did any leave you guessing the next step, or make you "
+            f"try again? that is el's defect, not yours — one line: el feedback --wall --expected \"what it should have "
+            f"said\" (el feedback --wall lists them) · none did: go on")
+    store.mark_walls_asked(len(walls))
 
 
 def readme_drop(case: Path, section: str, ref: str) -> Outcome:
@@ -4869,6 +4918,60 @@ def feedback(title: str, expected: str, actual: str, why: str, acceptance: str, 
     out.say(f"go on by your workaround · in your case: el log PROBLEM \"el: {title} — workaround: …\" · "
             "at the end tell the owner the report is there")
     return out
+
+
+def feedback_wall(which: str, expected: str, title: Optional[str], why: str = "", onboarding: str = "") -> Outcome:
+    """`el feedback --wall [K] --expected "…"` — a report from a refusal el kept this session (the polygon, 2026-10-07:
+    thirty-odd walls in nineteen sessions and not one report; the agents told the owner, and a report cost a title, the
+    verbatim output, the exit code and a word on the block — all of which el had just printed itself). el writes what it
+    printed and the commands; the agent writes the one thing el cannot know — what it expected."""
+    out = Outcome()
+    full = ('the full form: el feedback "title" --actual "…" --expected "…" --onboarding "…" (el help feedback)')
+    if store.session_id() == "":
+        raise StoreError("el keeps walls per session and sees no session here — " + full, 4)
+    walls = store.session_walls()
+    if not walls:
+        raise StoreError("no refusal kept in this session — nothing to attach; " + full, 4)
+    listing = [f"  {k} [exit {w.get('code')}] {_wall_head(w)}  ← {_wall_command(w)[:90]}"
+               for k, w in enumerate(walls, 1)]
+    if which == "last":
+        k = len(walls)
+    elif re.fullmatch(r"[0-9]{1,6}", which) and 1 <= int(which) <= len(walls):  # `²` is a digit to isdigit() (Codex)
+        k = int(which)
+    else:
+        raise StoreError(f"--wall {which}: this session kept {len(walls)} wall(s):\n" + "\n".join(listing), 2,
+                         recovery="el feedback --wall K --expected \"…\"")
+    if not expected.strip():  # a question: which walls are there, and the one line el needs
+        out.say(f"walls el kept this session ({len(walls)}):", *listing,
+                f"report one: el feedback --wall {k} --expected \"what you expected instead\" — el writes what it printed "
+                f"and the commands; --why, --onboarding and a title of yours are welcome, not required")
+        return out
+    w = walls[k - 1]
+    head = _wall_head(w)
+    command = _wall_command(w)
+    actual = (f"{command}\n\n```\n{w.get('text', '').rstrip()}\n```\nexit {w.get('code')} — written by el from its own "
+              f"record of the session (verbatim: it may carry the project's words; nothing of it goes into git as is)")
+    repro = ("the refusals el kept this session, in order (el keeps refusals, not every command); the reported one is "
+             f"{k}:\n" + "\n".join(f"{i}. {_wall_command(x)}  → exit {x.get('code')}" + ("   ← reported" if i == k else "")
+                                     for i, x in enumerate(walls, 1)))
+    seen = sum(1 for x in walls if x.get("key") == w.get("key"))
+    if seen > 1:
+        repro += f"\n(the same wall {seen} times this session)"
+    out.lines += feedback(title or f"refused: {head}"[:90], expected, actual, why, "", repro,
+                          onboarding or "not said — a quick wall report (el feedback --wall)").lines
+    return out
+
+
+def _wall_command(w: dict) -> str:
+    """The refused call as the shell would take it back: argument boundaries kept (Codex review, 2026-10-07: a joined
+    argv turned `'a; echo b'` into two commands in the report's reproduction)."""
+    import shlex
+    return "el " + shlex.join(str(a) for a in (w.get("argv") or []))
+
+
+def _wall_head(w: dict) -> str:
+    first = (w.get("text") or "").split("\n")[0]
+    return re.sub(r"^el: ERROR \[exit \d+\] ", "", first)[:110]
 
 
 # ---- mv: a file moves, its links follow -----------------------------------------------------------

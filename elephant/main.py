@@ -3,7 +3,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from . import __version__, commands, hints, knowledge, onboarding, store
 from .store import StoreError
@@ -223,7 +223,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--howto", help="the recipe question for PROBLEMs no phase close answered — .howto/<verb>.md or \"none: why\" (P8)")
 
     s = sub.add_parser("feedback", help="report an Elephant problem or wish — a file in the elephant-cli clone's feedback/; the owner carries it to the maintainer", allow_abbrev=False)
-    s.add_argument("title")
+    s.add_argument("title", nargs="?", default=None)
+    s.add_argument("--wall", nargs="?", const="last", default=None,
+                   help="report a refusal el kept from this session: `--wall` the last one, `--wall 2` the second; "
+                        "el writes what it printed and the commands — you write --expected")
     s.add_argument("--expected", default="")
     s.add_argument("--actual", default="")
     s.add_argument("--why", default="")
@@ -260,6 +263,34 @@ SHELL_TRACES = (
     (re.compile(r"^\s"), "a leading space"),  # a trailing one is too often innocent (`"x " * n`) to refuse
 )
 TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact", "howto", "run", "check")
+
+
+def _invoked(argv: List[str]) -> str:
+    """The command a call names, read from argv itself — a refusal of argparse comes before `args` exists."""
+    it = iter(argv)
+    for tok in it:
+        if tok == "--case":
+            next(it, None)
+            continue
+        if tok.startswith("-"):
+            continue
+        return tok
+    return ""
+
+
+def _glued_option(argv: List[str]) -> Optional[str]:
+    """`--case NAME` that reached el as ONE argument: a shell variable holding two words stays one word in zsh (`EL="el
+    --case x"; $EL phase …`). The polygon, 2026-10-07: an agent met «invalid choice: '--case 2026-…'» nineteen times in
+    one run, and the maintainer's own session met it twice the same day — argparse named a command, not the shell."""
+    for tok in argv:  # only where the global option stands: before the command, and never past `--` (Codex review)
+        if tok == "--" or not tok.startswith("-"):
+            break
+        mm = re.fullmatch(r"(--case)\s+(\S.*)", tok)
+        if mm:
+            return (f"`{tok}` reached el as one argument — the shell kept a variable's two words together (zsh does not split "
+                    f"$VAR): write it out — el --case {mm.group(2).strip()} … — or keep a function, which passes words as "
+                    f"words: E() {{ el --case {mm.group(2).strip()} \"$@\"; }}; E phase …")
+    return None
 
 
 def shell_trace(args) -> Optional[str]:
@@ -315,6 +346,9 @@ def _run(argv=None) -> int:
     parser = build_parser()
     args = None
     try:
+        glued = _glued_option(list(argv) if argv is not None else sys.argv[1:])
+        if glued:
+            raise StoreError(glued, 2)
         args = parser.parse_args(argv)  # a wrong call raises StoreError(2) in el's voice — see Parser.error
         trace = shell_trace(args)
         if trace:
@@ -334,8 +368,14 @@ def _run(argv=None) -> int:
             print(f"\ntopics (open at the moment of need): el help <{knowledge.topic_list()}> — singular forms and common words work too (phase, item, proof, hint)")
             return 0
         if args.cmd == "feedback":
-            out = commands.feedback(args.title, args.expected, args.actual, args.why, args.acceptance, args.repro,
-                                    args.onboarding)
+            if args.wall is None and not args.title:  # the bare call asks the form: the dose answers, as before
+                raise StoreError(usage_error("el feedback", "the following arguments are required: title"), 2,
+                                 recovery=usage_recovery("el feedback"))
+            if args.wall is not None:
+                out = commands.feedback_wall(args.wall, args.expected, args.title, args.why, args.onboarding)
+            else:
+                out = commands.feedback(args.title or "", args.expected, args.actual, args.why, args.acceptance, args.repro,
+                                        args.onboarding)
             print("\n".join(out.lines))
             return 0
         if args.cmd == "onboarding":  # the project is the folder that holds .cases/ — or here, before the first case
@@ -544,6 +584,13 @@ def _run(argv=None) -> int:
         if restored:
             lines.append("  put back as it was: " + " · ".join(_shown(p) for p in restored))
         lines.append(f"  exit {e.code} = {store.EXIT_MEANING.get(e.code, '?')} — `el help errors`")
+        called = list(argv) if argv is not None else sys.argv[1:]
+        if _invoked(called) != "feedback":  # el keeps its own walls; a report's refusal — parsed or not — is not one
+            seen = store.record_wall(called, e.code, "\n".join(lines))
+            if seen >= 2:  # el sees it circling (the polygon, 2026-10-07: the same refusal three times, no report)
+                lines.append(f"  the same wall {seen} times this session — did this refusal tell you how to get through? If you "
+                             f"are guessing, that is el's defect, not yours: el feedback --wall --expected \"what the refusal "
+                             f"should have said\" (el writes what it printed and the commands)")
         if args is not None and args.cmd in (None, "status"):
             # the entry explains itself on stdout (feedback #4) — and only there: printed to both streams,
             # a terminal with 2>&1 showed the same refusal twice, as two failures (feedback 2026-09-14)

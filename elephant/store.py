@@ -5,7 +5,9 @@ The case "in hand": `--case` flag > EL_CASE env > the case this session holds > 
 most recently (and the session holds it from then on). The one thing kept between commands is which case a session
 holds — outside the project, keyed by the session id the harness gives (see `hold`).
 """
+import datetime
 import hashlib
+import json
 import os
 import re
 import tempfile
@@ -262,6 +264,107 @@ def _sign_file() -> Optional[Path]:
         return None
     base = os.environ.get("EL_HANDS_DIR") or os.path.join(tempfile.gettempdir(), "elephant-hands")
     return Path(base) / f"{hashlib.sha256(key.encode('utf-8')).hexdigest()[:24]}-sign"
+
+
+def _walls_file() -> Optional[Path]:
+    """The session's refusals, kept by the session like its signature: el sees its own walls only here."""
+    f = _sign_file()
+    return f.with_name(f.name[:-len("-sign")] + "-walls.jsonl") if f is not None else None
+
+
+WALL_TEXT_LINES = 200  # a refusal is kept whole for the report; a bound only against a runaway output
+
+
+def wall_key(text: str) -> str:
+    """One wall, whatever its numbers, quoted words and paths: `phase 2 is missing` and `phase 5 is missing` are the same
+    wall, so are two missing files; a refusal whose first line only announces a list (`cannot close phase N:`) is keyed
+    by the list's first line too, so two different blockers are two walls (Codex review, 2026-10-07)."""
+    lines = [ln for ln in (text or "").split("\n") if ln.strip()]
+    first = lines[0] if lines else ""
+    if first.rstrip().endswith(":") and len(lines) > 1:
+        first = first + " " + lines[1].strip()
+    line = re.sub(r"`[^`]*`|«[^»]*»|\"[^\"]*\"|'[^']*'", "…", first)
+    line = re.sub(r"[\w.-]*/[\w./-]*|\b[\w-]+\.(?:md|pdf|png|jpe?g|txt|json|csv|py|sh)\b", "PATH", line)
+    return re.sub(r"\d+", "N", line)[:160]
+
+
+def _locked(fh) -> None:
+    """An exclusive lock on the walls file while a record is appended and counted: two el processes of one session (a
+    subagent beside its parent) would otherwise interleave or both count twice. POSIX only; elsewhere unlocked."""
+    try:
+        import fcntl
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+    except (ImportError, OSError):
+        pass
+
+
+def record_wall(argv: List[str], code: int, text: str) -> int:
+    """Keep one refusal of this session (the polygon, 2026-10-07: thirty-odd walls in nineteen sessions, not one
+    `el feedback` — the agents told the owner instead, and el, which printed every refusal, kept none of them).
+    Returns how many times this session has met the same wall, this one included; 0 when no session is known.
+    Never raises: a damaged walls file must not mask the refusal it was meant to keep."""
+    try:
+        f = _walls_file()
+        if f is None:
+            return 0
+        lines = (text or "").split("\n")
+        rec = {"ts": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "argv": [str(a) for a in argv], "code": code,
+               "text": "\n".join(lines[:WALL_TEXT_LINES]), "key": wall_key(text)}
+        f.parent.mkdir(parents=True, exist_ok=True)
+        with f.open("a+", encoding="utf-8") as fh:
+            _locked(fh)
+            fh.seek(0, 2)
+            if fh.tell():  # a record cut off by a killed process must not swallow this one
+                fh.seek(fh.tell() - 1)
+                last = fh.read(1)
+                fh.seek(0, 2)
+                if last != "\n":
+                    fh.write("\n")
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            fh.flush()
+            return sum(1 for w in session_walls() if w.get("key") == rec["key"])
+    except Exception:  # noqa: BLE001 — the refusal comes first, the record is a convenience
+        return 0
+
+
+def session_walls() -> List[dict]:
+    """The session's walls as records — lines that are not a JSON object of a wall are skipped, never raised."""
+    try:
+        f = _walls_file()
+        if f is None or not f.is_file():
+            return []
+        raw = f.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    out = []
+    for line in raw.splitlines():
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(rec, dict) and isinstance(rec.get("text", ""), str) and isinstance(rec.get("argv", []), list):
+            out.append(rec)
+    return out
+
+
+def walls_asked() -> int:
+    """How many of the session's walls the end-of-session question has already named — it asks once per new wall."""
+    try:
+        f = _walls_file()
+        a = f.with_name(f.name + ".asked") if f is not None else None
+        return int(a.read_text().strip()) if a is not None and a.is_file() else 0
+    except (OSError, ValueError):
+        return 0
+
+
+def mark_walls_asked(n: int) -> None:
+    """Never backwards: two questions racing must not make an answered wall new again (Codex review, 2026-10-07)."""
+    try:
+        f = _walls_file()
+        if f is not None and n > walls_asked():
+            f.with_name(f.name + ".asked").write_text(str(n))
+    except OSError:
+        pass
 
 
 def sign(model: str, who: str = "") -> None:
