@@ -272,7 +272,7 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   rewrites the journal through the stamp door (Order names such links); gone for good, or the link
   was an example → `el relink old none` makes it literal text. Examples: write them in backticks.""",
 
-    "todo": """todo items — `el todo <action> N.M …`
+    "todo": """todo items — `el todo <action> N.M …` (a bare `el todo` shows the plan of the case in hand)
 - `el todo add N "text"` (`--before N.K` puts it in place, not at the end) · `el todo done N.M <kind> "what came out"` · `el todo edit N.M "text"` ·
   `el todo drop N.M` · `el todo hold N.M "waiting for: …"` / `el todo resume N.M` · `el todo cancel N.M "why"` ·
   `el todo due N.M YYYY-MM-DD` · `el todo after N.M "N.K, case"` · `el todo move N.M N.K|last|K`.
@@ -372,8 +372,9 @@ then the words; the tick, the kind and the RESULT are one write. Four kinds, and
                              phase is a report, not four proofs — el warns at `done` and the Digest counts
                              distinct proofs.
                              The path is read from the case folder first, then from the project root
-                             (`file:src/app/parser.ts`); the tool checks the file is there and writes the
-                             link from the case. A file OF THE CASE also gets its version — `· #1a2b3c4d`,
+                             (`file:src/app/parser.ts`); a path that climbs out of the case
+                             (`file:../../.howto/x.md`) is taken when it lands inside the project; the tool
+                             checks the file is there and writes the link from the case. A file OF THE CASE also gets its version — `· #1a2b3c4d`,
                              the content it was done against (see «version» below). The strongest kind.
                                                           → tail `— file: [receipt.pdf](evidence/receipt.pdf)`
 - ref:<trace outside>        a request number, a case number on a portal, a URL, a letter in the
@@ -822,6 +823,9 @@ Why: the agent who did the work already knows what it meant and reads that into 
 only what lies in front of it. Anthropic's ART campaign (2026-09-23: 949 sessions, 119 tasks) never let a worker accept
 its own task — a supervisor did: the same model with a clean context. el launches nobody: it prints the brief and
 records the verdict.
+- acceptance is not an item and not an [owner] slot: written as text («accept 1.1 with a clean hand, not this session»)
+  every next session reads «not this session» as itself, and the slot waits for the owner alone (a live map, 2026-10-07:
+  four fresh sessions stopped there). The rule lives in one Context line, `rule: two hands`; the door is `accept`.
 - `el todo brief N.M` — the prompt for a FRESH session (a new chat, another agent, a subagent with a clean context):
   the case goal, the phase goal, the item with the owner's `why`, what was expected before the work, what the doer
   says came out, the proofs as paths from the project, the two verdict commands. Its first line says which hand reads
