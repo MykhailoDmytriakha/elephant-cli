@@ -124,7 +124,7 @@ class FileInTheProject(Base):
         code, out, err = run("todo", "done", "1.1", "file:src/note.md", "case first")
         self.assertEqual(code, 0, err)
         self.assertIn("      - file: [note.md](src/note.md)", self.read("TODO.md"))
-        self.assertEqual(run("todo", "done", "1.2", "file:../outside.ts", "x")[0], 2)
+        self.assertEqual(run("todo", "done", "1.2", "file:../../../outside.ts", "x")[0], 2)  # out of the project (a climb that lands inside it is taken since 2026-10-08)
         self.assertEqual(run("todo", "done", "1.2", "file:src/app/missing.ts", "x")[0], 3)
 
     def test_a_ref_that_is_a_file_in_reach_gets_a_warning(self):

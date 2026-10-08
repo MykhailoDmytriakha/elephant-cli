@@ -82,7 +82,7 @@ class TheFourKinds(Base):
         code, out, err = run("todo", "done", "1.1", "file:[receipt.pdf](evidence/receipt.pdf)", "paid")
         self.assertEqual(code, 0, err)
         self.assertIn("      - file: [receipt.pdf](evidence/receipt.pdf)", nofp(self.read("TODO.md")))
-        self.assertEqual(run("todo", "done", "1.2", "file:../outside.pdf", "x")[0], 2)
+        self.assertEqual(run("todo", "done", "1.2", "file:../../../outside.pdf", "x")[0], 2)  # out of the project (a climb that lands inside it is taken since 2026-10-08)
         self.assertEqual(run("todo", "done", "1.2", "file:/etc/hosts", "x")[0], 2)
 
     def test_ref_run_and_owner(self):

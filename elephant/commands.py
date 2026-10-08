@@ -839,8 +839,11 @@ def _parse_evidence(case: Path, ref: str, token: str):
         if m:
             value = m.group(1)
         if value.startswith(("/", "~")) or ".." in Path(value).parts:
-            raise StoreError(f"file: takes a path inside the case or the project, e.g. file:evidence/receipt.pdf or "
-                             f"file:src/app/parser.ts — not `{value}`", 2)
+            inside = _inside_project(case, value)  # the form wider, the canon inside (a live migration, 2026-10-07: a recipe
+            if inside is None:                     # in .howto/ named from the case as ../../.howto/x.md was refused)
+                raise StoreError(f"file: takes a path inside the case or the project, e.g. file:evidence/receipt.pdf or "
+                                 f"file:src/app/parser.ts — `{value}` leads outside the project", 2)
+            value = inside
         target = _evidence_file(case, value)
         if target is None:
             raise StoreError(f"file:{value} — no such file in the case or the project (paths are read from the case folder, "
@@ -859,6 +862,17 @@ def _parse_evidence(case: Path, ref: str, token: str):
                              f"el todo done {ref} run:\"python3 -m unittest -> 12 OK\" \"…\"{trace}", 2)
         return kind, value
     return kind, value
+
+
+def _inside_project(case: Path, value: str) -> Optional[str]:
+    """A path that climbs (`../../.howto/x.md`) or starts at `/` or `~`, read from the case folder: the project-relative
+    path when it lands inside the project, else None."""
+    try:
+        p = Path(value).expanduser()
+        p = (p if p.is_absolute() else case / p).resolve()
+        return p.relative_to(_project_root(case).resolve()).as_posix()
+    except (ValueError, OSError):
+        return None
 
 
 def _pair_slots(slots: List[Tuple[str, str]], evidence: List[Tuple[str, str]]):
@@ -1220,6 +1234,7 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
         it.evidence = list(proofs)
         it.done_by = signed  # L8: who did it, on the item itself — read later, never guessed from the journal
     renewed = [it for it in already if _merge_proofs(case, it, proofs)]  # L8: the same door as a done on done items
+    taken = _hand_taken(case, renewed)
     for it in renewed:
         it.done_by = signed  # a new version is a new claim, and this hand made it
     owed_again = [it for it in renewed if it.accepted]
@@ -1262,6 +1277,7 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     if owed_again:
         out.say(f"new version recorded for {_refs(phase, owed_again)} → acceptance starts over: el todo brief {owed_again[0].ref} "
                 f"— the old verdict stays in the journal")
+    out.say(*taken)
     for it in already:
         ev0, words0 = was[f"{it.ref}"]
         before = " · ".join(f"{k} {pr}".strip() for k, pr in ev0) or "untyped"
@@ -1269,6 +1285,45 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
         out.say(f"{it.ref} was already done — evidence now: "
                 f"{' · '.join(f'{k} {pr}'.strip() for k, pr in it.evidence)} (was: {before}) · {renewed} · RESULT in the journal")
     return out
+
+
+ACCEPT_WORD_RE = re.compile(r"приёмк|приемк|принять|принят[ьоаы]|\baccept", re.I)
+ACCEPT_WHO_RE = re.compile(r"рук|hand|сесси|session|субагент|subagent|\b\d+\.\d+", re.I)
+
+
+def acceptance_as_text(case: Optional[Path], text: str) -> str:
+    """Acceptance written as words of the plan — an item «accept 1.1–1.3 with a clean hand, not this session», a goal
+    slot «[owner: acceptance by a clean hand]» — is a wall nobody can pass (the live migration of 2026-10-07: the rule
+    «two hands» was lost, agents rebuilt it as text, and four fresh sessions in a row read «not this session» as
+    themselves). el does not judge meaning; a word of acceptance next to a hand, a session or an item number is narrow
+    enough to name the door (the owner's word, 2026-10-08)."""
+    if case is None or not text or not (ACCEPT_WORD_RE.search(text) and ACCEPT_WHO_RE.search(text)):
+        return ""
+    line = ("acceptance written as text reads as a wall: every next session takes «not this session» for itself, and an "
+            "[owner] slot waits for the owner alone. Acceptance is not an item — the second hand runs el todo accept N.M "
+            "over the done item (el todo brief N.M prints its task) — el help acceptance")
+    if not _case_two_hands(case):
+        line += (" · this case has no rule «two hands»: one Context line switches it on — el readme add context "
+                 f"\"{RULE_TWO_HANDS}\"")
+    return line
+
+
+def _hand_taken(case: Path, items) -> List[str]:
+    """A new version signed by another session than the one that did the item names what it costs (the live migration of
+    2026-10-07: each fresh session improved the map, recorded the new version and so became its doer — and none came
+    only to check, so the acceptance never happened). The words are said before the item is re-signed."""
+    if not _case_two_hands(case):
+        return []
+    sid = session_id()
+    lines = []
+    for it in items:
+        m = re.search(r"\bsession (\S+)", it.done_by or "")
+        if sid and m and m.group(1) != sid[:len(m.group(1))]:
+            lines.append(f"{it.ref}: this version is signed by this session — it was session {m.group(1)}'s; you are its "
+                         f"doer now, and its acceptance is another hand's: a fresh session or a clean-context subagent "
+                         f"(el todo brief {it.ref}). Came only to check? A version you did not make is still a new claim — "
+                         f"say so in the words, and leave the acceptance to the next hand")
+    return lines
 
 
 def _open_subs_refusal(it: grammar.Item, then: str) -> None:
@@ -1342,6 +1397,7 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
         for it in owed:
             it.accepted = ""
         signed = f"{_sign_text(case)} · {_now()[0]}"
+        taken = _hand_taken(case, [it for it, *_ in renewed])
         for it, *_ in renewed:
             it.done_by = signed  # L8: a new version is a new claim, signed by the hand that made it
         if not _sign_fields(case)[1] and hints.enabled():
@@ -1354,7 +1410,8 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
         out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome} (new version: {changes})", f"p{phase.n}",
                          trailer=f"session: {sid}" if sid else "").lines
         out.say(f"new version recorded: {refs} ({changes}) → TODO.md · RESULT in the journal"
-                + (f" · acceptance starts over: el todo brief {owed[0].ref} — the old verdict stays in the journal" if owed else ""))
+                + (f" · acceptance starts over: el todo brief {owed[0].ref} — the old verdict stays in the journal" if owed else ""),
+                *taken)
         return out
     out.absorb(_write_todo(case, todo))
     out.say("→ TODO.md · no journal event: the tick is not new, only its proof (the words stay unless you give new ones)")
@@ -1967,6 +2024,17 @@ def _goal_text(goal: str) -> str:
             raise StoreError(f"`[{m.group(1)}…]` is not a kind of proof — placeholders in a goal are [file: what] · [ref: what] · "
                              f"[run: what] · [owner]; el help evidence", 2)
     return goal
+
+
+def todo_show_all(case: Path) -> Outcome:
+    """A bare `el todo` shows the plan of the case in hand (the live runs of 2026-10-07: three agents and the maintainer
+    typed it to read the TODO and met a usage refusal, while a bare `el readme` shows the README). The last line is the
+    door to write — the line a `tail -1` reader keeps."""
+    out = Outcome()
+    body, _ = stamp.split(store.read(case, "TODO.md"))
+    out.say(body.rstrip("\n"), "",
+            'write: el todo add N "…" · el todo done N.M <kind> "what came out" · one item\'s card: el todo show N.M — el help todo')
+    return out
 
 
 def todo_show(case: Path, ref: str) -> Outcome:

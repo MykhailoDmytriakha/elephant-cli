@@ -165,9 +165,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--phase", help="p1, 1 or a unique phase name (default: the open phase); e.g. `el log --phase p1 DECISION \"…\"`")
 
     s = sub.add_parser("todo", help="add · done · edit · move · drop · hold · resume items — N.M is an item's number for life: drop and move never renumber", allow_abbrev=False)
-    s.add_argument("action", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note", "expect", "fact", "show",
+    s.add_argument("action", nargs="?", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note", "expect", "fact", "show",
                                       "accept", "brief"])
-    s.add_argument("ref", help="phase number for add (N) — or an item (N.M) to add a sub-item N.M.K under it (F25); item for the rest (N.M or N.M.K); done/reopen/cancel also take a range N.A-N.B (N.M.A-N.M.B) or a list \"N.A, N.B\"")
+    s.add_argument("ref", nargs="?", help="phase number for add (N) — or an item (N.M) to add a sub-item N.M.K under it (F25); item for the rest (N.M or N.M.K); done/reopen/cancel also take a range N.A-N.B (N.M.A-N.M.B) or a list \"N.A, N.B\"")
     s.add_argument("text", nargs="*", default=[], help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: the KIND of evidence, then what came out — file:<path> · ref:<trace> · run:\"<command → outcome>\" · owner (el help evidence); for cancel/reopen: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
     s.add_argument("--before", help="add only: put the new item before N.K (a sub-item: before N.M.J) instead of at the end (numbers never change, positions do)")
     s.add_argument("--why", help="add only: what the item is for, one line (F22) — later: el todo why N.M \"…\"")
@@ -269,6 +269,17 @@ TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expecte
 RECITE_SKIP = {None, "status", "help", "feedback", "sign", "onboarding", "check", "order", "case", "spawn"}
 
 
+def _written_text(args) -> str:
+    """The words a command writes into the plan: an item and its expectation, a phase goal."""
+    if args.cmd == "todo" and args.action == "add":
+        return " ".join(args.text or []) + " " + (args.expect or "")
+    if args.cmd == "todo" and args.action == "expect":
+        return " ".join(args.text or [])
+    if args.cmd == "phase" and args.action in ("open", "plan"):
+        return args.goal or ""
+    return ""
+
+
 def _looks(args) -> bool:
     """A command that looks, whatever it refreshes on the way (Codex, 2026-10-07: `el --case A order` redrew A's Links and
     moved the next session's start to A): the hand of a fresh session follows writes aimed at a case, not reads."""
@@ -277,7 +288,7 @@ def _looks(args) -> bool:
     if args.cmd == "migrate":
         return not args.apply
     if args.cmd == "todo":
-        return args.action in ("show", "brief")
+        return args.action in (None, "show", "brief")
     return args.cmd in ("facts", "check", "doctor", "help")
 
 
@@ -479,6 +490,11 @@ def _run(argv=None) -> int:
                 out = commands.entry(root, case)
             elif args.cmd == "log":
                 out = commands.log(case, args.type, args.text, args.phase, typed=True)
+            elif args.cmd == "todo" and args.action is None:  # bare: the plan, as a bare `el readme` shows the README
+                out = commands.todo_show_all(case)
+            elif args.cmd == "todo" and args.ref is None:
+                raise StoreError(usage_error("el todo", "the following arguments are required: ref"), 2,
+                                 recovery=usage_recovery("el todo"))
             elif args.cmd == "todo":
                 parts = list(args.text or [])
                 ref = args.ref
@@ -606,6 +622,9 @@ def _run(argv=None) -> int:
                 store.hold(root, case)  # the case this session last wrote to stays its hand (spawn holds the child)
                 if store.is_open(case) and not shown and not _looks(args):
                     store.mark_aimed(case)  # and a fresh session without a hand starts there (2026-10-07)
+        nudge = commands.acceptance_as_text(locals().get("case"), _written_text(args))
+        if nudge:
+            out.say(nudge)  # last: the line a `tail -1` reader keeps
         recital = _recite(args, locals().get("root"), locals().get("case"), calls)
         if recital:  # the command keeps its last line — the one a `tail -1` reader takes (Codex, 2026-10-07)
             last = max((i for i, ln in enumerate(out.lines) if ln.strip()), default=len(out.lines))
