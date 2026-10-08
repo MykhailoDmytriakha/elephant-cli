@@ -143,7 +143,8 @@ check · a second copy of the stamp.""",
    where the case stands, the next step, what follows from it that nobody said (marked as your inference) and
    what you would ask; words that repeat the owner's words prove nothing (el help practice: RETELLING) — then go. How the whole
    thing fits together: `el help model`. The line under Order may be a `hint:` — el saw something in the case you
-   can do better; do it, or say why not. How strong agents lead a case: `el help practice`.
+   can do better; do it, or say why not. Every 10 el calls of a session the next command on the case adds two
+   `recite` lines — where you stand, and what is not ticked since your last done (EL_RECITE=0 switches it off). How strong agents lead a case: `el help practice`.
 2. Work as usual. When something is worth remembering — `el log <TYPE> "…"`.
 3. Every new file in docs/ research/ … starts with `summary: <one line>` right under its title —
    README Links is rendered from those lines, so the map never rots (F14).
