@@ -2739,7 +2739,7 @@ RETURN_RE = re.compile(r"^(.+?) возвращ(?:ён|ены) в работу �
 # a case the owner leads sees the pattern sooner, and the line is shown, never refused (the number is a first guess,
 # to be moved by a live case, like every limit here)
 STALL_RETURNS = 3
-RULE_TWO_HANDS_RE = re.compile(r"^- rule: two hands", re.M)
+RULE_TWO_HANDS_RE = re.compile(r"^\s*- rule:\s*two\s+hands\b", re.M | re.I)  # the name as _rule_key reads it
 RULE_TWO_HANDS = "rule: two hands — the owner agrees each phase's scope, a fresh session accepts each done item"
 
 
@@ -4187,9 +4187,57 @@ def phase_resume(case: Path, n: int) -> Outcome:
 
 
 # ---- readme -------------------------------------------------------------------------------------
+def _rule_key(line: str) -> str:
+    """A case rule by its name — the one the check reads (`two hands`, `items link`), else its words before the dash, so
+    keeping and enforcing agree (Codex review, 2026-10-07: `TWO HANDS` counted as kept and was no longer enforced)."""
+    for name, rx in (("two hands", RULE_TWO_HANDS_RE), ("items link", RULE_ITEMS_LINK_RE)):
+        if rx.match(line.strip()):
+            return name
+    return re.sub(r"\s+", " ", line.strip()[len("- rule:"):].split(" — ")[0]).strip().lower()
+
+
+def _context_rules(text: str) -> List[str]:
+    """The `- rule:` lines of a README's Context section, read from the raw text — a README with an unrelated error still
+    has its rules (Codex review, 2026-10-07: stray text before Context made the old README unparsable, and the rewrite
+    dropped the rule silently)."""
+    rules, inside = [], False
+    for ln in text.split("\n"):
+        if ln.startswith("## "):
+            inside = ln.strip() == "## Context"
+            continue
+        if inside and ln.strip().startswith("- rule:"):
+            rules.append(ln.strip())
+    return rules
+
+
+def _keep_rules(case: Path, body: str) -> Tuple[str, List[str]]:
+    """A whole README written again keeps the case's rules (the live migration of 2026-10-07: an agent wrote each child's
+    README from stdin, the Context it wrote had no `- rule: two hands` line, el answered «written» — and forty-one cases
+    closed with one hand under a map that asks for two). A rule is the owner's to drop, by a door that names it
+    (`el readme drop context K`), never by leaving it out of a rewrite. Returns the body with the missing rule lines
+    appended to its Context, and those lines."""
+    try:
+        old = _context_rules(stamp.split(store.read(case, "README.md"))[0])
+    except StoreError:
+        return body, []
+    have = {_rule_key(ln) for ln in _context_rules(body)}
+    missing = [ln for ln in old if _rule_key(ln) not in have]
+    if not missing:
+        return body, []
+    lines = body.split("\n")
+    start = next((i for i, ln in enumerate(lines) if ln.strip() == "## Context"), None)
+    if start is None:
+        return body, []  # no Context to keep them in: the grammar refuses the write and names the section
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    while end > start + 1 and not lines[end - 1].strip():
+        end -= 1
+    return "\n".join(lines[:end] + missing + lines[end:]), missing
+
+
 def readme(case: Path, text: str) -> Outcome:
     out = Outcome()
     body, _ = stamp.split(text)
+    body, kept = _keep_rules(case, body)
     parsed = grammar.parse_readme(body)
     for ln in ([] if parsed.errors else parsed.sections.get("Context", [])):  # one door rule for a line and a whole file (L6)
         _context_text(ln)
@@ -4201,6 +4249,13 @@ def readme(case: Path, text: str) -> Outcome:
         out.warn(f"progress: not synced — {e} (recovery: {e.recovery})")
     _write_readme(case, body, out, anchor=True)
     out.say("written: README.md (State anchored `as of` the newest journal entry; Links rendered from the files)")
+    if kept:
+        ctx = [ln for ln in grammar.parse_readme(stamp.split(store.read(case, "README.md"))[0]).sections.get("Context", [])
+               if ln.startswith("- ")]
+        for ln in kept:
+            k = next((i + 1 for i, c in enumerate(ctx) if c.startswith("- rule:") and _rule_key(c) == _rule_key(ln)), "K")
+            out.say(f"kept in Context: {ln} — your text left it out; a case rule is the owner's to drop: "
+                    f"el readme drop context {k} (with the owner's word)")
     return out
 
 
@@ -4980,7 +5035,8 @@ def feedback_wall(which: str, expected: str, title: Optional[str], why: str = ""
     head = _wall_head(w)
     command = _wall_command(w)
     actual = (f"{command}\n\n```\n{w.get('text', '').rstrip()}\n```\nexit {w.get('code')} — written by el from its own "
-              f"record of the session (verbatim: it may carry the project's words; nothing of it goes into git as is)")
+              f"record of the session — the refusal as el raised it, without what el printed around it (the same-wall "
+              f"question, the files put back); it may carry the project's words, nothing of it goes into git as is")
     repro = ("the refusals el kept this session, in order (el keeps refusals, not every command); the reported one is "
              f"{k}:\n" + "\n".join(f"{i}. {_wall_command(x)}  → exit {x.get('code')}" + ("   ← reported" if i == k else "")
                                      for i, x in enumerate(walls, 1)))
@@ -5347,7 +5403,7 @@ def _dates_line(todo: grammar.Todo, readme_body: str) -> Optional[str]:
     return "dates: " + " · ".join(parts)
 
 
-RULE_ITEMS_LINK_RE = re.compile(r"^- rule: items link", re.M)
+RULE_ITEMS_LINK_RE = re.compile(r"^\s*- rule:\s*items\s+link\b", re.M | re.I)
 RULE_ITEMS_LINK = 'rule: items link their material'
 
 
@@ -5558,6 +5614,36 @@ def _entry_head(case: Path, root: Path, readme_body: str, todo: grammar.Todo, jo
     return out.lines
 
 
+def _other_open_cases(root: Path, case: Path) -> List[str]:
+    """The open cases besides the one in hand, a tree as its top: a nested case is reached through its parent, which
+    names it on its own line (the live migration of 2026-10-07: a map and forty-one children were listed as forty-two
+    equal names, and the map, where three items waited for a second hand, drowned among its own children)."""
+    every = store.all_cases(root)
+    known = set(every)
+    open_cases = [c for c in every if store.is_open(c)]
+    is_open = set(open_cases)
+
+    def top(c: Path) -> Path:  # the highest open case above c — a closed parent does not hide its open children; in root
+        t, p = c, store.parent_case(c, root)  # mode the project case is the parent of the top-level ones (Codex, 2026-10-07)
+        while p is not None and p in known and p != c:
+            if p in is_open:
+                t = p
+            p = store.parent_case(p, root)
+        return t
+    nested: Dict[Path, int] = {}
+    for c in open_cases:
+        if c != case and top(c) != c:
+            nested[top(c)] = nested.get(top(c), 0) + 1
+    out = []
+    for c in open_cases:
+        if c == case or top(c) != c:
+            continue
+        k = nested.get(c, 0)
+        out.append(c.name + (" (from before el)" if store.legacy_files(c) else "")
+                   + (f" (+{k} open nested — el case list)" if k else ""))
+    return out
+
+
 def entry(root: Path, case: Path) -> Outcome:
     out = Outcome()
     names = store.chain(case, root)
@@ -5568,8 +5654,7 @@ def entry(root: Path, case: Path) -> Outcome:
     refreshed = onboarding.refresh(_project_root(case))  # the block in CLAUDE.md / AGENTS.md follows the one el ships
     if refreshed:
         out.say(*refreshed, "")
-    others = [c.name + (" (from before el)" if store.legacy_files(c) else "")
-              for c in store.all_cases(root) if store.is_open(c) and c != case]
+    others = _other_open_cases(root, case)
     if others:
         out.say("other open cases: " + " · ".join(others) + " — switch: `el case use <name>`", "")
     readme_body = _refresh_readme(case, out)
@@ -5801,10 +5886,20 @@ def order_cmd(root: Path, case: Path, adopt: bool = False) -> Outcome:
     journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
     issues = _order_lines(case, root, readme_body, journal)
     if issues:
-        out.say(f"order — {len(issues)} thing(s) to put back:", *(f"- {ln}" for ln in issues))
+        out.say(f"order — {len(issues)} thing(s) to put back{_refused_note()}:", *(f"- {ln}" for ln in issues))
     else:
-        out.say("order: ✓ everything in place")
+        out.say(f"order: ✓ everything in place{_refused_note()}")
     return out
+
+
+def _refused_note() -> str:
+    """The lines an agent reads to verify its work say what of it never landed (the live migration of 2026-10-07: el
+    refused 31 commands of one session — a README, twenty-four ticks on closed phases — every one sent to /dev/null by a
+    helper script; the agent closed with `el check --all | tail -1` → «violations: 0 · warnings: 0» and reported the
+    migration done and clean). The work the agent believes it did is not there; the count rides on the line it reads,
+    not on a line below it. It says the count alone: a refused `check` still appends to checks.log (Codex, 2026-10-07)."""
+    n = len(store.session_walls())
+    return f" · refused this session: {n} command(s) — el feedback --wall lists them" if n else ""
 
 
 def migrate_cmd(case: Path, apply: bool = False) -> Outcome:
@@ -5960,7 +6055,7 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
         out.say("cases: 0 — NOTHING WAS CHECKED (no cases found here); a zero here is not a green light")
     else:
         scope = "all" if only is None else f"in hand: {only.name}" + ("" if everything else " · every case: el check --all")
-        out.say(f"cases: {len(cases)} ({scope}) · violations: {errors} · warnings: {len(out.warnings)} "
+        out.say(f"cases: {len(cases)} ({scope}) · violations: {errors} · warnings: {len(out.warnings)}{_refused_note()} "
                 "— structure and form, not what the proofs prove (file: exists, a case file its version · run, ref, owner: as reported)")
     if errors:
         raise StoreError("\n".join(out.lines + [f"warning: {w}" for w in out.warnings]), 3)

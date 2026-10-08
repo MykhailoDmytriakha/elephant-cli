@@ -266,7 +266,19 @@ SHELL_TRACES = (
 TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact", "howto", "run", "check")
 
 
-RECITE_SKIP = {None, "status", "help", "feedback", "sign", "onboarding", "check", "order", "case"}
+RECITE_SKIP = {None, "status", "help", "feedback", "sign", "onboarding", "check", "order", "case", "spawn"}
+
+
+def _looks(args) -> bool:
+    """A command that looks, whatever it refreshes on the way (Codex, 2026-10-07: `el --case A order` redrew A's Links and
+    moved the next session's start to A): the hand of a fresh session follows writes aimed at a case, not reads."""
+    if args.cmd == "order":
+        return not args.adopt
+    if args.cmd == "migrate":
+        return not args.apply
+    if args.cmd == "todo":
+        return args.action in ("show", "brief")
+    return args.cmd in ("facts", "check", "doctor", "help")
 
 
 def _recite(args, root: Optional[Path], case: Optional[Path], calls) -> List[str]:
@@ -277,9 +289,8 @@ def _recite(args, root: Optional[Path], case: Optional[Path], calls) -> List[str
         store.mark_done(n)
         last_done = n
     if (not n or root is None or case is None or os.environ.get("EL_RECITE", "1") == "0" or args.cmd in RECITE_SKIP
-            or n - recited < commands.RECITE_EVERY):
+            or n - recited < commands.RECITE_EVERY or not store.claim_recital(n, commands.RECITE_EVERY)):
         return []
-    store.mark_recited(n)
     return commands.recitation(root, case, n, last_done)
 
 
@@ -364,11 +375,12 @@ def _run(argv=None) -> int:
     parser = build_parser()
     args = None
     try:
+        calls = store.count_call()  # every call counts, a refused one too; the recitation below speaks on a case command
         glued = _glued_option(list(argv) if argv is not None else sys.argv[1:])
         if glued:
             raise StoreError(glued, 2)
         args = parser.parse_args(argv)  # a wrong call raises StoreError(2) in el's voice — see Parser.error
-        calls = store.count_call()  # every call counts, whatever it does; the recitation below speaks on a case command
+        shown = False  # a bare `el readme` that shows, not writes — a look that refreshes is not a write aimed at the case
         trace = shell_trace(args)
         if trace:
             raise StoreError(trace, 2)
@@ -571,7 +583,8 @@ def _run(argv=None) -> int:
                         text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
                     # nothing to write is not a broken README (feedback 2026-09-22: «F1 · sections … got none» read
                     # as damage): the bare call shows the README and the ways to write it
-                    out = commands.readme(case, text) if text.strip() or args.file is not None else commands.readme_show(case, root)
+                    shown = not (text.strip() or args.file is not None)
+                    out = commands.readme_show(case, root) if shown else commands.readme(case, text)
             elif args.cmd == "order":
                 out = commands.order_cmd(root, case, args.adopt)
             elif args.cmd == "facts":
@@ -591,26 +604,24 @@ def _run(argv=None) -> int:
                 return 2
             if store.touched() and args.cmd not in (None, "status", "spawn"):
                 store.hold(root, case)  # the case this session last wrote to stays its hand (spawn holds the child)
-        out.lines += _recite(args, locals().get("root"), locals().get("case"), calls)
+                if store.is_open(case) and not shown and not _looks(args):
+                    store.mark_aimed(case)  # and a fresh session without a hand starts there (2026-10-07)
+        recital = _recite(args, locals().get("root"), locals().get("case"), calls)
+        if recital:  # the command keeps its last line — the one a `tail -1` reader takes (Codex, 2026-10-07)
+            last = max((i for i, ln in enumerate(out.lines) if ln.strip()), default=len(out.lines))
+            out.lines[last:last] = recital
         for w in out.warnings:
             print(f"warning: {w}", file=sys.stderr)
         print("\n".join(out.lines))
         return 0
     except StoreError as e:
         restored = store.rollback()  # the refusal is whole: what this command wrote before it is put back
-        lines = [f"el: ERROR [exit {e.code}] {e}"]
-        if e.recovery:
-            lines.append(f"  recovery: {e.recovery}")
-        if restored:
-            lines.append("  put back as it was: " + " · ".join(_shown(p) for p in restored))
-        lines.append(f"  exit {e.code} = {store.EXIT_MEANING.get(e.code, '?')} — `el help errors`")
+        lines = _refusal_lines(e, restored)
         called = list(argv) if argv is not None else sys.argv[1:]
         if _invoked(called) != "feedback":  # el keeps its own walls; a report's refusal — parsed or not — is not one
-            seen = store.record_wall(called, e.code, "\n".join(lines))
+            seen = store.record_wall(called, e.code, "\n".join(_refusal_lines(e, [])))  # the refusal itself, first line first
             if seen >= 2:  # el sees it circling (the polygon, 2026-10-07: the same refusal three times, no report)
-                lines.append(f"  the same wall {seen} times this session — did this refusal tell you how to get through? If you "
-                             f"are guessing, that is el's defect, not yours: el feedback --wall --expected \"what the refusal "
-                             f"should have said\" (el writes what it printed and the commands)")
+                lines = _refusal_lines(e, restored, seen=seen)
         if args is not None and args.cmd in (None, "status"):
             # the entry explains itself on stdout (feedback #4) — and only there: printed to both streams,
             # a terminal with 2>&1 showed the same refusal twice, as two failures (feedback 2026-09-14)
@@ -620,6 +631,33 @@ def _run(argv=None) -> int:
         else:
             print("\n".join(lines), file=sys.stderr)
         return e.code
+
+
+NAMES_A_COMMAND = re.compile(r"\bel (?:--[a-z]+ \S+ )?[a-z]")  # a line that names an el command — a door
+
+
+def _refusal_lines(e: StoreError, restored, seen: int = 0) -> List[str]:
+    """A refusal reads from both ends (the polygon, 2026-10-07: of 1587 el calls agents piped 22 % through `tail -1` and
+    22 % through `head -N`; 84 of 190 refusals reached them as the legend line alone — `exit 2 = wrong usage` — the
+    reason and the door cut off). The first line says what is wrong, the last line is the door: `recovery:` when the
+    refusal has one, else the message's own last line, which names the command in four refusals of five. What el adds
+    (the legend, the same-wall question, the files put back) goes between them. A one-line refusal is the reason and the
+    door at once, so it comes first and has no legend; a `tail -1` reader met that door on the first hit, and on the
+    same wall again it reads the question instead (pm-haiku-9: the question set above the line was all a `head -1`
+    reader saw)."""
+    head, *rest = f"el: ERROR [exit {e.code}] {str(e).rstrip()}".split("\n")
+    put_back = ["  put back as it was: " + " · ".join(_shown(p) for p in restored)] if restored else []
+    legend = f"  exit {e.code} = {store.EXIT_MEANING.get(e.code, '?')} — `el help errors`"
+    wall = ([f"  the same wall {seen} times this session — did this refusal tell you how to get through? If you are "
+             f"guessing, that is el's defect, not yours: el feedback --wall --expected \"what the refusal should have "
+             f"said\" (el writes what it printed and the commands)"] if seen >= 2 else [])
+    if e.recovery:
+        return [head, legend, *wall, *rest, *put_back, f"  recovery: {e.recovery}"]
+    if not rest:
+        return [head, *put_back, *wall] + ([] if NAMES_A_COMMAND.search(head) else [legend])
+    if NAMES_A_COMMAND.search(rest[-1]):
+        return [head, legend, *wall, *rest[:-1], *put_back, rest[-1]]
+    return [head, *wall, *rest, *put_back, legend]  # no command at the end (Codex, 2026-10-07): the legend is the door
 
 
 def _shown(path: Path) -> str:
