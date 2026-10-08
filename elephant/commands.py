@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Tuple
 from . import grammar, hints, migrate, onboarding, order, stamp, store
 from .store import StoreError
 
+ENTRY_BODY_MARK = "— the case on disk: README · TODO · journal headlines —"
 MAX_SCREEN = 24_000  # chars: Claude Code truncates tool output around 30K (owner's measurement 2026-08-22)
 ENTRY_LIMIT = 10  # P1: last 10 journal entries on entry
 # measured on the tool's own case (2026-09-17): 10 entries carried 46 event headlines — 8.6K chars, the heaviest
@@ -1448,7 +1449,9 @@ def _next_number(case: Path, todo: grammar.Todo, phase: grammar.Phase) -> int:
     except StoreError:
         journal = None
     if journal is not None:
-        pat = re.compile(rf"(?<![\d.]){phase.n}\.(\d+)(?![\d.])")
+        # a sum, a version or a share is not an item: `$1.27`, `v1.2`, `1.5%` (the polygon, 2026-10-07: a run's cost
+        # «$1.27» in the journal made the next item of phase 1 «1.28», and `done 1.5` was refused)
+        pat = re.compile(rf"(?<![\w.$€£₽]){phase.n}\.(\d+)(?![\d.%])")
         for e in journal.entries:
             for ev in e.events:
                 for m in pat.finditer(ev.text):
@@ -4181,10 +4184,17 @@ def readme(case: Path, text: str) -> Outcome:
     return out
 
 
-def readme_show(case: Path) -> Outcome:
-    """Bare `el readme` — nothing to write: the README as it stands, then the doors that write it."""
+def readme_show(case: Path, root: Optional[Path] = None) -> Outcome:
+    """Bare `el readme` — nothing to write: what to do now (the entry's head), the README as it stands, then the doors
+    that write it. Agents read `el readme` as the lighter entry (the polygon, 2026-10-07): the head goes with it."""
     out = Outcome()
-    out.say(_readme_text(case, out).rstrip("\n"), "",
+    readme_body = _readme_text(case, out)
+    if root is not None:
+        todo = grammar.parse_todo(stamp.split(store.read(case, "TODO.md"))[0])
+        journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
+        out.lines += _entry_head(case, root, readme_body, todo, journal, _order_lines(case, root, readme_body, journal))
+        out.say(ENTRY_BODY_MARK.replace("README · TODO · journal headlines", "README (TODO and journal: el)"), "")
+    out.say(readme_body.rstrip("\n"), "",
             "write a line: el readme set <prefix> \"…\" · add|edit|drop <section> … · touch — whole file: el readme --file x.md · "
             "el help readme")
     return out
@@ -5367,6 +5377,54 @@ def _rules_pointer(root: Path) -> str:
     return f"{spec.relative_to(root.parent)} · {RULES_TOPICS}" if spec.is_file() else RULES_TOPICS
 
 
+def _entry_head(case: Path, root: Path, readme_body: str, todo: grammar.Todo, journal: grammar.Journal,
+                issues: List[str]) -> List[str]:
+    """What to do now — the thread, the counts, Order and the hint: the head of the entry, and of a bare `el readme`
+    (the polygon, 2026-10-07: fresh sessions came in through `el readme`, saw the README alone and missed the line that
+    told them they were the second hand). Read-only."""
+    out = Outcome()
+    thread = _thread_line(case, todo, readme_body, issues) if not todo.errors else None
+    if thread:
+        out.say(thread, "")  # what is subordinate to what — the goal, the phase, the item and why, the next step (F24)
+    if todo.errors:  # silence is not «nothing due»: what could not be counted says so (feedback 2026-09-22)
+        out.say(f"dates · unblocked · evidence NOT counted — TODO.md is not parsable ({len(todo.errors)} error(s)) → el check", "")
+    dates = _dates_line(todo, readme_body) if not todo.errors else None
+    if dates:
+        out.say(dates, "")  # what the tool can count: due today, this week, overdue, the deadline
+    unblocked = _unblocked_line(case, todo) if not todo.errors else None
+    if unblocked:
+        out.say(unblocked, "")  # candidates by the dependency graph (F19) — the owner's `next:` stays the direction
+    evidence = _evidence_line(todo) if not todo.errors else None
+    if evidence:
+        out.say(evidence, "")  # what the done items stand on (F20): file · ref · run · owner — counted, never nagged
+    acceptance = (_acceptance_line(todo, readme_body, journal if not journal.errors else None,
+                                   changed=len({(p.n, it.m) for p, it, *_ in _changed_proofs(case, todo) if it.accepted}))
+                  if not todo.errors else None)
+    if acceptance:
+        out.say(acceptance, "")  # done by one hand, accepted by another (F23) — counted; the gaps are Order lines
+    facts_line = _facts_line(case, todo, None) if not todo.errors else None
+    if facts_line:
+        out.say(facts_line, "")  # the fact chain in numbers; the chain itself: el facts
+    howto = _howto_line(case)
+    if howto:
+        out.say(howto, "")  # what the project already knows how to do — before the task, not only when stuck
+    # what to do now comes first, the case on disk after it (the polygon, 2026-10-07; the owner's word: «turn it over»):
+    # fresh agents read the entry as `el | head -60`, and Order and the hint, last, were never seen — 21K chars on a
+    # 63-file case. The hint stood last because a model weighs the last line most; a line it never reads weighs nothing.
+    if issues:
+        out.say(f"## Order — {len(issues)} thing(s) to put back", *(f"- {ln}" for ln in issues), "")
+    else:
+        out.say("## Order", "- ✓ everything in place: files carry summaries, Links follow the files, State is current", "")
+    if not todo.errors:  # one hint, derived from the case, right under Order: the two say what to do now
+        before = len(out.lines)
+        hints.attach(out, "entry", case=case, todo=todo, journal=journal if not journal.errors else None,
+                     phase_file_exists=lambda p: _phase_file(case, p.n, p.name).exists(),
+                     repeats=order.links_repeating_cards(root, readme_body))
+        if len(out.lines) > before:
+            out.say("")
+    return out.lines
+
+
 def entry(root: Path, case: Path) -> Outcome:
     out = Outcome()
     names = store.chain(case, root)
@@ -5395,31 +5453,9 @@ def entry(root: Path, case: Path) -> Outcome:
             out.warn(f"TODO not refreshed — {e}")
     journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
     issues = _order_lines(case, root, readme_body, journal)  # before the thread: a debt below is a step of the thread
-    thread = _thread_line(case, todo, readme_body, issues) if not todo.errors else None
-    if thread:
-        out.say(thread, "")  # what is subordinate to what — the goal, the phase, the item and why, the next step (F24)
-    if todo.errors:  # silence is not «nothing due»: what could not be counted says so (feedback 2026-09-22)
-        out.say(f"dates · unblocked · evidence NOT counted — TODO.md is not parsable ({len(todo.errors)} error(s)) → el check", "")
-    dates = _dates_line(todo, readme_body) if not todo.errors else None
-    if dates:
-        out.say(dates, "")  # what the tool can count: due today, this week, overdue, the deadline
-    unblocked = _unblocked_line(case, todo) if not todo.errors else None
-    if unblocked:
-        out.say(unblocked, "")  # candidates by the dependency graph (F19) — the owner's `next:` stays the direction
-    evidence = _evidence_line(todo) if not todo.errors else None
-    if evidence:
-        out.say(evidence, "")  # what the done items stand on (F20): file · ref · run · owner — counted, never nagged
-    acceptance = (_acceptance_line(todo, readme_body, journal if not journal.errors else None,
-                                   changed=len({(p.n, it.m) for p, it, *_ in _changed_proofs(case, todo) if it.accepted}))
-                  if not todo.errors else None)
-    if acceptance:
-        out.say(acceptance, "")  # done by one hand, accepted by another (F23) — counted; the gaps are Order lines
-    facts_line = _facts_line(case, todo, None) if not todo.errors else None
-    if facts_line:
-        out.say(facts_line, "")  # the fact chain in numbers; the chain itself: el facts
-    howto = _howto_line(case)
-    if howto:
-        out.say(howto, "")  # what the project already knows how to do — before the task, not only when stuck
+    out.lines += _entry_head(case, root, readme_body, todo, journal, issues)
+    out.say(ENTRY_BODY_MARK, "")
+    body_from = len(out.lines)
     out.say(readme_body.rstrip("\n"), "")
     if not todo.errors:
         shown, collapsed = render_todo_entry(todo, _two_hands(readme_body), _is_project(case))
@@ -5434,23 +5470,14 @@ def entry(root: Path, case: Path) -> Outcome:
         out.say(parked, "")  # knowledge parked under a planned phase has a moment of return — counted until then (F22)
     if journal.entries:
         out.say(*_journal_headlines(journal, ENTRY_LIMIT), "")
-    if issues:
-        out.say(f"## Order — {len(issues)} thing(s) to put back", *(f"- {ln}" for ln in issues), "")
-    else:
-        out.say("## Order", "- ✓ everything in place: files carry summaries, Links follow the files, State is current", "")
+    body_to = len(out.lines)
     out.say(f"how to work: el help start · what goes where: el help where · rules: {_rules_pointer(root)} · full check: el check")
-    if not todo.errors:  # one hint, derived from the case, last (a model weighs the last line most)
-        hints.attach(out, "entry", case=case, todo=todo, journal=journal if not journal.errors else None,
-                     phase_file_exists=lambda p: _phase_file(case, p.n, p.name).exists(),
-                     repeats=order.links_repeating_cards(root, readme_body))
     total = "\n".join(out.lines)
     if len(total) > MAX_SCREEN:
-        # the tail — Order, the footer, the hint — is what the entry is FOR: cut the body, keep the tail
-        cut = next((i for i, ln in enumerate(out.lines) if ln.startswith("## Order")), len(out.lines))
-        tail = out.lines[cut:]
-        room = max(MAX_SCREEN - len("\n".join(tail)) - 120, 0)
-        body = "\n".join(out.lines[:cut])[:room]
-        out.lines = [body, "", f"[body truncated at {room} chars — README/TODO/JOURNAL are on disk]", ""] + tail
+        # the head — the thread, the counts, Order, the hint — is what the entry is FOR: cut the body, keep head and footer
+        head, body, foot = out.lines[:body_from], out.lines[body_from:body_to], out.lines[body_to:]
+        room = max(MAX_SCREEN - len("\n".join(head + foot)) - 120, 0)
+        out.lines = head + ["\n".join(body)[:room], "", f"[body truncated at {room} chars — README/TODO/JOURNAL are on disk]", ""] + foot
     return out
 
 

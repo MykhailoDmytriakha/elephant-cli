@@ -92,7 +92,7 @@ class ExpectOnEveryRunningItem(Base):
         run("phase", "plan", "2", "Later", "--goal", "l")
         code, out, err = run("todo", "add", "2", "an idea for later")
         self.assertNotIn("has no expect", err, "a planned phase is not running: parked ideas need no expectation yet")
-        self.assertNotIn("phase 2 Later", run()[1].split("## Order")[1])
+        self.assertNotIn("phase 2 Later", run()[1].split("## Order")[1].split("— the case on disk")[0])  # the Order block only (above the body since 2026-10-07)
 
 
 class EntryStaysLean(Base):

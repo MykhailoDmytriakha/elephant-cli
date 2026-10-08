@@ -281,6 +281,23 @@ def shell_trace(args) -> Optional[str]:
     return None
 
 
+PIPE_WAIT = 0.5  # seconds a bare `el readme` waits for piped text before it reads the call as a question
+
+
+def _piped_text() -> str:
+    """What was piped into a bare `el readme`, or "" — never a wait on a stdin that stays open and empty: a harness
+    may run commands with such a stdin, and `el readme` hung there for good (2026-10-07). Text arrives at once
+    from `cat x | el readme` or a heredoc; nothing within PIPE_WAIT is a question."""
+    if sys.stdin is None or sys.stdin.isatty():
+        return ""
+    try:
+        import select
+        ready, _, _ = select.select([sys.stdin], [], [], PIPE_WAIT)
+    except (OSError, ValueError, TypeError):  # not a selectable stream (a test's StringIO): read it as it is
+        return sys.stdin.read()
+    return sys.stdin.read() if ready else ""
+
+
 def run(argv=None) -> int:
     """One command, one change: what a refused or crashed command touched is put back (store.begin/rollback)."""
     commands._FINGERPRINTS.clear()  # a file is hashed once per command, never trusted from an earlier one
@@ -490,12 +507,12 @@ def _run(argv=None) -> int:
                     out = commands.readme_drop(case, args.a, args.b)
                 else:
                     if args.file is None:  # bare `el readme`: piped text is a write, nothing piped is a question
-                        text = "" if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read()
+                        text = _piped_text()
                     else:
                         text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
                     # nothing to write is not a broken README (feedback 2026-09-22: «F1 · sections … got none» read
                     # as damage): the bare call shows the README and the ways to write it
-                    out = commands.readme(case, text) if text.strip() or args.file is not None else commands.readme_show(case)
+                    out = commands.readme(case, text) if text.strip() or args.file is not None else commands.readme_show(case, root)
             elif args.cmd == "order":
                 out = commands.order_cmd(root, case, args.adopt)
             elif args.cmd == "facts":
