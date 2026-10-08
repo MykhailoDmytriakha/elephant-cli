@@ -107,6 +107,13 @@ class ASumIsNotAnItem(Base):
         self.assertEqual(code, 0, err)
         self.assertIn("added: 1.1 ", out)
 
+    def test_a_time_or_a_measure_in_the_journal_does_not_move_the_next_number(self):
+        # reported through `el feedback --wall` by the maintainer's own session, 2026-10-07: «сбой 16.09» (a time) in a
+        # headline made the next item of phase 16 «16.10»; «16.639s» is a test run's duration
+        run("log", "DECISION", "the run failed at 1.09, the suite took 1.639s")
+        code, out, err = run("todo", "add", "1", "the next step")
+        self.assertIn("added: 1.1 ", out)
+
     def test_an_item_the_journal_speaks_of_still_keeps_its_number(self):
         run("log", "DECISION", "1.3 was dropped earlier — the number stays taken")
         code, out, err = run("todo", "add", "1", "the next step")

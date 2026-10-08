@@ -90,6 +90,12 @@ the rule — by a measurement from a live case, not by a complaint. And the tool
 (the owner's word, 2026-10-07): when the way agents actually work shows a better form, the form follows the reality —
 a fresh agent run session after session on a real case is such a measurement.
 
+The tool sees its own walls (the owner's word, 2026-10-07: «not one report means the self-repair loop does not work»):
+el keeps the session's refusals and, at the moment it sees a wall itself — the same refusal again, the end of a session
+with refusals in it — asks for one line, what the agent expected; the refusal, the exit code and the commands it writes
+itself. el sees the wall, only the agent sees whether the work was right; the honest path must be the cheapest, or the
+agent tells the owner and el never learns.
+
 A report is not a spec: it is weighed against these, and the fix goes to the hole, not to the symptom — sometimes as an
 honest alternative to what was asked. Decided not to do: an external database or JSONL as the source of truth · hidden
 node ids in TODO · reading dates or dependencies out of free text · deleting files by the tool · reminders before a live
@@ -587,9 +593,15 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
     "feedback": """feedback — telling Elephant it is wrong (the door when the tool does not let you through honestly)
 el refused what the work needs, a printed line has no honest fix, a kind or a form is missing? Do not
 forge the record (no `done` on a cancelled item, no path written as text) — report it and go on by a workaround.
-No asking (the owner's word, 2026-10-06): you are the only one who saw the wall — el cannot see its own defect. Write
-the report the moment you notice, while the exact output is in front of you, go on with your work, and at the end tell
-the owner the report is there. A wall you worked around in silence is met by the next agent again.
+No asking (the owner's word, 2026-10-06): write the report the moment you notice, go on with your work, and at the end
+tell the owner the report is there. A wall you worked around in silence is met by the next agent again.
+el keeps this session's refusals (1.45.0, the polygon: thirty-odd walls in nineteen sessions and not one report): it sees
+its walls, not whether your work was right there — that only you see. So the cheapest report is one line:
+  el feedback --wall --expected "what you expected"   the last refusal el kept — it writes what it printed, the exit
+                                                       code and the session's refusals; you write what you expected
+  el feedback --wall                                   the walls kept this session, numbered — then --wall K
+The same wall twice in a session, and the end of a session (`readme set next`, `readme touch`) with walls in it, ask you
+— once per wall. The full form, for what el never refused (a lie on the screen, a missing door, a lever):
   el feedback "short title" --actual "…" --expected "…" --onboarding "…" [--repro "…"] [--why "…"] [--acceptance "…"]
   title          what el did wrong, in a few words — it becomes the file name
   --actual       what el printed or wrote, verbatim, with the exit code — what happened, not what you feared
