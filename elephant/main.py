@@ -286,6 +286,8 @@ SHELL_TRACES = (
 TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact", "howto", "run", "check")
 
 
+TWO_HANDS_SAID = ("this case asks two hands: a fresh session accepts each done item (el todo brief N.M), the owner agrees "
+                  "each phase's scope (el phase agree N) — el help acceptance; the owner may drop the rule: el readme drop context 1")
 RECITE_SKIP = {None, "status", "help", "feedback", "sign", "onboarding", "check", "order", "case", "spawn", "done"}
 
 
@@ -464,6 +466,8 @@ def _run(argv=None) -> int:
                 out = commands.project_new(root, args.name, args.goal)
                 store.hold(root, root.parent)
                 print("\n".join(out.lines))
+                if commands._default_rules():  # said in root mode too (feedback 2026-10-08: unsaid, the agent added the line again)
+                    print(TWO_HANDS_SAID)
                 if onboarding.enabled() and not onboarding.scan(root.parent):
                     print(*onboarding.write(root.parent), sep="\n")
                 return 0
@@ -474,8 +478,7 @@ def _run(argv=None) -> int:
             if known:  # the moment a task starts: what the project already knows (the polygon, 2026-10-08)
                 print(known)
             if commands._default_rules():  # the case was born with two hands: said at the moment it begins
-                print("this case asks two hands: a fresh session accepts each done item (el todo brief N.M), the owner agrees "
-                      "each phase's scope (el phase agree N) — el help acceptance; the owner may drop the rule: el readme drop context 1")
+                print(TWO_HANDS_SAID)
             if onboarding.enabled() and not onboarding.scan(root.parent):  # the first case: the agent's file learns the rhythm
                 print(*onboarding.write(root.parent), sep="\n")
             if hints.enabled():  # something to imitate: a model imitates the form it sees (2026-09-16)

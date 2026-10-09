@@ -106,7 +106,13 @@ def _log(typ: str, text: str = "", project: Optional[Path] = None, item: Optiona
 
 
 # ---- opening and closing --------------------------------------------------------------------------
-def _phase_open(rel: str, n: int = 0, promised=(), covered=(), **_) -> Optional[str]:
+def _phase_open(rel: str, n: int = 0, promised=(), covered=(), near=(), **_) -> Optional[str]:
+    if near:  # the items are there, in other words (feedback 2026-10-08): the pair, and the one command that joins it
+        paired = {slot for slot, _ in near}
+        rest = [sl for sl in promised if sl not in covered and sl not in paired]
+        return (f"the goal promises {len(promised)} proof(s) and {len(covered)} have an item in its words — "
+                + "; ".join(words for _, words in near[:2]) + (f" (+{len(near) - 2} more: el order)" if len(near) > 2 else "")
+                + (f"; {rest[0]} has no item: el todo add {n} \"…\" --expect \"{rest[0]}\"" if rest else ""))
     if promised and len(covered) < len(promised):  # the goal promises proofs no item works towards yet
         gap = [sl for sl in promised if sl not in covered]
         return (f"the goal promises {len(promised)} proof(s) and {len(covered)} have an item — name each criterion as an item "
