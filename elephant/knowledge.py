@@ -60,7 +60,8 @@ work is one tree — case · phase · item (an item may hold sub-items, one leve
 leaf ends one of two ways: done with evidence someone other than the writer can check, or cancelled with a reason. A
 parent never types its own status — it is assembled from its children. The tool is the auditor at every step: a crooked
 step is refused with the command that does it right; an unclear one is an Order line with its fix. Structure does what
-intelligence alone does not: many agents, one work.
+intelligence alone does not: many agents, one work. The tool checks structure and freshness; the truth is the owner's —
+so the top of the tree, the owner's goal, is closed by the owner's word, not by the fastest agent.
 
 Every report and every change is weighed against four holes — name the one you see:
 - proof from the bottom up — something ended below and is not visible above, or there is no legal move up
@@ -186,6 +187,8 @@ Every `el` entry ends with `## Order`: each line = one thing out of place + the 
   old new` rewrites every link, the journal included; gone for good, or an example written as a
   link → `el relink old none` turns those links into literal text (the words stay, the claim of
   a file goes). In the journal only file-looking targets count (`docs/x.md`, not `path`).
+  A link may name a file of the project outside the case (`../../.howto/x.md`): give relink the path as Order
+  prints it; read two ways that both have links, it asks for the absolute path rather than guess.
 - a file nothing in the work points at (F21) → link it from an item, a phase file or a decision
   (RESULT/DECISION evidence counts, the rendered index and plain journal chatter do not), park it
   in archive/ (`el mv`), or delete it. Shown, never deleted by el.
@@ -241,6 +244,9 @@ happened. Now the lower layer is visible from the top, and the top is rendered f
   `el readme add decisions "2026-09-05 · X over Y — why"` (to the end) ·
   `el readme edit decisions 3 "new text"` (in place, order kept) · `el readme drop decisions 3`.
   Sections: Context · State · Decisions · Problems · Links (your folder lines; file lines are rendered).
+  Drawn by el, never typed: State `opened:` (when and with which goal the case began), `progress:`, `last:`, `as of:`,
+  `ready:`/`closed:`; under your Decisions lines the five newest decisions of the journal (`el log DECISION`), dated,
+  under «from the journal — history, not the case's rules»; a rule that holds from now on is your own Decisions line.
 - `set` writes State only: a prefix that names a line of another section is refused with the
   edit command for that line — it never quietly opens a second line in State.
 - Order says «State is behind»: RESULT/PHASE events landed after `as of`. Read State: something
@@ -541,7 +547,11 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   `el done "outcome"` in the child writes one summary line back and returns the hand. A close cut off between the two
   records (a killed process): the parent still waits for a closed child — its Order names it, and `el --case <child>
   done '…'` in the closed child delivers what it recorded, nothing in the child written twice.
-- `el done "outcome"` closes the case (all phases and nested cases must be closed first);
+- `el done "outcome"` closes the case (all phases and nested cases must be closed first). A top case that asks two
+  hands (the rule line in Context) is the owner's: the agents' `el done "outcome"` makes it READY — State `ready:`, the
+  entry says it awaits the owner — and the owner's word said to you closes it: `el done --by owner "his words"` (quoted on
+  the `closed:` line and in the journal). Work resumed — a phase opened — the ready line goes by itself. A nested case
+  is closed by its own `done`: its parent's acceptance is the second hand.
   `el case cancel "why"` ends it the other honest way — open phases collapse with the reason.
   At a parent that waits for it the outcome becomes an item, so it is an item's size: ≤ 100 visible chars of YOUR
   words — the case is named by the item's proof line (a link to its README), never appended to the text. A cancel reason
@@ -833,6 +843,8 @@ Why: the agent who did the work already knows what it meant and reads that into 
 only what lies in front of it. Anthropic's ART campaign (2026-09-23: 949 sessions, 119 tasks) never let a worker accept
 its own task — a supervisor did: the same model with a clean context. el launches nobody: it prints the brief and
 records the verdict.
+- the same at the top: the agents' `el done` makes a top case ready, the owner's word closes it (`el done --by owner
+  "his words"`) — items take a second hand, the case takes the owner's (el help cases).
 - acceptance is not an item and not an [owner] slot: written as text («accept 1.1 with a clean hand, not this session»)
   every next session reads «not this session» as itself, and the slot waits for the owner alone (a live map, 2026-10-07:
   four fresh sessions stopped there). The rule lives in one Context line, `rule: two hands`; the door is `accept`.

@@ -145,5 +145,41 @@ class AMeasureIsNotMoney(Base):
         self.assertIn("orphan decimal", err)
 
 
+
+
+class ARelinkReachesTheProject(Base):
+    """The polygon, 2026-10-08: a journal link to `../../.howto/x.md` went dead (the recipe was not in the copy); two
+    agents tried `el relink .howto/x.md none` and `el relink ../../.howto/x.md none` and met «inside the case folder only».
+    Order named the link and its door; the door must take a file of the project."""
+
+    def setUp(self):
+        super().setUp()
+        self.case = next(Path(self.tmp.name, ".cases").glob("*-probe"))
+        run("log", "DECISION", "the recipe [collect](../../.howto/collect.md) holds the steps")
+
+    def test_retired_in_the_form_order_prints(self):
+        code, out, err = run("relink", "../../.howto/collect.md", "none")
+        self.assertEqual(code, 0, err)
+        self.assertIn("retired: ../../.howto/collect.md — 1 link(s)", out)
+        self.assertIn("`[collect](../../.howto/collect.md)`", (self.case / "JOURNAL.md").read_text(encoding="utf-8"))
+
+    def test_retired_in_the_form_from_the_project_root(self):
+        code, out, err = run("relink", ".howto/collect.md", "none")
+        self.assertEqual(code, 0, err)
+        self.assertIn("1 link(s)", out)
+
+    def test_relinked_to_the_recipe_where_it_is_now(self):
+        (Path(self.tmp.name) / ".howto").mkdir()
+        (Path(self.tmp.name) / ".howto" / "collect-output.md").write_text("when: collect\n", encoding="utf-8")
+        code, out, err = run("relink", "../../.howto/collect.md", ".howto/collect-output.md")
+        self.assertEqual(code, 0, err)
+        self.assertIn("(../../.howto/collect-output.md)", (self.case / "JOURNAL.md").read_text(encoding="utf-8"))
+
+    def test_outside_the_project_is_refused(self):
+        code, _, err = run("relink", "../../../elsewhere.md", "none")
+        self.assertEqual(code, 2)
+        self.assertIn("leads outside the project", err)
+
+
 if __name__ == "__main__":
     unittest.main()
