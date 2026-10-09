@@ -1310,12 +1310,14 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     # 2026-09-25 — it reverses 2026-09-16, when el shortened it with «…»: the part cut off was lost to the owner reading TODO)
     shown_outcome = outcome
     fact = " ".join(fact.split()) if fact is not None else None
+    if fact == FACT_FROM_RESULT:  # one form, one meaning at every door: `=` is the result's words (feedback 2026-10-08: done
+        fact = " ".join(outcome.split())  # recorded a literal «=» as an established fact, while `todo fact N.M =` took the words)
     expected_facts = [it for it in items if it.fact and not it.done]
     if expected_facts and fact is None:  # an expected fact asks for its verdict: confirmed, changed, or none
         it0 = expected_facts[0]
         raise StoreError(f"{it0.ref} expected the fact «{it0.fact}» — what is established now? "
                          f"el todo done {ref} {' '.join(tokens)} \"{outcome}\" --fact confirmed · --fact \"the fact as it turned out\" · "
-                         f"--fact - (no fact came out)", 2)
+                         f"--fact = (the result's words) · --fact - (no fact came out)", 2)
     if fact is not None and fact.lower() not in ("confirmed", "same") and fact not in FACT_NONE:
         fact = _pocket_text("fact", fact, ref)
     _proof_warnings(phase, items, proofs, out)
@@ -1813,6 +1815,40 @@ def _slot(kind: str, what: str) -> str:
     return f"[{kind}: {what}]" if what else f"[{kind}]"
 
 
+def _near_item_slots(phase: grammar.Phase, goal: str, kind: str, what: str) -> List[Tuple[grammar.Item, str, str]]:
+    """Items of the phase whose `expect:` carries a slot of the same kind in other words, sharing a word with the goal's
+    (feedback 2026-10-08: the goal promised [file: photo], the item expected [file: photo of the parcel in hand], and el said «0
+    have an item» — the agent learned «the same words» from el help). Most shared words first: (item, its slot, its expect
+    with the goal's slot in that place — "" when that line would not pass the expect door)."""
+    goal_keys = {_slot_key(k, w) for k, w in grammar.expected_kinds(goal)}
+    words = set(re.findall(r"\w+", what.casefold()))
+    found = []
+    for it in grammar.flat(phase.items):
+        if it.cancelled or not it.expect:
+            continue
+        for m in grammar.EXPECT_SLOT_RE.finditer(it.expect):
+            k, w = m.group(1), (m.group(2) or "").strip()
+            shared = len(words & set(re.findall(r"\w+", w.casefold())))
+            if k != kind or not w or not shared or _slot_key(k, w) in goal_keys:
+                continue
+            fixed = it.expect[:m.start()] + _slot(kind, what) + it.expect[m.end():]
+            found.append((shared, it, _slot(k, w), fixed if grammar.visible_len(fixed) <= grammar.POCKET_CHARS else ""))
+    found.sort(key=lambda t: -t[0])
+    return [(it, slot, fixed) for _, it, slot, fixed in found]
+
+
+def _near_words(phase: grammar.Phase, goal: str, kind: str, what: str) -> str:
+    """` — 1.1 expects [file: photo of the parcel]: one promise in other words? the same words make it count: el todo expect 1.1 '…'`,
+    or "" when no item says it in other words."""
+    near = _near_item_slots(phase, goal, kind, what)
+    if not near:
+        return ""
+    it, slot, fixed = near[0]
+    door = f"el todo expect {it.ref} {_sh(fixed)}" if fixed else f"el todo expect {it.ref} \"… {_slot(kind, what)} …\""
+    return (f" — {it.ref} expects {slot}: one promise in other words? the same words make it count: {door} "
+            f"· or the goal in the item's words")
+
+
 def _cancelled(p: grammar.Phase) -> bool:
     """A phase ended by `phase cancel` — its line says «снято: <why>»; a result that merely begins with the word is not one."""
     return p.done and (p.summary or "").startswith("снято: ")
@@ -2073,6 +2109,10 @@ def _promise_lines(case: Path, todo: grammar.Todo) -> List[str]:
             continue
         for (kind, what), status, ref in _goal_coverage(p, _phase_goal(case, p)):
             if status == "uncovered" and what:
+                near = _near_words(p, _phase_goal(case, p), kind, what)
+                if near:  # the item is there, in other words: the fix is one command, not a new item (feedback 2026-10-08)
+                    lines.append(f"phase {p.n} {p.name} promises {_slot(kind, what)} and no item promises it in these words{near}")
+                    continue
                 # the criterion is the beacon at the end; the way to it grows before it (feedback 2026-09-30: read as
                 # «decompose everything now», while the steps to the probe were still to be found)
                 lines.append(f"phase {p.n} {p.name} promises {_slot(kind, what)} and no item promises it — the criterion nobody works towards: "
@@ -2915,10 +2955,14 @@ def todo_reopen(case: Path, ref: str, why: str, by: Optional[str] = None) -> Out
                 + (" (on hold — el todo resume)" if any(it.held for it in open_) else ""))
     if not items:
         return out
-    tag = ""
+    tag, own = "", False
     if who:
         journal = _journal(case, out)
-        tag = f" (приёмка: {who} · {_session_word(_session_status(journal, phase, items[0], who), 'ru')})"
+        status = _session_status(journal, phase, items[0], who)
+        # the doer taking its own tick back is a correction, not a second hand's return (feedback 2026-10-08: a proof swapped
+        # by its doer read «returned by an acceptor 1» on entry — no second hand had found a defect)
+        own = status == "same"
+        tag = " (исполнитель: та же сессия)" if own else f" (приёмка: {who} · {_session_word(status, 'ru')})"
     for it in items:
         # the result, its proofs and its acceptance go with the tick; why/notes stay; the RESULT stays in the journal
         it.done, it.result, it.evidence, it.accepted, it.done_by = False, "", [], "", ""
@@ -2934,7 +2978,8 @@ def todo_reopen(case: Path, ref: str, why: str, by: Optional[str] = None) -> Out
                 + " — a fact resting on a refuted one is under question; Order names them until you confirm, rewire or reopen (el facts)")
     what = f"{items[0].text}" if len(items) == 1 else f"({len(items)} items)"
     out.say(f"reopened: {refs} {what} → TODO.md · DECISION in the journal (the RESULTs stay as history)"
-            + (f" · {', '.join(it.ref for it in back)} was cancelled — open again, the reason stays in the journal" if back else ""))
+            + (f" · {', '.join(it.ref for it in back)} was cancelled — open again, the reason stays in the journal" if back else "")
+            + (" · the doer's own session: a correction, not an acceptor's return" if own else ""))
     return out
 
 
@@ -2973,6 +3018,19 @@ def _sign_text(case: Path) -> str:
     """`Anthropic Claude Code · Opus 5.5 · session 70cc2077` — the hand as a line; what nothing says is `?`, never guessed."""
     who, model, sid = _sign_fields(case)
     return f"{who or 'harness ?'} · {model or 'model ?'} · session {sid or '?'}"
+
+
+def _subagent_sign(case: Path) -> Tuple[str, str]:
+    """A subagent shares its parent's session, and with it the model the session signed (feedback 2026-10-08: a Sonnet
+    subagent's acceptance read «same model: … Opus 5.5»). Its own mind only as said on the call — EL_MODEL='…' el todo
+    accept … — else `model ?`, never the parent's. (sign, text) like _sign_fields and _sign_text."""
+    who, _, sid = _sign_fields(case)
+    model = store.clean_part(os.environ.get("EL_MODEL", ""))
+    return (who, model, sid), f"{who or 'harness ?'} · {model or 'model ?'} · session {sid or '?'}"
+
+
+SUBAGENT_MODEL = ("a subagent shares the doer's session and its signature — it names its own model on the verdict: "
+                  "EL_MODEL='<your model>' el todo accept …")
 
 
 def _sign_parse(line: str) -> Tuple[str, str, str]:
@@ -3139,17 +3197,19 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
     statuses = [_session_status(journal, phase, it, who) for it in items]
     status = statuses[0] if len(set(statuses)) == 1 else "mixed"  # a range of two doers is said as such (Codex, 2026-10-05)
     mine_sign, mine_text = _sign_fields(case), _sign_text(case)
-    engines = {_engine_word(it.done_by, mine_sign) for it in items}
-    engine_ru = "" if who == "owner" else " · " + (_engine_word(items[0].done_by, mine_sign, "ru") if len(engines) == 1
+    sub_sign, sub_text = _subagent_sign(case)
+    hands = [(sub_sign, sub_text) if st == "subagent" else (mine_sign, mine_text) for st in statuses]
+    engines = {_engine_word(it.done_by, h[0]) for it, h in zip(items, hands)}
+    engine_ru = "" if who == "owner" else " · " + (_engine_word(items[0].done_by, hands[0][0], "ru") if len(engines) == 1
                                                      else "по-разному по пунктам — см. accepted:")
     left, differs = list(reruns), []
-    for it in items:  # the --run words go to the item proofs in order: each item counts its own re-runs
+    for it, (hand_sign, hand_text) in zip(items, hands):  # the --run words go to the item proofs in order: each item counts its own re-runs
         proofs = [pr for k, pr in it.evidence if k == "run"]
         mine, left = left[:len(proofs)], left[len(proofs):]
         ran = [r for r in mine if not _outcome(r).startswith("not run")]
         tally = (f" · re-ran {len(ran)} of {len(mine)}" + (f" ({len(mine) - len(ran)} not run)" if len(ran) < len(mine) else "")
                  if mine else "")
-        engine = "" if who == "owner" else f" · {_engine_word(it.done_by, mine_sign)}: {mine_text}"  # L8: the mind beside the hand
+        engine = "" if who == "owner" else f" · {_engine_word(it.done_by, hand_sign)}: {hand_text}"  # L8: the mind beside the hand
         it.accepted = f"{who} · {_session_word(_session_status(journal, phase, it, who))} · {date}{tally}{engine}"
         differs += [(it, pr, r) for pr, r in zip(proofs, ran) if _outcome(pr).casefold() != _outcome(r).casefold()]
     out.absorb(_write_todo(case, todo))
@@ -3159,7 +3219,9 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
     out.lines += log(case, "DECISION", f"принято {refs}: {who} · {_session_word(status, 'ru')}{engine_ru}{said}{body}", f"p{phase.n}").lines
     engine = "" if who == "owner" else " · " + (next(iter(engines)) if len(engines) == 1 else "differs by item — see accepted: lines")
     out.say(f"accepted: {refs} by {who} ({_session_word(status)}{engine}) → TODO.md (accepted: line) · DECISION in the journal")
-    if who != "owner" and not mine_sign[1] and hints.enabled():
+    if "subagent" in statuses and not sub_sign[1]:
+        out.say(f"  model not given: {SUBAGENT_MODEL}")
+    elif who != "owner" and not mine_sign[1] and hints.enabled():
         out.say(_sign_hint())
     if "same" in statuses:
         out.warn(f"same session as the doer, and not said to be a subagent — recorded as the doer checking itself. A clean hand: "
@@ -3330,6 +3392,9 @@ def todo_brief(case: Path, ref: str) -> Outcome:
         reruns = "".join(f' --run "{pr.split("→")[0].strip()} → <what came out now>"' for k, pr in it.evidence if k == "run")
         out.say(f"  el --case {name} todo accept {it.ref} --by <you: codex|claude|gemini|subagent>{reruns} \"what you checked and how\"",
                 f"  el --case {name} todo reopen {it.ref} --by <you> \"what is missing or wrong\"")
+    if mine and doers == {mine}:  # the reader will be a subagent of this session: its mind is not the session's signature
+        out.say("A subagent of the doer's session: put your own model before the verdict — EL_MODEL='<your model>' el … todo "
+                "accept … — the session's signature is the doer's, not yours.")
     if any(k == "run" for it in items for k, _ in it.evidence):
         out.say("Every run proof is re-run by you: one --run per proof with what came out now; could not run one — "
                 "--run \"<command> → not run: why\". A result that differs is a return, not an acceptance.")
@@ -3526,6 +3591,7 @@ def _acceptance_line(todo: grammar.Todo, readme_body: str, journal: Optional[gra
     open_refs = {f"{it.ref}" for p in todo.phases if not p.done for it in grammar.flat(p.items)}
     by_acceptor = sum(1 for e in (journal.entries if journal is not None else []) for ev in e.events
                       if ev.type == "DECISION" and RETURN_RE.match(ev.text) and "(приёмка: " in ev.text
+                      and " · та же сессия)" not in ev.text  # the doer's own, by the record's own words (before 1.52.0 it was tagged so)
                       and set(re.findall(grammar.ITEM_REF, RETURN_RE.match(ev.text).group(1))) & open_refs)
     if not (_two_hands(readme_body) or acc or by_acceptor):
         return None
@@ -4036,9 +4102,13 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
     if _two_hands(_readme_text(case)) and not _scope_agreed(_journal(case), n):
         out.warn(f"phase {n} opened without the owner's agreed scope (this case's rule: two hands) → el phase agree {n} \"the owner's words\"")
     _case_promise_hint(case, todo, n, out)
+    opened, opened_goal = todo.phase(n), _phase_goal(case, todo.phase(n))
+    coverage = _goal_coverage(opened, opened_goal)
     hints.attach(out, "phase_open", rel=f"phases/{pf.name}", n=n,
-                 promised=[_slot(k, w) for k, w in grammar.expected_kinds(_phase_goal(case, todo.phase(n)))],
-                 covered=[_slot(k, w) for (k, w), st, _ in _goal_coverage(todo.phase(n), _phase_goal(case, todo.phase(n))) if st != "uncovered"])
+                 promised=[_slot(k, w) for k, w in grammar.expected_kinds(opened_goal)],
+                 covered=[_slot(k, w) for (k, w), st, _ in coverage if st != "uncovered"],
+                 near=[(_slot(k, w), f"{_slot(k, w)}{_near_words(opened, opened_goal, k, w)}") for (k, w), st, _ in coverage
+                       if st == "uncovered" and w and _near_item_slots(opened, opened_goal, k, w)])
     return out
 
 
@@ -4577,6 +4647,13 @@ def readme_add(case: Path, section: str, line: str) -> Outcome:
         raise StoreError(f"no section `{section}` — sections: {' · '.join(grammar.README_SECTIONS)}", 2)
     line = _context_text(line) if name == "Context" else " ".join(line.split())  # a promise names a kind from the closed list
     parsed = _readme_sections(case, out)
+    # the same line twice is noise the next reader reads twice (feedback 2026-10-08: the rule line `case new --root` wrote,
+    # added again by hand, exit 0) — said where it stands, nothing written, like a move to where an item already is
+    mine = [ln for ln in parsed.sections.get(name, []) if ln.startswith("- ") and ln != DECISIONS_DRAWN_HEAD]
+    same = next((k for k, ln in enumerate(mine, start=1) if " ".join(ln[2:].split()) == line), None)
+    if same is not None:
+        out.say(f"README {name}: line {same} says this already — nothing changed")
+        return out
     parsed.sections.setdefault(name, []).append(f"- {line}")
     _write_readme(case, _render_readme(parsed), out, anchor=name == "State")
     out.say(f"README {name}: line added")
@@ -6252,10 +6329,18 @@ def _knowledge_docs(root: Path) -> List[Tuple[Path, str, Path, str]]:
             m = KNOWLEDGE_LINE_RE.match(ln)
             if not m:
                 continue
-            for name, target in re.findall(r"\[([^\]]+)\]\(([^)\s]+)\)", m.group(1)):
+            links = list(re.finditer(r"\[([^\]]+)\]\(([^)\s]+)\)", m.group(1)))
+            for k, link in enumerate(links):
+                name, target = link.group(1), link.group(2)
                 f = (store.file_path(c, "README.md").parent / target.split("#")[0]).resolve()
-                if f.is_file():
-                    found.append((c, name, f, _doc_summary(f)))
+                if not f.is_file():
+                    continue
+                # the case's words about the document come first — how to trust it lives there (2026-10-08: the owner's
+                # caveat «a pointer, not a substitute for the sources» sat on the line, and the entry showed the file's own
+                # summary instead); the file's summary when the line says nothing of it
+                end = links[k + 1].start() if k + 1 < len(links) else len(m.group(1))
+                words = m.group(1)[link.end():end].strip().lstrip("—–-:·").strip()
+                found.append((c, name, f, words or _doc_summary(f)))
     return found
 
 

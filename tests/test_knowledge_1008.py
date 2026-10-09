@@ -52,7 +52,7 @@ class TheEntryOfEveryCaseNamesIt(Base):
         self.assertEqual(code, 0, err)
         line = next(ln for ln in self.head(out).split("\n") if ln.startswith("knowledge:"))
         self.assertIn("doors.md (", line)
-        self.assertIn("12 closed paths", line)
+        self.assertIn("closed paths with their sources", line)  # the case's words first, since 1.52.0
         self.assertTrue(line.endswith("read it: cat .cases/" + self.research.name + "/docs/doors.md"), line)
 
     def test_case_new_says_it_at_the_moment_the_task_starts(self):
@@ -106,7 +106,7 @@ class FactsListsThem(Base):
         code, out, err = run("facts")
         self.assertEqual(code, 0, err)
         self.assertIn("knowledge documents of the project (1)", out)
-        self.assertIn("doors.md (" + self.research.name + ") — 12 closed paths", out)
+        self.assertIn("doors.md (" + self.research.name + ") — closed paths with their sources", out)  # the case's words, 1.52.0
         self.assertNotIn("no fact lines yet", out)
 
 

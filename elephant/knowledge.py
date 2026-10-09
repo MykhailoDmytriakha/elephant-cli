@@ -809,12 +809,14 @@ proved statements of a theory: found and proved once, then built on, not re-deri
 - `fact:` is the fifth pocket. Expected while the item is open (`el todo add … --fact "…"`, `el todo fact N.M
   "…"`), established once done. `done` on an item with an expected fact asks for the verdict: `--fact confirmed`
   · `--fact "the fact as it turned out"` · `--fact -` (none came out). The journal RESULT carries it.
-- `el todo fact N.M =` keeps the result's words as the fact — one symbol; a sharper fact: `el todo fact N.M "…"`.
+- `el todo fact N.M =` keeps the result's words as the fact — one symbol, at `done` too (`--fact =`); a sharper fact: `el todo fact N.M "…"`.
 - the entry shows the newest facts themselves under the `facts:` count — the next agent reads what is known first.
 - many facts at once — paths tried and closed, things measured, each with its source — live in a document, not in
   pockets: a table «what was tried · why closed · reopen if · source» is the strong form. Name it in Context:
   `el readme add context "knowledge: [doors.md](docs/doors.md) — what it holds"`. From then on the entry of EVERY
-  case of the project — a new one too — says `knowledge: …` with the command that reads it, and `el facts` lists it.
+  case of the project — a new one too — says `knowledge: …` with the command that reads it, and `el facts` lists it;
+  the words after the link are what every agent reads about it — how far to trust it goes there (the file's own
+  `summary:` stands in when the line has none).
   Measured (2026-10-08): a fresh agent planning in a new case never opened a sibling case's document without that line
   and proposed closed paths again; with it, it read the document at its third call. A phase close names the door when
   the case keeps documents and none is named; el does not judge which one is knowledge — you do.
@@ -881,7 +883,9 @@ records the verdict.
 - the session: `done` writes the doer's session under its RESULT (`session: 1a2b3c4d` — EL_SESSION, else the
   harness's id; Claude Code sets CLAUDE_CODE_SESSION_ID); `accept` compares: another session · clean-context subagent
   (`--by subagent` in the doer's session) · same session · session not given · the owner's word. Provenance, not proof:
-  a subagent shares its parent's session id.
+  a subagent shares its parent's session id — and its signature: the model `el sign` gave the session is the parent's, so a
+  subagent names its own on the verdict, `EL_MODEL='<its model>' el todo accept …` (else the line says `model not given`).
+  A reopen `--by` from the doer's own session is the doer's correction, not an acceptor's return, and is not counted as one.
 - a subagent with a clean context is a clean hand (the owner's word, 2026-10-07: «a subagent from the same session with a
   clean context, that knows nothing — that is a clean hand»): hand it `el todo brief N.M` as its prompt, it answers
   `el todo accept N.M --by subagent …` and the line says `clean-context subagent` — el sees the session, not the context,
@@ -1036,6 +1040,7 @@ ALIASES = {
     "phase": "phases", "plan": "phases", "digest": "phases", "close": "phases", "open": "phases",
     "detour": "phases", "detours": "phases", "pause": "phases", "paused": "phases",
     "case": "cases", "spawn": "cases", "nested": "cases", "list": "cases",
+    "init": "cases", "new": "cases", "create": "cases", "root": "cases",  # the first word an agent types (feedback 2026-10-08)
     "file": "files", "folder": "files", "folders": "files", "summary": "files",
     "limit": "limits", "numbers": "limits", "error": "errors", "exit": "errors", "codes": "errors",
     "item": "todo", "items": "todo", "pocket": "todo", "pockets": "todo", "note": "todo", "notes": "todo",
