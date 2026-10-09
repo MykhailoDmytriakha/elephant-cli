@@ -27,6 +27,7 @@ EXAMPLES = """examples
   el todo done 2.3 file:evidence/receipt.pdf ref:4471-09 "paid, receipt in the folder"   several proofs: one `result:` line, one proof line each
   el todo expect 3.2 "chosen DB with its case [file: docs/db-choice.md] · load [run: k6 → p95] · budget [owner]"   the proof, promised before the work; done holds you to it
   el todo show 3.3                      the item's card: pockets, the proofs of the items it comes after (its inputs), what it feeds
+  el todo show 3 · el phase show 3      one phase: its lines of TODO; a closed one with its file (items, Digest)
   el todo add 3 "grep the DEV trace" --expect "[run: trace shows the outbound call]" --fact "checkout calls the pricing API for the pair"   the expected fact
   el todo done 3.4 run:"grep 3 traces -> no outbound call" "trace read" --fact "in 3 DEV traces, no outbound pricing call"   the fact as it turned out, within what was seen
   el facts                              the fact chain: ✓ established · · expected · ? under question · ✗ dead branches — what the next agent builds on
@@ -149,8 +150,22 @@ class Parser(argparse.ArgumentParser):
     examples, the recovery — never the library's bare `usage:` line: for the agent who typed `el feedback`
     to learn the form, that line was the moment of need and it answered with nothing (2026-09-15)."""
 
+    def parse_args(self, args=None, namespace=None):
+        self._argv = list(args) if args is not None else sys.argv[1:]
+        return super().parse_args(args, namespace)
+
     def error(self, message: str):
-        raise StoreError(usage_error(self.prog, message), 2, recovery=usage_recovery(self.prog))
+        prog = self.prog
+        if prog == "el" and message.startswith("unrecognized arguments"):
+            # extras are caught by the top parser, which knows no command — name the one that was called (the live map,
+            # 2026-10-08: `el done … --reflect x --align x` answered with the generic start, not with what done takes)
+            subs = next((a for a in self._actions if isinstance(a, argparse._SubParsersAction)), None)
+            argv = getattr(self, "_argv", [])
+            words = [w for i, w in enumerate(argv) if not w.startswith("-") and not (i and argv[i - 1] == "--case")]
+            cmd = next((w for w in words if subs is not None and w in subs.choices), None)
+            if cmd:
+                prog = f"el {cmd}"
+        raise StoreError(usage_error(prog, message), 2, recovery=usage_recovery(prog))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -182,7 +197,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--run", action="append", help="accept: one per `run:` proof of the item — the command re-run by the second hand and what came out now, joined by → (F23)")
 
     s = sub.add_parser("phase", help="plan · open · close a phase (plan = name the next one without opening it, repeat it to sharpen the goal; close needs RESULT, reflect:, align:)", allow_abbrev=False)
-    s.add_argument("action", choices=["plan", "open", "close", "cancel", "note", "agree", "resume"])
+    s.add_argument("action", choices=["plan", "open", "close", "cancel", "note", "agree", "resume", "show"])
     s.add_argument("n", type=int)
     s.add_argument("text", nargs="?", default="", help="name for plan/open (open takes it from the plan when omitted), summary for close, why for cancel, the note for note")
     s.add_argument("--goal", help="one line; required for a new phase unless it was planned with one")
@@ -261,7 +276,9 @@ def build_parser() -> argparse.ArgumentParser:
 # What survives of the swallowed word is a trace; a text with a trace is refused, not recorded.
 SHELL_TRACES = (
     (re.compile(r"\S  +\S"), "a double space"),
-    (re.compile(r"(?:^|\s)\.\d"), "an orphan decimal like `.72`"),
+    # what a swallowed `$150.72` or `$12.345` leaves; a measure written `.0878` (WER, a ratio) is not money (the live
+    # map, 2026-10-08: a digest line «WER .0878» was refused)
+    (re.compile(r"(?:^|\s)\.\d{1,3}(?!\d)"), "an orphan decimal like `.72`"),  # `$12.345` leaves `.345` (Codex)
     (re.compile(r"^\s"), "a leading space"),  # a trailing one is too often innocent (`"x " * n`) to refuse
 )
 TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact", "howto", "run", "check")
@@ -290,6 +307,8 @@ def _looks(args) -> bool:
         return not args.apply
     if args.cmd == "todo":
         return args.action in (None, "show", "brief")
+    if args.cmd == "phase":
+        return args.action == "show"
     return args.cmd in ("facts", "check", "doctor", "help")
 
 
@@ -525,6 +544,8 @@ def _run(argv=None) -> int:
                     out = commands.todo_why(case, args.ref, text)
                 elif args.action == "expect":
                     out = commands.todo_expect(case, args.ref, text)
+                elif args.action == "show" and re.fullmatch(r"\d+", args.ref.strip()):
+                    out = commands.phase_show(case, int(args.ref))  # a phase by its number (2026-10-08)
                 elif args.action == "show":
                     out = commands.todo_show(case, args.ref)
                 elif args.action == "fact":
@@ -558,7 +579,9 @@ def _run(argv=None) -> int:
                 else:
                     out = commands.todo_drop(case, args.ref)
             elif args.cmd == "phase":
-                if args.action == "open":
+                if args.action == "show":  # the habit of other CLIs: one phase shown, as `el todo show N` (2026-10-08)
+                    out = commands.phase_show(case, args.n)
+                elif args.action == "open":
                     out = commands.phase_open(case, args.n, args.text, args.goal, why=args.why)  # name may come from the plan
                 elif args.action == "agree":
                     out = commands.phase_agree(case, args.n, args.text)

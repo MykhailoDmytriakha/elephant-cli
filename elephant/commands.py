@@ -2083,12 +2083,59 @@ def todo_show_all(case: Path) -> Outcome:
     return out
 
 
+def phase_show(case: Path, n: int) -> Outcome:
+    """`el todo show N` · `el phase show N` — one phase, the way a bare `el todo` shows the plan (the polygon, 2026-10-08:
+    eighteen refusals «use N.M» on `el todo show 1`, and the maintainer typed `el phase show 18`). An open or planned
+    phase: its lines of TODO; a closed or cancelled one: its folded line and its file, where its items and Digest live.
+    Read-only; the last line is the door to one item."""
+    out = Outcome()
+    todo = _todo(case, out)
+    phase = todo.phase(n)
+    if phase is None:
+        if not todo.phases:
+            raise StoreError(f"no phase yet — open the first: el phase open 1 \"Name\" --goal \"…\"", 4)
+        have = ", ".join(str(p.n) for p in sorted(todo.phases, key=lambda x: x.n))
+        raise StoreError(f"no phase {n} in TODO.md (phases: {have}) — the whole plan: el todo", 4)
+    body = stamp.split(store.read(case, "TODO.md"))[0].rstrip("\n").split("\n")
+    start = phase.line - 1
+    end = next((i for i in range(start + 1, len(body)) if body[i].startswith(("- [", "## ", "# "))), len(body))
+    out.say(*body[start:end])
+    pf = _phase_file(case, phase.n, phase.name)
+    if phase.done and not pf.exists():  # history without its file: say so, never the door of an open phase (Codex)
+        journal = _sh_path(_from_here(store.file_path(case, "JOURNAL.md")))
+        out.say("", f"{pf.relative_to(case).as_posix()} is missing — the items of this closed phase lived there; its "
+                    f"events stay in the journal: grep -n -A3 '· p{phase.n}$' {journal}")
+        return out
+    if phase.done:
+        out.say("", f"— {pf.relative_to(case).as_posix()} —", *pf.read_text(encoding="utf-8").rstrip("\n").split("\n"))
+        out.say("", "the whole plan: el todo · this phase is history — a step now goes to an open phase: el todo add N \"…\"")
+    else:
+        items = grammar.flat(list(phase.items))
+        first = next((it for it in items if not it.done), items[0] if items else None)
+        card = f"one item's card: el todo show {first.ref}" if first else f'its first item: el todo add {phase.n} "…"'
+        out.say("", f"{card} · the whole plan: el todo — el help todo")
+    return out
+
+
 def todo_show(case: Path, ref: str) -> Outcome:
     """`el todo show N.M` — the item's card at the moment of picking it up: its pockets, and the inputs a chain
     hands it — the proofs of the items it comes after (F19) — and what it feeds in turn (the owner's sketch,
     2026-09-16: «сделал одно, пошёл к следующему»; Prove2Me: a proof imports the proved statements). Read-only."""
     out = Outcome()
     todo = _todo(case, out)
+    mm = re.fullmatch(r"(\d+)\.(\d+)(?:\.(\d+))?", ref.strip())
+    closed = todo.phase(int(mm.group(1))) if mm else None
+    if closed is not None and closed.done:  # showing is reading: a closed phase's item is history, and history is shown
+        # (the live map, 2026-10-08: a second hand asked `todo show 1.1` in a finished child and met the write refusal)
+        want = tuple(int(g) for g in mm.groups() if g is not None)  # `01.01` is 1.1 (Codex)
+        hist = next((it for it in grammar.flat(_closed_phase_items(case, closed), cancelled=True)
+                     if tuple(int(x) for x in f"{it.ref}".split(".")) == want), None)
+        if hist is not None:
+            rel = _phase_file(case, closed.n, closed.name).relative_to(case).as_posix()
+            out.say(f"phase {closed.n} {closed.name} (closed — history, kept in {rel})", *_item_block(hist, _case_two_hands(case)))
+            out.say("", f"the whole phase: el todo show {closed.n} · new work on it is new work: el todo add later "
+                        f"\"re-check {ref.strip()}: …\"")
+            return out
     phase, item = _find_item(todo, ref)
     if phase.n == 0:
         out.say(f"general list (Later) · since {item.since or '—'} — the next phase boundary decides: el todo move {ref} N", *_later_block(item))
@@ -2464,7 +2511,8 @@ def _find_item(todo: grammar.Todo, ref: str):
         return _later_phase(todo), item
     m = re.fullmatch(r"(\d+)\.(\d+)(?:\.(\d+))?", ref.strip())
     if not m:
-        raise StoreError(f"`{ref}` — use N.M, e.g. 2.3 (a sub-item: N.M.K; a line of the general list: Lk)", 2)
+        raise StoreError(f"`{ref}` — use N.M, e.g. 2.3 (a sub-item: N.M.K; a line of the general list: Lk; "
+                         f"a whole phase: el todo show N)", 2)
     phase = todo.phase(int(m.group(1)))
     if phase is not None and phase.done:  # before «no item»: a closed phase folds to one line, its items are in its file
         raise StoreError(_closed_item_refusal(todo, phase, ref.strip()), 4)
@@ -3604,8 +3652,10 @@ def _closing_checks(case: Path, prev: grammar.Phase, journal: grammar.Journal) -
         parsed = grammar.parse_phase_file(pf.read_text(encoding="utf-8"))
         if not parsed.result:
             missing.append(f"phase {prev.n}: `result:` is empty in {pf.relative_to(case)} (F12)")
-    if prev.waits:
-        missing.append(f"phase {prev.n}: still waits for {', '.join(prev.waits)}")
+    if prev.waits:  # a count, a few names and the door — the live map, 2026-10-08: thirty names on one line, no command
+        shown = ", ".join(prev.waits[:5]) + (f" +{len(prev.waits) - 5} more" if len(prev.waits) > 5 else "")
+        missing.append(f"phase {prev.n}: still waits for {len(prev.waits)} nested case(s) — {shown} → each ends by its own "
+                       f"close: el --case {prev.waits[0]} done \"what came out\" · where each stands: el case list")
     return missing
 
 

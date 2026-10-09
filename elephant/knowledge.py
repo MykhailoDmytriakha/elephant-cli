@@ -356,6 +356,7 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
 - cut items by what they leave behind: one outcome with its own proof per item. Two items whose proof is one
   artifact were one item — its steps go to `note:` lines or the phase file; an item that leaves nothing checkable
   is a step of another. el says so when an `expect:` names an artifact another item promised or left.
+- `el todo` — the whole plan; `el todo show N` (or `el phase show N`) — one phase: its lines, a closed one with its file.
 - `el todo show N.M` — the item's card when you pick it up: its pockets, the proofs of the items it comes after
   (`— after: N.K`, F19) as its inputs, and what it feeds. A chain hands its artifacts forward; a side branch on
   its own clock is a nested case, and `after: <case>` joins it.
