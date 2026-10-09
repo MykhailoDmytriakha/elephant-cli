@@ -175,7 +175,7 @@ def phases_folder(case: Path) -> Optional[Folder]:
 
 # ---- nested cases: the parent's line is rendered from the child's own header (F18) ---------------
 CASES_DIR = ".cases"
-CASE_STATE_RE = re.compile(r"^- (progress|next|closed|due): (.*)$")
+CASE_STATE_RE = re.compile(r"^- (progress|next|ready|closed|due): (.*)$")
 CASE_LINE_RE = re.compile(r"^- (?:closed: )?\[[^\]]+\]\(([^)]+)/README\.md\)")
 CASES_SHOWN_CLOSED = 5
 
@@ -220,7 +220,9 @@ def child_status(child: Path) -> Tuple[str, str, str, str, str]:
     if state.get("closed"):
         return ("closed", state.get("progress", ""), "", state["closed"], "")
     due = (state.get("due", "").split(" · ", 1)[0] or "").strip()
-    return ("open", state.get("progress", ""), state.get("next", ""), "", due if grammar.DATE_RE.fullmatch(due) else "")
+    nxt = state.get("next", "") or (f"ready {state['ready'].split(' · ', 1)[0]} — awaits the owner's word"
+                                    if state.get("ready") else "")  # the agents finished; the owner closes (2026-10-08)
+    return ("open", state.get("progress", ""), nxt, "", due if grammar.DATE_RE.fullmatch(due) else "")
 
 
 def case_desc(status) -> str:

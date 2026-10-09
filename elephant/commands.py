@@ -370,12 +370,17 @@ def _derive_readme(case: Path, body: str) -> str:
             if _default_next_in_state(text) and any(_phase_file(case, p.n, p.name).exists() for p in todo.phases):
                 text = _set_state_line(text, "next: ", None)  # el's own pointer, done once a phase opened (L2) — never the agent's
             text = _draw_waits(case, text, [w for p in todo.phases for w in p.waits])
+            if _ready_value(text) and (not _two_hands(text) or any(not p.done for p in todo.phases) or any(
+                    order.child_status(k)[0] != "closed" for k in order.child_cases(case, _is_project(case)))):
+                text = _set_state_line(text, READY_PREFIX, None)  # el's own word, untrue once work resumed
     except StoreError:
         pass
     try:
         journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
         # entries run newest first, events inside an entry are appended — the newest RESULT is the LAST one of its entry
         # (feedback 2026-10-05: two RESULTs in one minute showed the older one as `last:`)
+        if not journal.errors:  # the decisions of the case, drawn from its journal (the owner's «yes», 2026-10-08)
+            text = _draw_decisions(text, journal)
         opened = _opened_line(journal, parsed) if not journal.errors else None
         if opened:  # where the case started, first in State (the owner, 2026-10-08: «I opened the README and could not find
             text = _set_first_state_line(text, "opened: ", opened)  # what I started with»)
@@ -385,6 +390,57 @@ def _derive_readme(case: Path, body: str) -> str:
     except StoreError:
         pass
     return _blank_before_headings(text)
+
+
+# ---- decisions drawn from the journal (the cold reader and the owner's «yes», 2026-10-08) -----------------------------
+# Agents decide in the journal (`el log DECISION`) and leave README Decisions empty: six of eight big live cases. A cold
+# reader given the README alone answered «which decisions were taken» with «not in the README» 8 times of 16; with the
+# five newest agent decisions drawn under the agent's own lines, 0 of 16. They are history, not the case's rules: dated,
+# under a line that says so — an old decision beside a newer State is read as old. el's own bookkeeping (acceptance,
+# reopen, reflect, align, howto, scope, cancel, pause) is not a decision of the work and is left out.
+DECISIONS_DRAWN_HEAD = grammar.DECISIONS_DRAWN_HEAD
+DECISIONS_DRAWN = 5
+EL_DECISION_RE = re.compile(  # the formats el itself writes — an agent's «фаза 2 uses …» is a decision (Codex, 2026-10-08)
+    r"^(?:howto|reflect|align): |^принято [\d., L]+: |^снято \d|^дело снято →|^объём фазы \d+ утверждён владельцем: «"
+    r"|^остаток фазы \d+ → |^фаза \d+ (?:[\w-]+ ){0,3}(?:возвращена в план|на паузе)|^фаза \d+ раньше запланированных"
+    r"|^[\d.,L ]+ \S+ в работу — |^todo (?:\d+\.\d+|add|done|edit|move|drop)\b")  # `todo …`: v0.7–0.8 logged each TODO edit
+
+
+def _draw_decisions(readme: str, journal: grammar.Journal) -> str:
+    lines = readme.rstrip("\n").split("\n")
+    start = next((i for i, ln in enumerate(lines) if ln == "## Decisions"), None)
+    if start is None:
+        return readme
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    body, drawn_on = [], False
+    for ln in lines[start + 1:end]:  # what el drew before goes; the agent's own lines stay as written
+        if ln == DECISIONS_DRAWN_HEAD:
+            drawn_on = True
+            continue
+        if drawn_on and ln.startswith("  - "):
+            continue
+        drawn_on = False
+        body.append(ln)
+    own = " ".join(" ".join(ln.split()) for ln in body).lower()
+    picked = []
+    for e in journal.entries:  # newest entry first; inside an entry the newest event is the last
+        for ev in reversed(e.events):
+            if ev.type != "DECISION" or EL_DECISION_RE.match(ev.text):
+                continue
+            # history, not pointers: a link of the journal becomes its name — README holds its links to F16, the journal
+            # does not, and an old decision must not bring a dead link into the owner's page
+            words = re.sub(r"\[([^\]]+)\]\([^)\s]+\)", r"\1", _event_words(ev))
+            if " ".join(words.split()).lower() in own:  # the whole decision: a shared opening is not the same choice
+                continue  # the agent wrote it into Decisions already
+            picked.append(f"  - {e.date} · {words}")
+            if len(picked) == DECISIONS_DRAWN:
+                break
+        if len(picked) == DECISIONS_DRAWN:
+            break
+    while body and body[-1] == "":
+        body.pop()
+    block = [DECISIONS_DRAWN_HEAD, *picked] if picked else []
+    return "\n".join(lines[:start + 1] + body + block + ([""] if end < len(lines) else []) + lines[end:]) + "\n"
 
 
 def _opened_line(journal: grammar.Journal, parsed) -> Optional[str]:
@@ -3326,7 +3382,15 @@ def _thread_line(case: Path, todo: grammar.Todo, readme_body: str, order_lines: 
         parts.append(f"goal «{order._short(goal, 70)}»")
     phase = _flying(case, todo) or todo.current()
     if phase is None:
-        parts.append("no phase yet: el phase open 1 \"Name\" --goal \"…\"" if not todo.phases else "every phase ended: el done \"…\"")
+        ready = _ready_value(readme_body)
+        try:  # the owner's case: `done` is the agents' honest end, not a close behind his back (pm-haiku-13, 2026-10-08:
+            owners = _owner_closes(store.find_root(), case)  # four sessions wrote «awaits the owner» in next: and never
+        except StoreError:  # ran done, reading it as a close without him)
+            owners = False
+        parts.append(f"ready since {ready.split(' · ', 1)[0]} — awaits the owner's word: el done --by owner \"his words\"" if ready
+                     else "no phase yet: el phase open 1 \"Name\" --goal \"…\"" if not todo.phases
+                     else "every phase ended: el done \"what came out\" makes it ready — the owner's word closes it" if owners
+                     else "every phase ended: el done \"…\"")
     else:
         pgoal = _phase_goal(case, phase) or (phase.summary or "")
         waiting = [p for p in todo.phases if not p.done and p.held_for() == phase.n]  # F26: what this detour paused
@@ -4549,9 +4613,11 @@ def readme_edit(case: Path, section: str, ref: str, text: str) -> Outcome:
         raise StoreError(f"usage: el readme edit {name.lower()} <k> \"new text\" — k is the line's position (1 = first bullet)"
                          + (" · the goal line: el readme edit context goal \"…\"" if name == "Context" else ""), 2)
     k = int(ref)
-    bullets = [i for i, ln in enumerate(parsed.sections.get(name, [])) if ln.startswith("- ")]
+    bullets = [i for i, ln in enumerate(parsed.sections.get(name, [])) if ln.startswith("- ") and ln != DECISIONS_DRAWN_HEAD]
     if not 1 <= k <= len(bullets):
-        raise StoreError(f"{name} has {len(bullets)} line(s), nothing at position {k}", 4)
+        drawn = " — the decisions from the journal under them are drawn by el and go by themselves" if (
+            name == "Decisions" and DECISIONS_DRAWN_HEAD in parsed.sections.get(name, [])) else ""
+        raise StoreError(f"{name} has {len(bullets)} line(s) of yours, nothing at position {k}{drawn}", 4)
     old = parsed.sections[name][bullets[k - 1]]
     parsed.sections[name][bullets[k - 1]] = f"- {text}"
     _write_readme(case, _render_readme(parsed), out)
@@ -4656,9 +4722,11 @@ def readme_drop(case: Path, section: str, ref: str) -> Outcome:
         out.say(f"README State: `- {prefix}: …` removed")
         return out
     k = int(ref)
-    bullets = [i for i, ln in enumerate(parsed.sections.get(name, [])) if ln.startswith("- ")]
+    bullets = [i for i, ln in enumerate(parsed.sections.get(name, [])) if ln.startswith("- ") and ln != DECISIONS_DRAWN_HEAD]
     if not 1 <= k <= len(bullets):
-        raise StoreError(f"{name} has {len(bullets)} line(s), nothing at position {k}", 4)
+        drawn = " — the decisions from the journal under them are drawn by el and go by themselves" if (
+            name == "Decisions" and DECISIONS_DRAWN_HEAD in parsed.sections.get(name, [])) else ""
+        raise StoreError(f"{name} has {len(bullets)} line(s) of yours, nothing at position {k}{drawn}", 4)
     if name == "State" and grammar.DRAWN_WAIT_RE.match(parsed.sections[name][bullets[k - 1]]):
         raise _drawn_wait_refusal(parsed.sections[name][bullets[k - 1]])
     removed = parsed.sections[name].pop(bullets[k - 1])
@@ -4975,8 +5043,36 @@ def _deliver_to_parent(root: Path, case: Path, summary: str, out: Outcome, messe
     out.say(f"parent updated: {parent.name} — hand returns to the parent")
 
 
-def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> Outcome:
+# ---- the owner closes the top of the tree (the owner's word, 2026-10-08: «yes» to the proposal after the live map) -------
+# Items are accepted by a second hand, a phase's scope by the owner — and the case closed by one agent command. On the
+# live map a fresh Sonnet accepted 45 items through subagents and closed the owner's «capital order» in eight minutes;
+# every line was true, the whole said more than anyone had checked, and no door asked the owner. The truth is the
+# owner's (the concept: «structure and freshness — the tool; truth — the owner»): a top case of the two-hands rule ends
+# like an item — the agents' `el done` makes it READY, the owner's word closes it. A nested case is closed by its
+# parent's acceptance, as before; a case without the rule closes as before.
+READY_PREFIX = "ready: "
+
+
+def _owner_closes(root: Path, case: Path) -> bool:
+    return store.parent_case(case, root) is None and _case_two_hands(case)
+
+
+def _ready_value(readme_body: str) -> str:
+    parsed = grammar.parse_readme(readme_body)
+    line = next((ln for ln in parsed.sections.get("State", []) if ln.startswith(f"- {READY_PREFIX}")), "") if not parsed.errors else ""
+    return line[len(f"- {READY_PREFIX}"):].strip()
+
+
+def _ready_words(value: str) -> str:
+    """The agents' outcome on the `ready:` line, without its date and el's acceptance tail."""
+    return re.sub(r"^\d{4}-\d{2}-\d{2} · ", "", grammar.CLOSED_TALLY_RE.sub("", value).strip())
+
+
+def done(root: Path, case: Path, summary: str, howto: Optional[str] = None, by: Optional[str] = None) -> Outcome:
     out = Outcome()
+    if by is not None and by != "owner":
+        raise StoreError(f"`--by {by}` — a case is closed by the owner's word alone: el done --by owner \"his words\"; "
+                         f"the agents' part ends at el done \"what came out\"", 2)
     recorded = _closed_words(_readme_text(case, out))
     if recorded:  # closed already: the only thing left to do is the parent's half, if it was cut off (L7)
         parent = store.parent_case(case, root)
@@ -5020,16 +5116,49 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None) -> O
         raise StoreError(f"cannot close the case: {len(unanswered)} PROBLEM(s) no recipe answers — «{order._short(unanswered[0].text, 60)}»: "
                          f"{HOWTO_ASK}: el done \"{' '.join(summary.split())}\" --howto …", 4)
     summary = " ".join(summary.split())
+    owner_closes = _owner_closes(root, case)
+    ready = _ready_value(_readme_text(case, out))
+    if by == "owner" and not owner_closes:
+        raise StoreError(f"{case.name} closes by el done \"what came out\" — the owner's word closes a top case that asks "
+                         f"two hands, once its agents made it ready", 2)
+    if by == "owner" and not ready:
+        raise StoreError(f"the agents' part comes first — el done \"what came out\" makes {case.name} ready; then the "
+                         f"owner's word closes it: el done --by owner \"his words\"", 4)
+    if owner_closes and by is None:
+        if ready:
+            raise StoreError(f"{case.name} is ready since {ready.split(' · ', 1)[0]} and awaits the owner's word — tell him "
+                             f"what came out; his word said to you: el done --by owner \"his words\" · work goes on: open "
+                             f"a phase and the ready line goes by itself", 4)
+        if howto_text:
+            out.lines += log(case, "DECISION", f"howto: {howto_text}").lines
+        date, _ = _now()
+        tally = _case_tally(case, todo, out)
+        out.lines = log(case, "PHASE", f"дело готово, ждёт слова владельца → {summary}").lines + out.lines  # before the
+        text = _set_state_line(_readme_text(case, out), READY_PREFIX,  # README: State is current as of this event
+                               f"{date} · {summary}" + (f" · acceptance: {tally}" if tally else ""))
+        text = _set_state_line(text, "next: ", None)  # what is next is the owner's word, said by the ready line
+        _write_readme(case, text, out, anchor=True)
+        out.say(f"ready: {case.name} — the agents' part is done; the owner closes it (this case's rule: two hands)",
+                f"tell the owner what came out — his word said to you closes it: el done --by owner \"his words\"")
+        return out
+    owner_words = ""
+    if by == "owner":  # the owner's word closes what the agents made ready: their outcome stays, his words are quoted
+        owner_words = summary
+        if not owner_words:
+            raise StoreError("the owner's words, as he said them: el done --by owner \"…\"", 2)
+        summary = _ready_words(ready) or summary
     if howto_text:
         out.lines += log(case, "DECISION", f"howto: {howto_text}").lines
     date, _ = _now()
     tally = _case_tally(case, todo, out)
     # the case's own line carries how its work was accepted; the parent draws its line about the child from it
-    closed, shown = _closed_line(f"{date} · {summary}" + (f" · acceptance: {tally}" if tally else ""))
+    closed, shown = _closed_line(f"{date} · {summary}" + (f" · acceptance: {tally}" if tally else "")
+                                 + (f" · closed by the owner: «{owner_words}»" if owner_words else ""))
     text = _set_state_line(_readme_text(case, out), "closed: ", shown)
     text = _set_state_line(text, "next: ", None)  # a closed case has no next step — the line would be a lie (2026-09-14)
+    text = _set_state_line(text, READY_PREFIX, None)  # ready is over: the owner closed it
     _write_readme(case, text, out, anchor=True)
-    out.lines = log(case, "PHASE", f"дело закрыто → {summary}").lines + out.lines
+    out.lines = log(case, "PHASE", f"дело закрыто → {summary}" + (f" · слово владельца: «{owner_words}»" if owner_words else "")).lines + out.lines
     _deliver_to_parent(root, case, summary, out)
     out.say(f"closed: {case.name}")
     if coverage:
@@ -5063,6 +5192,7 @@ def case_cancel(root: Path, case: Path, why: str) -> Outcome:
     text = _set_state_line(_readme_text(case, out), "closed: ",
                            _closed_line(f"{date} · снято: {why}" + (f" · acceptance: {tally}" if tally else ""))[1])
     text = _set_state_line(text, "next: ", None)  # nothing is next for a cancelled case
+    text = _set_state_line(text, READY_PREFIX, None)  # a cancel ends the wait for the owner too (Codex, 2026-10-08)
     _write_readme(case, text, out, anchor=True)
     out.lines = log(case, "DECISION", f"дело снято → {why}").lines + out.lines
     _deliver_to_parent(root, case, f"снято: {why}", out)
@@ -5345,42 +5475,97 @@ def relink(case: Path, old: str, new: str) -> Outcome:
     `new` = none: the file is gone for good, or the link was an example written without backticks —
     the link is retired into literal text (`[name](old)` in inline code): the words stay verbatim,
     nothing claims a file any more. Without it a dead journal link would be a line in Order that
-    nothing can close — caught on this tool's own journal within a minute of adding the check."""
+    nothing can close — caught on this tool's own journal within a minute of adding the check.
+    A link may point at a file of the project outside the case (`../../.howto/x.md`): the path is read
+    as Order prints it — from the case — and from here and from the project root (the polygon,
+    2026-10-08: two agents tried both forms of a dead `.howto` link and met «inside the case folder only»)."""
     out = Outcome()
-    old = _case_path(case, old)
-    if new.strip().lower() != "none":
-        new = _case_path(case, new)
-    src = case / old
-    if case.resolve() not in src.resolve().parents:
-        raise StoreError("relink works inside the case folder only", 2)
-    old_rel = src.relative_to(case).as_posix()
-    relocated = (src, case / new) if new.strip().lower() != "none" else None
-    fresh = _fresh_proofs(case, relocated)  # L8: el's rewrites below are not a change of content
-    if new.strip().lower() == "none":
-        if src.exists():
-            raise StoreError(f"{old} exists — a link to it is not dead; to retire the links delete or move the file first", 4)
+    retire = new.strip().lower() == "none"
+    src = _relink_source(case, old)
+    shown = Path(os.path.relpath(src, case)).as_posix()
+    if src.is_dir():
+        raise StoreError(f"{shown} is a folder — relink mends links to a file; a folder moved: el mv old/ new/", 2)
+    if src.exists():
+        raise StoreError(f"{shown} exists — a link to it is not dead; " + (
+            "to retire the links delete or move the file first" if retire else f"to move it and rewrite the links in one go: el mv {old} {new}"), 4)
+    if retire:
+        fresh = _fresh_proofs(case, None)
         touched = _follow_links(case, src, None, out)
         _carry_versions(fresh, out)
         if "README.md" not in " ".join(touched):
             _refresh_readme(case, out)
         n = sum(int(t.rsplit("(", 1)[1].rstrip(")").split()[0]) for t in touched) if touched else 0
-        out.say(f"retired: {old_rel} — {n} link(s) now literal text `[name]({old_rel})`" + (f": {', '.join(touched)}" if touched else " (none pointed at it)"))
+        out.say(f"retired: {shown} — {n} link(s) now literal text `[name]({shown})`" + (f": {', '.join(touched)}" if touched else " (none pointed at it)"))
         return out
-    dst = case / new
-    if src.exists():
-        raise StoreError(f"{old} still exists — to move it and rewrite the links in one go: el mv {old} {new}", 4)
-    if not dst.is_file():
-        raise StoreError(f"{new} is not a file in the case (paths are relative to the case: docs/x.md) — "
-                         f"relink points the links at a file that exists; gone for good or an example: el relink {old} none", 4)
-    if case.resolve() not in dst.resolve().parents:
-        raise StoreError("relink works inside the case folder only", 2)
-    new_rel = dst.relative_to(case).as_posix()
+    dst = next((d for d in _relink_places(case, new) if d.is_file()), None)
+    if dst is None:
+        raise StoreError(f"{new} is not a file of the project (paths as Order prints them, from the case: docs/x.md, "
+                         f"../../.howto/x.md) — relink points the links at a file that exists; gone for good or an example: "
+                         f"el relink {old} none", 4)
+    relocated = (src, dst) if case.resolve() in src.parents and case.resolve() in dst.parents else None
+    fresh = _fresh_proofs(case, relocated)  # L8: el's rewrites below are not a change of content
     touched = _follow_links(case, src, dst, out)
     _carry_versions(fresh, out)
     if "README.md" not in " ".join(touched):
         _refresh_readme(case, out)
-    out.say(f"relinked: {old_rel} → {new_rel}" + (f" · links rewritten: {', '.join(touched)}" if touched else " · no links pointed at it"))
+    new_rel = Path(os.path.relpath(dst, case)).as_posix()
+    out.say(f"relinked: {shown} → {new_rel}" + (f" · links rewritten: {', '.join(touched)}" if touched else " · no links pointed at it"))
     return out
+
+
+def _relink_places(case: Path, given: str) -> List[Path]:
+    """Where a path the agent typed may lie, inside the project: an absolute or case-qualified path (`.cases/<case>/x`)
+    is one place; a relative one is read from the case (as Order prints it), from here and from the project root."""
+    project = _project_root(case).resolve()
+    raw = given.strip()
+    p = Path(raw).expanduser()
+    if p.is_absolute():
+        found = [p.resolve()]
+    else:
+        norm = _case_path(case, raw)
+        found = [(case / norm).resolve()] if norm != raw else list(dict.fromkeys(
+            c.resolve() for c in (case / p, Path.cwd() / p, project / p)))
+    return [c for c in found if c == project or project in c.parents]
+
+
+def _relink_source(case: Path, given: str) -> Path:
+    """The one dead target `given` names. Read two ways (from the case, from the project), the link of this case decides;
+    two linked readings are refused, never both rewritten (Codex, 2026-10-08: an explicit path rewrote another file's links)."""
+    places = _relink_places(case, given)
+    if not places:
+        raise StoreError(f"{given} leads outside the project — relink mends links to files of this project", 2)
+    if len(places) == 1:
+        return places[0]
+    targets = set(_case_link_targets(case))
+    linked = [c for c in places if c in targets]
+    if len(linked) > 1:
+        forms = " · ".join(str(c) for c in linked)
+        raise StoreError(f"{given} names {len(linked)} files the links of this case point at: {forms} — give the one you "
+                         f"mean as an absolute path: el relink <path> …", 2)
+    return linked[0] if linked else places[0]  # no link decides: the reading from the case, as Order prints it
+
+
+def _case_link_targets(case: Path) -> List[Path]:
+    """Every resolved target the case's own files point at — the three files and its documents and phase files."""
+    found: List[Path] = []
+    for name in ("README.md", "TODO.md", "JOURNAL.md"):
+        try:
+            found += order._link_targets(stamp.split(store.read(case, name))[0], case, case)
+        except (StoreError, OSError):
+            continue
+    for f in sorted(case.rglob("*.md")):
+        rel = f.relative_to(case)
+        if any(part.startswith(".") or part in ("node_modules", "legacy") for part in rel.parts):
+            continue
+        if any(store.is_case_dir(case / Path(*rel.parts[:i + 1])) for i in range(len(rel.parts) - 1)):
+            continue
+        if f.parent == case and f.name in store.FILES:
+            continue
+        try:
+            found += order._link_targets(f.read_text(encoding="utf-8", errors="ignore"), f.parent, case)
+        except OSError:
+            continue
+    return found
 
 
 FULL_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(([^)\s]+)\)")
@@ -5410,8 +5595,8 @@ def _follow_links(case: Path, src: Path, dst: Optional[Path], out: Outcome, skip
     literal text): the three owned files through the stamp door (README last, so its derived
     `last:` reads the rewritten journal), then every other markdown file of the case except `skip`
     (a moved file, already rewritten) and the legacy archive. Returns what was touched, for the report."""
-    old_rel = src.relative_to(case).as_posix()
-    new_rel = dst.relative_to(case).as_posix() if dst is not None else None
+    old_rel = Path(os.path.relpath(src, case)).as_posix()  # a project file outside the case climbs: ../../.howto/x.md
+    new_rel = Path(os.path.relpath(dst, case)).as_posix() if dst is not None else None
 
     def rewrite(text: str, base: Path):
         return _rewrite_links(text, base, src, dst) if dst is not None else _retire_links(text, base, src)
@@ -5684,6 +5869,21 @@ def _ended_phase_lines(case: Path, todo: grammar.Todo, journal: Optional[grammar
     return lines
 
 
+def _unready_lines(case: Path, root: Path, todo: grammar.Todo, readme_body: str) -> List[str]:
+    """The owner's case whose every phase ended and every child closed, neither ready nor closed: the moment of decision
+    is named, not forced (the polygon, 2026-10-08, pm-haiku-13: four sessions and two more wrote «awaits the owner» into
+    next: as prose, Order said ✓, and the case hung open with nothing for the owner to close). Two honest exits."""
+    if not todo.phases or any(not p.done for p in todo.phases) or _ready_value(readme_body) or grammar.is_closed(readme_body):
+        return []
+    if not _owner_closes(root, case):
+        return []
+    if any(order.child_status(k)[0] != "closed" for k in order.child_cases(case, _is_project(case))):
+        return []
+    free = max(p.n for p in todo.phases) + 1
+    return [f"every phase ended and the case is not said ready — the agents' part ends with el done \"what came out\" "
+            f"(ready: the owner's word closes it) · more work first: el phase plan {free} \"Name\" --goal \"…\""]
+
+
 def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[grammar.Journal]) -> List[str]:
     parsed = grammar.parse_readme(readme_body)
     links = parsed.sections.get("Links", []) if not parsed.errors else []
@@ -5705,6 +5905,7 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_later_lines(todo_now, journal))              # a thought the boundaries keep passing by (F24)
         lines.extend(_scope_lines(case, todo_now, readme_body, journal))  # a running phase without the owner's scope (F24)
         lines.extend(_unaccepted_lines(case, todo_now, readme_body))  # done by one hand, not yet accepted by another (F23)
+        lines.extend(_unready_lines(case, root, todo_now, readme_body))  # the owner's case ended below, not said ready
     except StoreError:
         pass
     lines.extend(onboarding.order_lines(_project_root(case)))  # S6: a block el cannot keep current (edited or pasted by hand)

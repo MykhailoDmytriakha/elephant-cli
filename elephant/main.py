@@ -72,6 +72,7 @@ EXAMPLES = """examples
   el case use connect-database         switch the hand (like `cf target` / `oc project`)
   el spawn "db unreachable from server" --goal "server cannot reach the database, cause unknown"
   el done "database connected and validated"
+  el done --by owner "принимаю"         a top case the agents made ready: the owner's word closes it (his words, quoted)
   el feedback "done refuses run: with spaces" --actual "exit 2: …" --expected "…" --onboarding "enough"   el is wrong or in the way? report it, never forge the record (el help feedback)
   el order                             what is out of order in the case in hand + the fix for each line
   el order --adopt                     move file descriptions from README Links into the files as `summary:`
@@ -235,8 +236,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("name")
     s.add_argument("--goal", required=True)
 
-    s = sub.add_parser("done", help="close the case in hand (all phases must be closed)", allow_abbrev=False)
-    s.add_argument("summary")
+    s = sub.add_parser("done", help="close the case in hand (all phases must be closed); a top case that asks two hands: the agents' done makes it ready, the owner's word closes it (--by owner)", allow_abbrev=False)
+    s.add_argument("summary", help="what came out; with --by owner: the owner's words, as he said them")
+    s.add_argument("--by", help="owner — the owner's word closes a ready top case (his words are the text)")
     s.add_argument("--howto", help="the recipe question for PROBLEMs no phase close answered — .howto/<verb>.md or \"none: why\" (P8)")
 
     s = sub.add_parser("feedback", help="report an Elephant problem or wish — a file in the elephant-cli clone's feedback/; the owner carries it to the maintainer", allow_abbrev=False)
@@ -284,7 +286,7 @@ SHELL_TRACES = (
 TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact", "howto", "run", "check")
 
 
-RECITE_SKIP = {None, "status", "help", "feedback", "sign", "onboarding", "check", "order", "case", "spawn"}
+RECITE_SKIP = {None, "status", "help", "feedback", "sign", "onboarding", "check", "order", "case", "spawn", "done"}
 
 
 def _written_text(args) -> str:
@@ -641,7 +643,7 @@ def _run(argv=None) -> int:
             elif args.cmd == "spawn":
                 out = commands.spawn(root, case, args.name, args.goal)
             elif args.cmd == "done":
-                out = commands.done(root, case, args.summary, howto=args.howto)
+                out = commands.done(root, case, args.summary, howto=args.howto, by=args.by)
             else:  # pragma: no cover
                 parser.print_usage()
                 return 2
