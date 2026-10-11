@@ -371,8 +371,12 @@ def shell_trace(args) -> Optional[str]:
                 if not m:
                     continue
                 where = val[max(0, m.start() - 15):m.end() + 15].replace("\n", " ")
+                # a number meant as written has its door too (the polygon, 2026-10-10: «WER .172» in single quotes was
+                # refused, and the advice — single quotes — was what the agent had already done)
+                whole = (f"; the number meant as written, quotes already single? write it whole: 0{m.group().strip()} — el "
+                         f"reads that as a number, not a trace" if what.startswith("an orphan decimal") else "")
                 return (f"text not written: {what} at «…{where}…» — a `$…` swallowed by the shell? inside double quotes "
-                        f"`$150` is a variable and vanishes; write the text in SINGLE quotes: el {args.cmd} … '…' "
+                        f"`$150` is a variable and vanishes; write the text in SINGLE quotes: el {args.cmd} … '…'{whole} "
                         f"(a double space is never kept anyway — fix the text and repeat)")
     return None
 
@@ -399,7 +403,11 @@ def run(argv=None) -> int:
     commands._FINGERPRINTS.clear()  # a file is hashed once per command, never trusted from an earlier one
     store.begin()
     try:
-        return _run(argv)
+        code = _run(argv)
+        if store.HAND_NOTE:  # once, whichever command took the hand: a fresh session landed on a case another live session
+            print(f"el: {store.HAND_NOTE}", file=sys.stderr)  # holds (the entry says it under its first line itself)
+            store.HAND_NOTE = ""
+        return code
     except BaseException:
         store.rollback()
         raise
@@ -417,7 +425,18 @@ def _run(argv=None) -> int:
         glued = _glued_option(list(argv) if argv is not None else sys.argv[1:])
         if glued:
             raise StoreError(glued, 2)
-        args = parser.parse_args(argv)  # a wrong call raises StoreError(2) in el's voice — see Parser.error
+        args, extra = parser.parse_known_args(argv)  # a wrong call raises StoreError(2) in el's voice — see Parser.error
+        if extra:
+            if (getattr(args, "cmd", None) == "todo" and getattr(args, "action", None) in ("reopen", "accept", "cancel", "done", "hold")
+                    and not any(e.startswith("-") for e in extra)):  # a reason or a verdict; an item's words are never guessed
+                # the words after an option are the text: `el todo reopen 1.3, 1.4 --by codex "why"` — the list typed
+                # with a space let argparse take «1.4» as the text before --by, and the reason after it was «unrecognized»
+                # (the polygon, 2026-10-10: three Codex reports — the printed example's own order refused)
+                args.text = list(getattr(args, "text", None) or []) + extra
+            else:  # in the voice of the command called, with its examples, as argparse said it before
+                sub = next((a.choices.get(getattr(args, "cmd", None)) for a in parser._actions
+                            if isinstance(a, argparse._SubParsersAction)), None)
+                (sub or parser).error(f"unrecognized arguments: {' '.join(extra)}")
         shown = False  # a bare `el readme` that shows, not writes — a look that refreshes is not a write aimed at the case
         trace = shell_trace(args)
         if trace:

@@ -223,7 +223,10 @@ def resolve_case(root: Path, name: Optional[str]) -> Path:
 # the case it last wrote to, or took (`case new` · `spawn` · `case use`), or first picked up. Kept outside the project,
 # in a temp folder, one line per session and project — not a config, nothing in git, gone with the machine's temp.
 # A harness that gives no session id (EL_SESSION sets one by hand) keeps the old rule: the case a write was last aimed at.
-SESSION_ENVS = ("EL_SESSION", "CODEX_SESSION_ID", "CLAUDE_CODE_SESSION_ID")  # the innermost harness first: Codex run from Claude Code
+# the harness's own id first, the innermost harness first (Codex run from Claude Code); EL_SESSION only where the harness
+# names no session (VS Code Copilot, a terminal by hand) — an agent that sets it inside a harness that names one is the
+# same hand still (the polygon, 2026-10-10: Codex set EL_SESSION, and its own acceptance read «another session»)
+SESSION_ENVS = ("CODEX_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "EL_SESSION")
 # who is writing, as the harness says it (measured 2026-10-05: Claude Code sets CLAUDECODE and CLAUDE_CODE_SESSION_ID,
 # Codex sets CODEX_VERSION and CODEX_SESSION_ID; neither names the model — the agent says it once: `el sign "<model>"`)
 # VS Code sets COPILOT_AGENT=1 in the terminals its Copilot agent runs commands in (microsoft/vscode PR #316267, VS Code
@@ -250,9 +253,9 @@ def clean_part(value: str, limit: int = 60) -> str:
 
 
 def session_id() -> str:
-    """The session this command runs in, as the agent's harness says it (EL_SESSION first; Claude Code sets
-    CLAUDE_CODE_SESSION_ID) — 8 chars, or "" when nothing says. Provenance, not proof: a subagent shares its
-    parent's session, and a variable can be set by hand — so the record says what el saw, never more."""
+    """The session this command runs in, as the agent's harness says it (Codex sets CODEX_SESSION_ID, Claude Code
+    CLAUDE_CODE_SESSION_ID; EL_SESSION names one where the harness does not) — 8 chars, or "" when nothing says.
+    Provenance, not proof: a subagent shares its parent's session — so the record says what el saw, never more."""
     for key in SESSION_ENVS:
         val = re.sub(r"[^A-Za-z0-9]", "", os.environ.get(key) or "")
         if val:
@@ -537,8 +540,45 @@ def hand(root: Path, explicit: Optional[str] = None) -> Path:
     if mine is not None:
         return mine
     picked = max(open_cases, key=freshness)
+    global HAND_NOTE
+    other = _other_holder(root, picked)
+    if other:  # a fresh session lands where another live session works — said, not silent (feedback 2026-10-10)
+        sid, when = other
+        HAND_NOTE = (f"this session had no case in hand and took {picked.name}, where the last write went — another session "
+                     f"({sid}) holds it since {when}; if yours is another: el case use <name> · cases: el case list")
     hold(root, picked)  # picked up once: another session's write no longer moves it
     return picked
+
+
+HAND_NOTE = ""  # said once by main when a fresh session took a case another session holds
+HAND_FRESH = 12 * 3600  # seconds: a hand older than this is a session that has ended — a first guess
+
+
+def _other_holder(root: Path, case: Path) -> Optional[Tuple[str, str]]:
+    """Another session that holds `case` in this space, recently: (its id, «HH:MM» of its last hold) — the newest one."""
+    mine = _hand_file(root)
+    base = Path(os.environ.get("EL_HANDS_DIR") or os.path.join(tempfile.gettempdir(), "elephant-hands"))
+    key = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:12]
+    best = None
+    try:
+        files = list(base.glob(f"*-{key}"))
+    except OSError:
+        return None
+    for f in files:
+        if mine is not None and f == mine:
+            continue
+        try:
+            st = f.stat()
+            if datetime.datetime.now().timestamp() - st.st_mtime > HAND_FRESH:
+                continue
+            target = (root.resolve().parent / f.read_text(encoding="utf-8").strip()).resolve()
+        except (OSError, ValueError):
+            continue
+        if target == case.resolve() and (best is None or st.st_mtime > best[1]):
+            best = (f.name[: -(len(key) + 1)], st.st_mtime)
+    if best is None:
+        return None
+    return best[0], datetime.datetime.fromtimestamp(best[1]).strftime("%H:%M")
 
 
 def stray_files(case: Path) -> List[Path]:

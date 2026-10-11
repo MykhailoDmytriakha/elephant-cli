@@ -4970,8 +4970,15 @@ def _howto_text(case: Path, value: str) -> str:
     if not paths:
         raise StoreError(f'--howto takes a recipe .howto/<verb>.md or "none: why" — not `{value}`', 2)
     project, text = _project_root(case), value
-    for rel in dict.fromkeys(paths):
-        f = project / rel
+    # the path as given, with what stands before `.howto/`: a recipe kept inside a case (an agent whose brief allowed it
+    # only `.cases/`, the polygon 2026-10-10) is found where it is — from the project, then from the case
+    whole_re = re.compile(r"[\w./-]*\.howto/[\w./-]+\.md")
+    links: Dict[str, str] = {}
+    for rel in dict.fromkeys(m.group(0) for m in whole_re.finditer(value)):
+        f = next((b / rel for b in (project, case) if (b / rel).is_file()), project / rel)
+        if not f.resolve().is_relative_to(project.resolve()):  # a recipe of this project, not one outside it (Codex)
+            raise StoreError(f"{rel} is outside this project — a recipe lives in its .howto/ (or a case's): write it there, "
+                             f"then close; nothing repeats → --howto \"none: why\"", 4)
         if not f.is_file():
             raise StoreError(f"{rel} is not there — write the recipe first (first line `when: <the error words>`), then close; "
                              f"nothing repeats → --howto \"none: why\"", 4)
@@ -4979,8 +4986,9 @@ def _howto_text(case: Path, value: str) -> str:
         if not first.startswith("when:"):
             raise StoreError(f"{rel}: the first line must be `when: <the error words>` — that line is what grep finds next time; "
                              f"it reads «{order._short(first, 60)}»", 3)
-        text = text.replace(rel, f"[{f.name}]({os.path.relpath(f, case)})")
-    return text
+        links[rel] = f"[{f.name}]({os.path.relpath(f, case)})"
+    # one pass over the words as given: a path that holds another as its tail is not rewritten by the shorter one (Codex)
+    return whole_re.sub(lambda m: links.get(m.group(0), m.group(0)), text)
 
 
 def _item_block_for_phase_file(case: Path, pf: Path, it: grammar.Item) -> List[str]:
@@ -6771,6 +6779,9 @@ def entry(root: Path, case: Path) -> Outcome:
     if legacy_here:  # a case el cannot read yet: named, not poured onto the screen (a live project, 2026-09-25: 27 KB)
         return _legacy_entry(root, case, names, legacy_here)
     out.say(f"el · case in hand: {' › '.join(names)}", "")
+    if store.HAND_NOTE:  # a fresh session landed where another live session works (feedback 2026-10-10)
+        out.say(f"note: {store.HAND_NOTE}", "")
+        store.HAND_NOTE = ""
     refreshed = onboarding.refresh(_project_root(case))  # the block in CLAUDE.md / AGENTS.md follows the one el ships
     if refreshed:
         out.say(*refreshed, "")

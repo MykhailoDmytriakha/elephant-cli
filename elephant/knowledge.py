@@ -546,7 +546,9 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   another agent writing in the same tree does not move it. `--case <name>` names a case for one command (a write there
   moves the hand, a look does not). A harness that gives el no session id keeps that rule: set EL_SESSION, or pass
   --case. One agent works one case at a time. In a tree the entry names the other open cases by their top: a parent
-  with `(+K open nested)` — its own Links list its children.
+  with `(+K open nested)` — its own Links list its children. A fresh session that lands on a case another live session
+  holds is told so under the entry's first line, with `el case use` to take its own. Where el keeps a session's hand,
+  its locks and walls: the temp folder, never the project (EL_HANDS_DIR · EL_LOCK_DIR move them).
 - Rule of nesting: know what to do → an item N.M; do NOT know the cause / needs its own research /
   longer than a session → `el spawn "name" --goal "…"` — a nested case of the same shape inside
   the parent. Parent and child point at each other with links the editor opens: the parent's phase shows
@@ -901,8 +903,9 @@ records the verdict.
   two) · `[x]` accepted, finished · `[~]` on hold. A legend under the TODO title says so while an item is owed. The
   mark is rendered, not written: `done` makes `[/]`, `accept` makes `[x]`, `reopen` makes `[ ]`. A case without the
   rule keeps `[x]` for done.
-- the session: `done` writes the doer's session under its RESULT (`session: 1a2b3c4d` — EL_SESSION, else the
-  harness's id; Claude Code sets CLAUDE_CODE_SESSION_ID); `accept` compares: another session · clean-context subagent
+- the session: `done` writes the doer's session under its RESULT (`session: 1a2b3c4d` — the harness's own id: Codex
+  CODEX_SESSION_ID, Claude Code CLAUDE_CODE_SESSION_ID; EL_SESSION only where the harness names none — set inside one
+  that does, it changes nothing: one thread playing two hands is one hand, 2026-10-10); `accept` compares: another session · clean-context subagent
   (`--by subagent` in the doer's session) · same session · session not given · the owner's word. Provenance, not proof:
   a subagent shares its parent's session id — and its signature: the model `el sign` gave the session is the parent's, so a
   subagent names its own on the verdict, `EL_MODEL='<its model>' el todo accept …` (else the line says `model not given`).
