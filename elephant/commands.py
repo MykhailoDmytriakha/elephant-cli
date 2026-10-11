@@ -1180,7 +1180,7 @@ def _proof_warnings(phase: grammar.Phase, items: List[grammar.Item], proofs: Lis
         if kind != "file":
             continue
         path = _link_path(proof)
-        if path.endswith(".md") and not path.startswith("../"):
+        if _case_markdown(proof):
             out.warn(f"file:{path} is a markdown inside the case — your own text, not the thing it describes. The proof is "
                      f"what stands behind it: run:\"<command → outcome>\" for a call or a test, file:<source or spec in the "
                      f"project> for code, file:<saved response, log, screenshot> for a result; keep the document as material")
@@ -1197,6 +1197,13 @@ def _proof_warnings(phase: grammar.Phase, items: List[grammar.Item], proofs: Lis
                          f"line carries the file: el todo note {it.ref} --drop {k}")
     if not named:
         return
+
+
+def _case_markdown(proof: str) -> bool:
+    """A file proof that is a markdown inside the case — the agent's own text about the thing, not the thing (2026-09-16):
+    warned at done, and judged at acceptance against its sources by the brief's protocol (2026-10-10)."""
+    path = _link_path(proof)
+    return path.lower().endswith(".md") and not path.startswith("../")  # `.MD` too (Codex, 2026-10-10)
 
 
 def _note_repeats_proof(note: str, proofs: List[Tuple[str, str]]) -> bool:
@@ -3702,14 +3709,39 @@ def _context_goal(readme_body: str) -> str:
     return ""
 
 
+# How a document of the case is judged (the polygon, 2026-10-09, accept-arms-1009: a live digest with a parked result
+# written up as a shipped feature — the brief that judged by the item's words caught it 1 time of 3 when the item was
+# worded weakly, the acceptor that first wrote down from the sources what was closed caught it 3 of 3 under either
+# wording; «re-run every run» on a document sent acceptors re-running the sources' experiments for twenty minutes).
+# Rereading a document checks what is in it; what it lost is seen only by deriving it again from the sources. On the
+# question the item asks (2026-10-10, a control wave: a correct digest of one feature was returned 3 of 3 by acceptors
+# who listed every closed path of the campaign journal it came from — fifteen paths of other questions «missing»).
+DOCUMENT_PROTOCOL = (
+    "  1. BEFORE you open it, open its sources — the files and refs the case goal, the phase, the item, its notes and the "
+    "inputs above name — and write down yourself, on the question this item and the case goal ask: every path that was "
+    "tried and closed on it, with its numbers; the condition for returning to each; the final status of the work (parked · "
+    "shipped · reverted · open); the bars it was held to. A source wider than the question (a campaign's journal) is read "
+    "for this question: the paths of its other questions are not missing here.",
+    "  2. Read what the sources recorded — do not re-run their experiments: the record is what the document is held to.",
+    "  3. Only then open the document and compare: what of your list is missing, what differs, what the document says "
+    "that the sources do not.",
+    "  4. Your verdict text carries both counts — «sources: N closed paths · document: M · missing: …». Anything missing, "
+    "different or unsupported → return it, naming what exactly. Everything there → accept, saying what you compared.")
+
+
+def _brief_path(case: Path, proof: str) -> str:
+    """A file proof as a path from the project folder — where the acceptor stands."""
+    path = (case / _link_path(proof)).resolve()
+    try:
+        return str(path.relative_to(_project_root(case).resolve()))
+    except ValueError:
+        return str(path)
+
+
 def _proof_for_brief(case: Path, kind: str, proof: str) -> str:
     """A proof as the acceptor meets it: a file by its path from the project folder, the rest as recorded."""
     if kind == "file":
-        path = (case / _link_path(proof)).resolve()
-        try:
-            return f"file: {path.relative_to(_project_root(case).resolve())}  (open it)"
-        except ValueError:
-            return f"file: {path}  (open it)"
+        return f"file: {_brief_path(case, proof)}  (open it)"
     if kind == "run":
         return f"run: {proof}  (re-run it and bring what came out now — el recorded it, nobody repeated it)"
     if kind == "ref":
@@ -3785,13 +3817,27 @@ def todo_brief(case: Path, ref: str) -> Outcome:
                     *(f"    - {s.ref} {'✓' if s.done else '✗ cancelled: ' + s.cancel_reason if s.cancelled else 'open'} «{s.text}»"
                       + (f" — fact: {s.fact}" if s.done and s.fact else "") + (f" — accepted: {s.accepted}" if s.accepted else "")
                       for s in it.subs))
-    out.say("How to judge:",
-            "  1. Open every file, re-run every run you safely can, follow every ref you can reach — and say which you could not.",
-            "  2. Hold the result to `why` and to what was expected before the work — not to the doer's words. Words that repeat "
-            "the owner's words prove nothing.",
-            "  3. Something missing, wrong or unproved → return it, naming what exactly. It does what `why` asks and the proofs "
-            "show it → accept, saying what you checked.",
-            "Verdict — run ONE per item from the project folder:")
+    with_doc = [it for it in items if any(k == "file" and _case_markdown(pr) for k, pr in it.evidence)]
+    plain = [it for it in items if it not in with_doc]
+    # each item is judged by its own kind of proof: a range with one document keeps the ordinary steps for the rest
+    # (Codex, 2026-10-10: the whole range lost «hold it to why and to what was expected»)
+    whom = lambda its: f" {_refs(phase, its)}" if with_doc and plain else ""
+    if with_doc:  # a document of the case is held to its sources, derived first (the polygon, accept-arms-1009)
+        docs = list(dict.fromkeys(_brief_path(case, pr) for it in with_doc for k, pr in it.evidence if k == "file" and _case_markdown(pr)))
+        out.say(f"How to judge{whom(with_doc)} — {', '.join(docs)} {'is a document' if len(docs) == 1 else 'are documents'} "
+                f"written in the case: what it says is held to its sources, not to its own words. In this order:",
+                *DOCUMENT_PROTOCOL)
+        if any(not (k == "file" and _case_markdown(pr)) for it in with_doc for k, pr in it.evidence):
+            out.say("  5. The other proofs: open every file, re-run every run you safely can, follow every ref you can reach — "
+                    "and say which you could not.")
+    if plain:
+        out.say(f"How to judge{whom(plain)}:",
+                "  1. Open every file, re-run every run you safely can, follow every ref you can reach — and say which you could not.",
+                "  2. Hold the result to `why` and to what was expected before the work — not to the doer's words. Words that "
+                "repeat the owner's words prove nothing.",
+                "  3. Something missing, wrong or unproved → return it, naming what exactly. It does what `why` asks and the "
+                "proofs show it → accept, saying what you checked.")
+    out.say("Verdict — run ONE per item from the project folder:")
     for it in items:
         reruns = "".join(f' --run "{pr.split("→")[0].strip()} → <what came out now>"' for k, pr in it.evidence if k == "run")
         out.say(f"  el --case {name} todo accept {it.ref} --by <you: codex|claude|gemini|subagent>{reruns} \"what you checked and how\"",

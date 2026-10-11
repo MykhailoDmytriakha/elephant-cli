@@ -863,6 +863,11 @@ records the verdict.
   says came out, the proofs as paths from the project, the two verdict commands. Its first line says which hand reads
   it: done in another session — the task is yours, do it; done in this one — paste it to a clean subagent or the next
   session. No second agent at hand? The owner pastes it into a new chat.
+- a document of the case is judged by deriving, not rereading (the polygon, 2026-10-09): when a proof is a markdown
+  inside the case, the brief asks the acceptor to write down from the sources FIRST — every path tried and closed with
+  its numbers, the condition for returning to each, the final status, the bars — and only then to compare; the
+  sources' experiments are read, not re-run; the verdict carries both counts («sources: N closed paths · document: M ·
+  missing: …»). Rereading checks what is in a document; what it lost shows only when derived again.
 - the verdict — `el todo accept N.M --by codex --run "make test → 12 OK" "what you checked and how"` → under the item
   `accepted: codex · another session · 2026-09-25 · re-ran 1 of 1` and `DECISION · принято N.M: …` with a body line
   `re-run: …` per command; the return — `el todo reopen N.M --by codex "what is missing or wrong"` → the tick and the
