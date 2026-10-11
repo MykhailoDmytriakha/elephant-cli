@@ -196,6 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--check", help="hold only: the command that tells whether the wait is over — el never runs it, the entry names it; `none` takes it away (L4)")
     s.add_argument("--by", help="accept / reopen: who checked — codex · claude · gemini · subagent · owner (F23); `self` is not an acceptance")
     s.add_argument("--run", action="append", help="accept: one per `run:` proof of the item — the command re-run by the second hand and what came out now, joined by → (F23)")
+    s.add_argument("--sample", type=int, metavar="K", help="brief only: el picks K done items of the range at random for a spot check by another hand — written in the journal, not re-rolled while it waits (F23)")
 
     s = sub.add_parser("phase", help="plan · open · close a phase (plan = name the next one without opening it, repeat it to sharpen the goal; close needs RESULT, reflect:, align:)", allow_abbrev=False)
     s.add_argument("action", choices=["plan", "open", "close", "cancel", "note", "agree", "resume", "show"])
@@ -581,7 +582,7 @@ def _run(argv=None) -> int:
                 elif args.action == "accept":
                     out = commands.todo_accept(case, args.ref, text, args.by, runs=args.run or [])
                 elif args.action == "brief":
-                    out = commands.todo_brief(case, args.ref)
+                    out = commands.todo_brief(case, args.ref, sample=args.sample)
                 elif args.action == "cancel":
                     out = commands.todo_cancel(case, args.ref, text)
                 elif args.action == "due":

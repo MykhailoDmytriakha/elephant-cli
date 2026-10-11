@@ -9,6 +9,7 @@ import copy
 import datetime as dt
 import hashlib
 import os
+import random
 import re
 import secrets
 from dataclasses import dataclass, field
@@ -3771,7 +3772,7 @@ def _proof_for_brief(case: Path, kind: str, proof: str) -> str:
     return "owner  (the owner's word — ask the owner if it matters)"
 
 
-def todo_brief(case: Path, ref: str) -> Outcome:
+def todo_brief(case: Path, ref: str, sample: Optional[int] = None) -> Outcome:
     """`el todo brief N.M` — the prompt for a FRESH session that accepts or returns the item (F23; the owner's word,
     2026-09-25: «no second agent here? print the prompt I paste into a new chat»). Drawn from the case, never typed:
     the case goal, the phase goal, the item with the owner's `why`, the promise written before the work (`expect`),
@@ -3780,6 +3781,9 @@ def todo_brief(case: Path, ref: str) -> Outcome:
     out = Outcome()
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)
+    spot = ""
+    if sample is not None:
+        items, spot = _spot_pick(case, phase, items, sample, out)
     _cancelled_refusal(items, "brief")
     open_ = [it for it in items if not it.done]
     if open_:
@@ -3804,7 +3808,7 @@ def todo_brief(case: Path, ref: str) -> Outcome:
                   "below the line.")
     out.say(f"brief · acceptance of {_refs(phase, items)} — {reader}", "---",
             "You accept or return work done in an Elephant case. You were not in the session that did it: judge by the things, "
-            "not by the words.",
+            "not by the words.", *([spot] if spot else []),
             f"project folder: {project}  ·  case: {os.path.relpath(case, project)}")
     goal = _context_goal(readme_body)
     if goal:
@@ -3872,6 +3876,41 @@ def todo_brief(case: Path, ref: str) -> Outcome:
                 "--run \"<command> → not run: why\". A result that differs is a return, not an acceptance.")
     out.say("No `el` where you run? Give the owner the verdict and the reason — the owner records it.")
     return out
+
+
+def _spot_pick(case: Path, phase: grammar.Phase, items: List[grammar.Item], k: int, out: Outcome):
+    """`el todo brief N.A-N.B --sample k`: k done items of the range picked at random and written in the journal; while any
+    of the last sample of the phase waits for its verdict, the same sample is printed again — no re-roll to an easy one."""
+    if k < 1:
+        raise StoreError("--sample takes how many to pick, 1 or more: el todo brief N.A-N.B --sample 6", 2)
+    journal = _journal(case)
+    samples = _spot_samples(journal, phase.n)
+    by_ref = {it.ref: it for it in phase.items}
+    if samples:
+        refs, total, verdicts = samples[-1]
+        waiting = [r for r in refs if r not in verdicts]
+        if waiting:  # the same sample, its judged picks said as judged; a pick back in work waits for its done
+            ready = [by_ref[r] for r in waiting if r in by_ref and by_ref[r].done]
+            in_work = [r for r in waiting if not (r in by_ref and by_ref[r].done)]
+            said = "; ".join(f"{r} {v}" for r, v in verdicts.items())
+            head = (f"SPOT CHECK — el picked these {len(refs)} of {total} done items at random ({', '.join(refs)}); the doer "
+                    f"could not choose them. This sample waits for its verdicts" + (f" (judged: {said})" if said else "")
+                    + (f"; back in work, judged after its done: {', '.join(in_work)}" if in_work else "")
+                    + ". Judge each below: accept confirms, reopen returns. Another engine is the strongest hand.")
+            if not ready:
+                raise StoreError(f"{head} — nothing of the sample is done to judge now", 4)
+            return ready, head
+    pool = list({it.ref: it for it in items if it.done and not it.cancelled and not it.k}.values())
+    if not pool:
+        raise StoreError(f"nothing done in {_refs(phase, items) or 'the range'} to spot-check — a spot check picks among done "
+                         f"items (not sub-items: a sub-item is a step its item's judge sees)", 4)
+    picked = sorted(random.SystemRandom().sample(pool, min(k, len(pool))), key=lambda it: (it.m, it.k))
+    refs = [it.ref for it in picked]
+    out.lines += log(case, "DECISION", f"выборочная проверка фазы {phase.n}: {', '.join(refs)} — {len(picked)} из {len(pool)} "
+                                      f"сделанных, выбрал el случайно; проверяет другая рука", f"p{phase.n}").lines
+    return picked, (f"SPOT CHECK — el picked these {len(picked)} of {len(pool)} done items at random ({', '.join(refs)}); the "
+                    f"doer could not choose them. Judge each: accept confirms, reopen returns — the count rises as how far the "
+                    f"rest can be trusted. Another engine is the strongest hand.")
 
 
 def _returns(journal: Optional[grammar.Journal]) -> Dict[str, List[str]]:
@@ -4082,9 +4121,10 @@ def _acceptance_line(todo: grammar.Todo, readme_body: str, journal: Optional[gra
             span = f"{n}.{same[0]}-{n}.{same[-1]}" if between == set(same) else ", ".join(f"{n}.{m}" for m in same)
     doors = (_second_hand_doors([it for it in owed if f"{it.ref}" == first or it.n == owed[0].n], first, span, journal) if owed
              else f"a fresh session: el todo brief {first} · the owner's word said to you: el todo accept {span} --by owner \"…\"")
+    spots = [t for p in todo.phases if not p.done for t in [_spot_tally(journal, p.n)] if t]
     return (f"acceptance: {_acceptance_tally(done)}" + (f" · returned by an acceptor {by_acceptor}" if by_acceptor else "")
             + (f" · {changed} on a version since changed" if changed else "")  # L8: the verdict was of other bytes
-            + f" — {doors}")
+            + "".join(f" · {t}" for t in spots) + f" — {doors}")
 
 
 RERAN_RE = re.compile(r"\bre-ran (\d+) of \d+")
@@ -4110,6 +4150,108 @@ def _acceptance_tally(items: List[grammar.Item]) -> str:
     reran = sum(int(m.group(1)) for it in acc for m in [RERAN_RE.search(ENGINE_TAIL_RE.sub("", it.accepted))] if m)
     return (f"{len(acc)} of {len(done)} done accepted" + (f" — {tail}" if tail else "")
             + (f" · re-ran {reran} of {runs} run proof(s)" if runs else ""))
+
+
+# A spot check (the owner's word, 2026-10-10: «find what gives a leap in quality»): the leap of the day came from a
+# random handful of accepted digests re-checked by another engine — 0 of 6 could be trusted, and 45 acceptances had not
+# said so. el picks the handful at random — the doer cannot choose it, and cannot know which of its items will be
+# looked at, so every one has to hold (the audit of a ledger, a tax check); the handful is written in the journal and
+# not re-rolled while any of it waits; the verdicts are ordinary accept and reopen, and the count rises as a trust
+# number: «spot check: 6 picked · 3 returned».
+SPOT_RE = re.compile(r"^выборочная проверка фазы (\d+): (.+?) — (\d+) из (\d+) ")
+SPOT_MIN = 8  # accepted items in a phase before Order asks for a spot check — a first guess, to be moved by a live case
+
+
+def _spot_samples(journal: Optional[grammar.Journal], n: int) -> List[Tuple[List[str], int, Dict[str, str]]]:
+    """The spot checks of phase n, oldest first: (picked refs, how many done items they were picked from, ref → verdict
+    «returned» · «confirmed» · «cancelled»), read from the journal in the order it was written — an event's headline and
+    its body together (a long pick or verdict wraps into body lines). The doer's own reopen is a correction, not an
+    acceptor's return (1.52.0): it leaves the pick waiting for a verdict."""
+    samples: List[Tuple[List[str], int, Dict[str, str]]] = []
+    for e in reversed(journal.entries if journal is not None else []):
+        for ev in e.events:
+            if ev.type != "DECISION":
+                continue
+            whole = " ".join([ev.text, *ev.body])
+            m = SPOT_RE.match(whole)
+            if m and int(m.group(1)) == n:
+                samples.append((re.findall(grammar.ITEM_REF, m.group(2)), int(m.group(4)), {}))
+                continue
+            if not samples:
+                continue
+            refs, _, verdicts = samples[-1]
+            back = RETURN_RE.match(whole)
+            if back:
+                if "(приёмка: " not in whole or "та же сессия" in whole:  # only an acceptor's return counts — the doer's
+                    continue                                            # own reopen, with --by or without, is a correction
+                for r in re.findall(grammar.ITEM_REF, back.group(1)):
+                    if r in refs:
+                        verdicts[r] = "returned"
+            elif whole.startswith("принято "):
+                for r in re.findall(grammar.ITEM_REF, whole.split(":", 1)[0]):
+                    if r in refs and r not in verdicts:
+                        verdicts[r] = "confirmed"
+            elif whole.startswith("снято "):  # `DECISION · снято N.M «text», … — why`: nothing left to judge
+                for r in re.findall(rf"(?:^снято |, )({grammar.ITEM_REF}) «", whole.split(" — ", 1)[0]):
+                    if r in refs and r not in verdicts:
+                        verdicts[r] = "cancelled"
+    return samples
+
+
+def _spot_tally(journal: Optional[grammar.Journal], n: int) -> str:
+    """`spot check: 6 picked at random of 42 · 3 returned · 2 confirmed · 1 awaiting a verdict` — the latest of phase n."""
+    samples = _spot_samples(journal, n)
+    if not samples:
+        return ""
+    refs, total, verdicts = samples[-1]
+    returned = sum(1 for v in verdicts.values() if v == "returned")
+    confirmed = sum(1 for v in verdicts.values() if v == "confirmed")
+    cancelled = sum(1 for v in verdicts.values() if v == "cancelled")
+    waiting = len(refs) - returned - confirmed - cancelled
+    return (f"spot check: {len(refs)} picked at random of {total} · {returned} returned · {confirmed} confirmed"
+            + (f" · {cancelled} cancelled" if cancelled else "") + (f" · {waiting} awaiting a verdict" if waiting else "")
+            + (f" (sample {len(samples)})" if len(samples) > 1 else ""))
+
+
+def _spot_due(case: Path, p: grammar.Phase, journal: Optional[grammar.Journal]) -> str:
+    """What a phase owes in spot checks, said with its command — «» when nothing: many accepted and none checked, or a
+    sample still waiting for verdicts. The owner's own word needs none."""
+    nodes = [it for it in p.items if it.done]  # a spot check picks items; a sub-item is a step its item's judge sees
+    acc = [it for it in nodes if it.accepted and not it.accepted.startswith("owner ")]
+    span = (f"{nodes[0].ref}" if len(nodes) == 1 else f"{p.n}.{min(it.m for it in nodes)}-{p.n}.{max(it.m for it in nodes)}") if nodes else ""
+    samples = _spot_samples(journal, p.n)
+    if samples:
+        refs, _, verdicts = samples[-1]
+        waiting = [r for r in refs if r not in verdicts]
+        by_ref = {it.ref: it for it in p.items}
+        ready = [r for r in waiting if r in by_ref and by_ref[r].done]
+        if not waiting:
+            return ""
+        if not ready:  # every waiting pick is back in work: its done comes first, then its verdict
+            return (f"the spot check waits for {', '.join(waiting)}, back in work — the doer ends it first: el todo done "
+                    f"{waiting[0]} <kind> \"what came out\", then its verdict")
+        return (f"the spot check waits for {len(waiting)} verdict(s) — {', '.join(waiting)}: el todo brief {span} --sample "
+                f"{len(refs)} prints the same sample again")
+    if len(acc) < SPOT_MIN:
+        return ""
+    k = min(6, max(3, round(len(nodes) ** 0.5)))
+    return (f"{len(acc)} items accepted, none spot-checked — how far to trust them is not measured: el picks {k} at random "
+            f"for another hand (another engine is the strongest): el todo brief {span} --sample {k}")
+
+
+def _spot_lines(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal]) -> List[str]:
+    """Order: a running phase still being worked whose acceptances are many and unmeasured (an ended phase says it in its
+    close line, first)."""
+    lines = []
+    for p in todo.phases:
+        if p.done or not _phase_file(case, p.n, p.name).exists():
+            continue
+        if p.items and all(it.done or it.cancelled for it in grammar.flat(p.items)):
+            continue  # the ended-phase line names it before the close
+        due = _spot_due(case, p, journal)
+        if due:
+            lines.append(f"phase {p.n}: {due}")
+    return lines
 
 
 def todo_resume(case: Path, ref: str) -> Outcome:
@@ -4890,7 +5032,8 @@ def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]
         head += f" · proofs: {distinct} distinct for {done_n} items ({rel(shared)} ×{proofs.count(shared)})"
     lines = [head]
     if any(it.accepted for it in nodes):  # F23: how the phase was accepted rises with it (feedback 2026-09-29)
-        lines.append(f"- acceptance: {_acceptance_tally(nodes)}")
+        spot = _spot_tally(_journal(case), phase.n)
+        lines.append(f"- acceptance: {_acceptance_tally(nodes)}" + (f" · {spot}" if spot else ""))
     coverage = _goal_promises(phase, goal)
     if coverage:  # the phase's own promise (its goal), decomposed into its items and their proofs; a fork says its side
         def said(slots, ref, members):
@@ -6462,6 +6605,11 @@ def _ended_phase_lines(case: Path, todo: grammar.Todo, journal: Optional[grammar
                          f"accepts first: el todo brief {first} (the owner's word instead: el todo accept {many} --by owner \"…\"); "
                          f"then close: el phase close {p.n} \"what came out\"" + (f" — also: {' · '.join(needs)}{one}" if needs else ""))
             continue
+        spot = _spot_due(case, p, journal)
+        if spot:  # how far to trust the acceptances comes before the close that rests on them
+            lines.append(f"phase {p.n} {p.name}: every item ended ({len(p.items)} done) — before the close rests on its acceptances, "
+                         f"{spot}; then close: el phase close {p.n} \"what came out\"" + (f" — also: {' · '.join(needs)}{one}" if needs else ""))
+            continue
         lines.append(f"phase {p.n} {p.name}: every item ended ({len(p.items)} done) → close it: el phase close {p.n} \"what came out\""
                      + (f" — first: {' · '.join(needs)}{one}" if needs else "")
                      + f" · or add what is missing: el todo add {p.n} \"…\"")
@@ -6497,6 +6645,7 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_ended_phase_lines(case, todo_now, journal, readme_body))  # every item ended: accept, then close (F20, F23)
         lines.extend(_promise_lines(case, todo_now))               # a promised proof nobody works towards (F12)
         lines.extend(_fork_lines(case, todo_now))                  # a fork decided, its other side still open (F12)
+        lines.extend(_spot_lines(case, todo_now, journal))         # many accepted, how far to trust them unmeasured (F23)
         lines.extend(_case_promise_lines(case, todo_now, readme_body))  # the same, one size up: the case's promise (L6)
         lines.extend(_expect_gap_lines(case, todo_now))            # an item of a running phase with no expectation (F22)
         lines.extend(_running_order_lines(case, todo_now))         # the phase in flight is held to the current form

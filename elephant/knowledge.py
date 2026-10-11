@@ -869,6 +869,12 @@ records the verdict.
   supplied), the final status, the bars — and only then to compare; the
   sources' experiments are read, not re-run; the verdict carries both counts («sources: N closed paths · document: M ·
   missing: …»). Rereading checks what is in a document; what it lost shows only when derived again.
+- a spot check (the polygon, 2026-10-10: forty-five acceptances said «accepted», a random six re-checked by another
+  engine said none could be trusted): `el todo brief N.A-N.B --sample K` — el picks K done items at random, writes the
+  pick in the journal and prints the brief for them; the doer cannot choose them, and the same sample is printed again
+  until each has its verdict (accept confirms, reopen returns). The count rises as how far the rest can be trusted —
+  `spot check: 6 picked at random of 42 · 2 returned · 4 confirmed` on entry and in the Digest. Many accepted and none
+  checked: the close line of the phase names it first. Another engine is the strongest hand for it.
 - the verdict — `el todo accept N.M --by codex --run "make test → 12 OK" "what you checked and how"` → under the item
   `accepted: codex · another session · 2026-09-25 · re-ran 1 of 1` and `DECISION · принято N.M: …` with a body line
   `re-run: …` per command; the return — `el todo reopen N.M --by codex "what is missing or wrong"` → the tick and the
