@@ -355,7 +355,8 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   will take in brackets — `[file: docs/x.md] [run: k6 → p95] [owner]` (one; `el todo expect N.M "…"`); at
   `done` el holds the record to it: `expect: 2 of 3 filled — missing [run: …]` · `result:` + proof lines,
   written by `done` only. `todo add … --why "…" --note "…" --expect "…"` sets them at once. why/note/expect
-  are yours and count in the 200 lines; result and proof lines are el's and do not.
+  are yours and count in the 200 lines; result and proof lines are el's and do not. Each pocket has its own
+  command: `el todo edit N.M note "…"` would be the item's new words — el refuses it and names `el todo note`.
 - `fact:` — the fifth pocket: what the item is expected to establish (open) or has established (done); `-` says
   none. Every item of a RUNNING phase says what work is expected (`expect:`) — el warns at add and Order names
   the gaps; a fact is expected only where knowledge is the outcome (el help facts).
@@ -878,7 +879,8 @@ records the verdict.
   strongest check, other blind spots). The hand is the session, the mind is the model. Provider, tool and session come
   from the harness (Claude Code and Codex give them; VS Code Copilot names itself — COPILOT_AGENT — and gives no session);
   no harness names the model — say it once per session: `el sign "Opus 5.5"` (`--as "Provider Tool"` for a harness el
-  does not know; bare `el sign` shows the signature). No session id from the harness: name one first, in the terminal
+  does not know; bare `el sign` shows the signature); said after the first done, it fills this session's `model ?`
+  lines too (a subagent's acceptance keeps its own: its model is what it said on the call). No session id from the harness: name one first, in the terminal
   you keep — `export EL_SESSION=<8 letters or digits> && el sign "Gemini 3.8 Flash"` (el prints the line with a fresh
   name); `EL_SESSION=x el sign …` lasts one command and the next done would not find it (2026-10-06).
   Who did an item is read from its signature, not guessed from the journal; an item done before 1.38.0 reads as before.

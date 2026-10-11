@@ -489,6 +489,8 @@ def _run(argv=None) -> int:
             return 0
         if args.cmd == "sign":  # by the session, not the project: it works before the first case
             out = commands.sign(args.model, args.who)
+            for w in out.warnings:  # a fill goes through the TODO door, and what the door repaired is said (Codex, 2026-10-10)
+                print(f"warning: {w}", file=sys.stderr)
             print("\n".join(out.lines))
             return 0
         root = store.find_root()
@@ -534,6 +536,9 @@ def _run(argv=None) -> int:
                 text = " ".join(parts)
                 refusal = commands.later_refusal(args.ref, args.action)
                 if refusal is not None:  # a line of the general list takes words and pockets; the rest after it is in a phase
+                    raise refusal
+                refusal = commands.pocket_word_refusal(args.action, args.ref, parts)
+                if refusal is not None:  # `edit 1.6 note '…'` means the note, not new words for the item (2026-10-10)
                     raise refusal
                 if args.action == "add":
                     out = commands.todo_add(case, args.ref, text, args.before, why=args.why or "", notes=args.note or [],

@@ -896,6 +896,10 @@ def _split_suggestion(text: str, add: str, note: str) -> str:
     if grammar.visible_len(rest) > grammar.POCKET_CHARS:  # the rest has no ready place: no head is offered without it
         return (f"  the rest after the boundary of meaning is too long for a note: a cut there would lose «{order._short(rest, 40)}» "
                 f"— it goes to a file in the case, linked")
+    slot = grammar.EXPECT_SLOT_RE.search(rest)
+    if slot:  # a proof slot in a goal is its promise: moved into a note it is dropped, and the phase opens promising nothing
+        return (f"  no ready cut: the words after the boundary of meaning carry {slot.group(0)} — a promise stays where it is "
+                f"written, not in a note: shorten the words around it")  # (feedback 2026-10-10)
     if head.startswith("-") or rest.startswith("-"):  # argparse would take it for an option: the command would not run
         return _cut_loss(text, grammar.TODO_ITEM_CHARS, " and the split would start with `-`")
     quote = lambda t: "'" + t.replace("'", "'\\''") + "'"  # single quotes: the shell leaves `$` and `>` alone, `'` kept as typed
@@ -2785,6 +2789,67 @@ LATER_WORDS = ("later", "backlog", "pool", "general")
 LATER_ACTIONS = ("edit", "why", "note", "cancel", "drop", "move", "show")
 
 
+POCKET_DOORS = ("why", "note", "expect", "fact")  # the pockets the agent writes; `result:` is done's
+POCKET_COLON_RE = re.compile(r"(why|note|expect|fact):\s*(.+)", re.I | re.S)
+
+
+def pocket_word_refusal(action: str, ref: str, parts: List[str]) -> Optional[StoreError]:
+    """`el todo edit 1.6 note '…'` (feedback 2026-10-10): the agent meant the item's note, el took «note …» as the item's
+    new words — a short one replaced the item text with exit 0, a long one was refused on length with a suggestion that
+    kept the mistake. A pocket's name standing as a word of its own before the text (or alone), or `note: …` as the
+    pocket line reads in TODO, is the pocket: refused before anything is written, with the pocket's own command — printed
+    only where it works for this ref, as the Codex rounds of the same day showed (Later lines, lists, a text the shell
+    would hand el as an option). The item's words that happen to begin with such a word pass as one quoted text."""
+    if action not in ("edit", "add") or not parts:
+        return None
+    word = parts[0].rstrip(":").lower()
+    m = POCKET_COLON_RE.fullmatch(parts[0])
+    if word in POCKET_DOORS:
+        rest, colon = " ".join(parts[1:]).strip(), parts[0].endswith(":") or len(parts) == 1
+    elif m:  # `note: hello` — alone, or followed by more words (Codex, 2026-10-10)
+        word, rest, colon = m.group(1).lower(), " ".join([m.group(2).strip(), *parts[1:]]).strip(), True
+    else:
+        return None
+    # `1.1 , 1.2` and `1.1 – 1.2` printed back in the one spelling main gathers and every list door takes (Codex, 2026-10-10)
+    refs = [re.sub(r"\s*[-–]\s*", "-", r.strip()) for r in ref.split(",") if r.strip()]
+    ref = ", ".join(refs) or ref.strip()
+    item_like = refs and all(re.fullmatch(r"\d+\.\d+(?:\.\d+)?(?:-\d+(?:\.\d+){0,2})?|[Ll]\d+", r) for r in refs)
+    many = len(refs) > 1 or any("-" in r for r in refs)  # a list or a range N.A-N.B
+    dash = rest.startswith("-")  # argparse takes a quoted `--drop=1` for an option: no printed command may carry it
+    text = '"…"' if dash or not rest else _q(rest)
+    one = refs[0].split("-")[0] if refs else ref
+    # the item's own words go back through the same action only where that action takes this ref: edit takes one item,
+    # add takes a phase, `later` or an item to put a sub-item under (not a sub-item: one level down, F25)
+    takes = (re.fullmatch(r"\d+\.\d+(?:\.\d+)?|[Ll]\d+", one) if action == "edit" else
+             re.fullmatch(r"\d+|later|\d+\.\d+", one, re.I))
+    own = ("the item's own words that begin so: write them in other words" if colon else
+           f"the item's own words that begin so: el todo {action} {one} {_q(' '.join(parts))} — one quoted text"
+           if takes and not many and not parts[0].startswith("-") else "")
+    own = f" · {own}" if own else ""
+    begin = f" · the {word} starts with `-`, which the shell hands el as an option: begin it with a word" if dash else ""
+    if item_like:
+        later = [r for r in refs if r[0] in "Ll"]
+        phases = {r.split(".")[0] for r in refs if r[0] not in "Ll"}
+        if later and word in ("expect", "fact"):  # a Later line takes words, why and note (F24)
+            door = f"a Later line takes no {word}: el todo move {later[0]} N, then el todo {word} N.M {text}"
+        elif many and (word != "note" or later or len(phases) > 1):  # one note under items of ONE phase at once
+            door = f"el todo {word} {one} {text} — one item at a time"
+        else:
+            door = f"el todo {word} {ref} {text}" + (" (a new note line; rewrite note K: --edit K)" if word == "note" else "")
+        what = "edit replaces the item's text" if action == "edit" else f"add {ref} makes a sub-item under it"
+        return StoreError(f"`{word}` is a pocket under {ref}, not the item's words — {what}, so nothing was written{own}{begin} · "
+                          f"the {word}: {door}", 2)  # the door last: an agent reading one end gets the way through
+    if re.fullmatch(r"\d+", ref):
+        doors = f"a new item with its {word}: el todo add {ref} \"…\" --{word} {text}"
+        if word == "note":
+            doors = f"the phase's note: el phase note {ref} {text} · {doors}"
+    elif word in ("why", "note"):
+        doors = f"a new line with its {word}: el todo add {ref} \"…\" --{word} {text}"
+    else:
+        doors = f"a Later line takes no {word} — it comes when the line moves into a phase"
+    return StoreError(f"`{word}` is a pocket, not an item's words, so nothing was written{own}{begin} · {doors}", 2)
+
+
 def later_refusal(ref: str, action: str) -> Optional[StoreError]:
     """`el todo <action> Lk` for an action a Later line does not take: the refusal with the move that makes it an item."""
     if LATER_REF_RE.fullmatch(ref.strip()) and action not in LATER_ACTIONS:
@@ -3258,6 +3323,9 @@ def _sign_parse(line: str) -> Tuple[str, str, str]:
     return clean(m.group("who"), "harness ?"), clean(m.group("model"), "model ?"), clean(m.group("sid"), "?")
 
 
+ENGINE_WORDS = ("another engine", "another model", "same model", "model not given", "doer not signed", "harness not given")
+
+
 def _engine_word(doer: str, acceptor: Tuple[str, str, str], lang: str = "en") -> str:
     """How independent the second hand is, by mind (the owner's word, 2026-10-05): another engine (another provider) ·
     another model · the same model — or why el cannot tell. The hand is the session; the mind is the model."""
@@ -3296,7 +3364,7 @@ NO_SESSION = ("this harness gives el no session id: the export names one, and it
 
 def _sign_hint() -> str:
     return (f"el does not know your model — say it once per session: {_sign_command()} (provider, tool and session el takes "
-            f"from the harness; the model goes into the done: and accepted: lines)" + ("" if store.session_id() else f" · {NO_SESSION}"))
+            f"from the harness; the model goes into the done: and accepted: lines, this session's earlier ones too)" + ("" if store.session_id() else f" · {NO_SESSION}"))
 
 
 def sign(model: Optional[str], who: Optional[str] = None) -> Outcome:
@@ -3320,11 +3388,131 @@ def sign(model: Optional[str], who: Optional[str] = None) -> Outcome:
     line = f"{w or 'harness ?'} · {m or 'model ?'} · session {sid or '?'}"
     out.say((f"signed: {line} — done: and accepted: lines carry it from now on" if model is not None
              else f"signature: {line} — what done: and accepted: lines would carry now"))
+    filled = _fill_session_model(m, out) if model is not None and m else []
+    if filled:
+        out.say(f"  filled: {sum(n for _, n in filled)} line(s) this session wrote before it named its model — "
+                + " · ".join(f"{rel} {n}" for rel, n in filled))
     if not m and hints.enabled():
         out.say("  " + _sign_hint())
     if not w:
         out.say(f"  el does not know this harness — name it: {_sign_command(m or '<model>', '<Provider Tool>')}")
     return out
+
+
+def _fill_session_model(model: str, out: Outcome) -> List[Tuple[str, int]]:
+    """A session whose first done came before `el sign` kept `model ?` on that line for good (feedback 2026-10-10; on
+    disk: 21 sessions named their model after 62 such lines, half of them in closed phases' files) — the model said one
+    call later, and the only fix a hand edit the stamp refuses. The session is one hand and one mind: `el sign` fills
+    this session's `model ?` (and `harness ?`, when `--as` names it) in the done: and accepted: lines of every case in
+    the space — TODO through its door, the items of the closed phases' files — and says the engine word of an
+    acceptance again. A subagent's acceptance keeps its own line: its mind is what it said on the call, never the
+    session's (1.52.0). A file without this session's hole is not opened through the door at all (Codex, 2026-10-10:
+    loading a TODO that needed nothing rebuilt someone's hand edit); other sessions' lines are never touched. A session
+    is told apart by its id as written on the line — eight characters, as everywhere el compares hands: two sessions
+    sharing that prefix are one hand to el here as in acceptance (a random harness id makes it rare; accepted, not fixed)."""
+    who, _, sid = store.signature()
+    if not sid:
+        return []
+    try:
+        root = store.find_root()
+    except StoreError:
+        return []
+    sid_ = re.escape(sid)
+    # `--as` names the harness: a `harness ?` of this session is filled too, with the model or after it (Codex, 2026-10-10)
+    blank = re.compile(rf"(?<![^\s·])harness \? · (?=[^·]+ · session {sid_}(?: · |$))")
+    hole = re.compile(rf" · model \? · session {sid_}(?= · |$)")
+    acc_tail = re.compile(rf" · (?:{'|'.join(ENGINE_WORDS)}): (?P<hw>[^·]+?) · (?P<model>[^·]+?) · session (?P<sid>[^\s·]+)$")
+    subagent = SESSION_WORDS["subagent"][0]
+    named = f"{model} · session {sid}"  # the agent's words, put in literally — never read as a pattern (Codex, 2026-10-10)
+
+    def fill_done(val: str) -> str:
+        val = blank.sub(lambda _: f"{who} · ", val) if who else val
+        return hole.sub(lambda _: f" · {named}", val)
+
+    def fill_accepted(val: str, doer: str, doer_filled: bool) -> str:
+        """The acceptor's own `model ?` is filled when it is this session's and not a subagent's; the engine word is said
+        again whenever either side changed — a doer filled now against a model said on the call is `same model` too."""
+        m = acc_tail.search(val)
+        if not m:
+            return val
+        parts = val.split(" · ")
+        mine = (m.group("sid") == sid and not (len(parts) > 1 and parts[1] == subagent)
+                and (m.group("model") == "model ?" or (m.group("hw") == "harness ?" and bool(who))))
+        if not mine and not doer_filled:
+            return val
+        hw, a_model = m.group("hw"), m.group("model")
+        if mine:
+            hw, a_model = (who if hw == "harness ?" and who else hw), (model if a_model == "model ?" else a_model)
+        word = _engine_word(doer, ("" if hw == "harness ?" else hw, "" if a_model == "model ?" else a_model, m.group("sid")))
+        return f"{val[:m.start()]} · {word}: {hw} · {a_model} · session {m.group('sid')}"
+
+    holes = rf"model \? · session {sid_}" + (rf"|harness \? · [^·]+ · session {sid_}" if who else "")
+    hole_line = re.compile(rf"^\s*- (?:done: |accepted: (?!.* · {re.escape(subagent)} · )).*(?:{holes})(?= · |$)", re.M)
+
+    def holds(path: Path) -> bool:
+        """Only a signature line of this session that el fills counts — the same words in a note are the agent's text, and
+        a subagent's hole is its own (Codex, 2026-10-10); a file el cannot read is not this command's to repair."""
+        try:
+            return bool(hole_line.search(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            return False
+
+    filled: List[Tuple[str, int]] = []
+    for case in store.all_cases(root):
+        todo: Optional[grammar.Todo] = None
+        if holds(store.file_path(case, "TODO.md")):  # this session's hole: through the door, which says what it repaired
+            try:
+                todo = _todo(case, out)
+            except StoreError:
+                todo = None
+            n = 0
+            for node in (x for p in (todo.phases if todo else []) for it in p.items for x in (it, *it.subs)):
+                done_by = fill_done(node.done_by) if node.done_by else ""
+                accepted = fill_accepted(node.accepted, done_by, done_by != node.done_by) if node.accepted else ""
+                n += (done_by != node.done_by) + (accepted != node.accepted)
+                node.done_by, node.accepted = done_by, accepted
+            if n:
+                out.absorb(_write_todo(case, todo))
+                filled.append((f"{case.name}/TODO.md", n))
+        if todo is None:  # nothing of this session in TODO: read it without the door, only to know which phases closed
+            try:
+                todo = grammar.parse_todo(stamp.split(store.read(case, "TODO.md"))[0])
+            except (StoreError, OSError, ValueError):  # unreadable bytes are the case's own trouble: el check names it
+                todo = None
+            todo = todo if todo is not None and not todo.errors else None
+        if todo is not None:
+            files = [_phase_file(case, p.n, p.name) for p in todo.phases if p.done]
+        else:  # TODO does not parse (a stray line, not this command's to repair): a closed phase's file says so itself —
+            # el writes `## Items at close` (or `at cancel`) only when it closes one (Codex, 2026-10-10)
+            files = [f for f in sorted((case / "phases").glob("*.md")) if (case / "phases").is_dir()
+                     and re.search(r"^## Items at (?:close|cancel)$", f.read_text(encoding="utf-8", errors="replace"), re.M)]
+        for pf in files:  # a closed phase's file keeps its items; an open one is the agent's page, not el's record
+            if not holds(pf):
+                continue
+            try:
+                lines, doer, doer_filled, section, n = pf.read_text(encoding="utf-8").split("\n"), "", False, "", 0
+            except (OSError, ValueError):
+                continue
+            for i, ln in enumerate(lines):
+                if ln.startswith("## "):
+                    section = ln[3:].strip()
+                    continue
+                m = re.fullmatch(r"(\s*- )(done|accepted): (.*)", ln)
+                if section not in ("Items at close", "Items at cancel") or not m:
+                    if re.match(r"\s*- \d+\.\d+", ln):
+                        doer, doer_filled = "", False  # the next item: its own doer
+                    continue
+                if m.group(2) == "done":
+                    val = fill_done(m.group(3))
+                    doer, doer_filled = val, val != m.group(3)
+                else:
+                    val = fill_accepted(m.group(3), doer, doer_filled)
+                if val != m.group(3):
+                    lines[i], n = f"{m.group(1)}{m.group(2)}: {val}", n + 1
+            if n:
+                store.write_file(pf, "\n".join(lines))
+                filled.append((f"{case.name}/phases/{pf.name}", n))
+    return filled
 
 
 def _session_word(status: str, lang: str = "en") -> str:
@@ -3833,7 +4021,7 @@ def _acceptance_line(todo: grammar.Todo, readme_body: str, journal: Optional[gra
 
 RERAN_RE = re.compile(r"\bre-ran (\d+) of \d+")
 # L8: the tail `accept` adds — `· another engine: <signature>` — is the acceptor's identity, never read as the verdict
-ENGINE_TAIL_RE = re.compile(r" · (?:another engine|another model|same model|model not given|doer not signed|harness not given): .*$")
+ENGINE_TAIL_RE = re.compile(rf" · (?:{'|'.join(ENGINE_WORDS)}): .*$")
 
 
 def _acceptance_tally(items: List[grammar.Item]) -> str:
