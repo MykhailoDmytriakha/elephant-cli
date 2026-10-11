@@ -2,6 +2,7 @@
 import argparse
 import os
 import re
+import shlex
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -50,7 +51,7 @@ EXAMPLES = """examples
   el sign "Opus 5.5"                     this session names its model once — done: and accepted: lines sign provider · tool · model · session
   export EL_SESSION=3f9a2c1d && el sign "Gemini 3.8 Flash"   a harness with no session id (VS Code Copilot): name the session first, in the terminal you keep
   el todo brief 2.3                     the prompt for a FRESH session that accepts or returns 2.3 — a new chat, Codex, a clean subagent (el help acceptance)
-  el todo accept 2.3 --by codex --run "k6 → p95 810 ms" "opened k6.txt too" · el todo reopen 2.3 --by codex "cold cache: 1400 ms"   the second hand re-runs each run: proof (F23)
+  el todo accept 2.3 --by codex --run "k6 → p95 810 ms" "opened k6.txt too" · el todo reopen 2.3 --by codex --run "k6 → p95 1400 ms" "cold"   the second hand re-runs each run: proof (F23)
   el todo add later "cache warm-up on deploy" · el todo move L3 5 · el todo move 4.7 later   the general list: not for this phase, formed at the boundary (F24)
   el phase open 5 --why "the pipeline blocks the migration" · el phase close 4 "…" --rest later · el phase agree 5 "only the cache"   order found late · a dead end · the owner's scope
   el phase open 7 "Lease" --goal "the lease signed [owner]" --why "the furniture arrives on 10.10"   a detour: the phase in flight pauses [~] and resumes by itself when 7 ends (F26)
@@ -169,10 +170,22 @@ class Parser(argparse.ArgumentParser):
         raise StoreError(usage_error(prog, message), 2, recovery=usage_recovery(prog))
 
 
+class _OneCase(argparse.Action):
+    """`--case` names the one case a call acts on. Named twice with two names, the call is refused — argparse alone would
+    take the last in silence (Codex review, 2026-10-11)."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        prev = getattr(namespace, self.dest, None)
+        if prev is not None and prev != values:
+            raise StoreError(f"--case names {prev} and {values} — one call acts on one case: keep one "
+                             f"(el --case <name> <command> …)", 2)
+        setattr(namespace, self.dest, values)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = Parser(prog="el", description="the write door for .cases/ — rules: el help files · order · limits",
                epilog=EXAMPLES, formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False)
-    p.add_argument("--case", help="case name or unique suffix (default: EL_CASE, the case this session holds, or the freshest open case)")
+    p.add_argument("--case", action=_OneCase, help="case name or unique suffix (default: EL_CASE, the case this session holds, or the freshest open case)")
     p.add_argument("--version", action="version", version=f"elephant {__version__}")
     sub = p.add_subparsers(dest="cmd")
 
@@ -195,7 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--drop", type=int, metavar="K", help="note only: remove note K")
     s.add_argument("--check", help="hold only: the command that tells whether the wait is over — el never runs it, the entry names it; `none` takes it away (L4)")
     s.add_argument("--by", help="accept / reopen: who checked — codex · claude · gemini · subagent · owner (F23); `self` is not an acceptance")
-    s.add_argument("--run", action="append", help="accept: one per `run:` proof of the item — the command re-run by the second hand and what came out now, joined by → (F23)")
+    s.add_argument("--run", action="append", help="accept · reopen: one per `run:` proof of the item — the command re-run by the second hand and what came out now, joined by → (F23)")
     s.add_argument("--sample", type=int, metavar="K", help="brief only: el picks K done items of the range at random for a spot check by another hand — written in the journal, not re-rolled while it waits (F23)")
 
     s = sub.add_parser("phase", help="plan · open · close a phase (plan = name the next one without opening it, repeat it to sharpen the goal; close needs RESULT, reflect:, align:)", allow_abbrev=False)
@@ -270,6 +283,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--as", dest="who", help="«Provider Tool» for a harness el does not know")
     s = sub.add_parser("help", help="examples; `el help <topic>` opens a knowledge dose", allow_abbrev=False)
     s.add_argument("topic", nargs="?")
+    # `--case` typed after the command is the same option (a live report, 2026-10-11: `el log DECISION "…" --case <name>`
+    # met «unrecognized arguments» three times in one session) — argparse reads it there, so a value, `--` and a missing
+    # value are read as everywhere else; _run joins it with the one before the command
+    for cmd in {id(c): c for c in sub.choices.values()}.values():
+        cmd.add_argument("--case", dest="case_after", action=_OneCase, default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     return p
 
 
@@ -341,6 +359,42 @@ def _invoked(argv: List[str]) -> str:
             continue
         return tok
     return ""
+
+
+# The options of a command that only some actions read. One given to an action that does not read it is refused before
+# anything is written, never dropped (three Codex acceptors, 2026-10-11: `todo reopen --run "…"` answered exit 0 and the
+# re-run was gone; an argument el takes and loses is a record that lies by silence — `done --run`, `accept --sample`,
+# `phase open --reflect` were lost the same way).
+OPTION_ACTIONS = {
+    "todo": {"before": ("add",), "why": ("add",), "note": ("add",), "expect": ("add",), "fact": ("add", "done"),
+             "edit": ("note",), "drop": ("note",), "check": ("hold",), "by": ("accept", "reopen"),
+             "run": ("accept", "reopen"), "sample": ("brief",)},
+    "phase": {"goal": ("plan", "open"), "why": ("open",), "reflect": ("close",), "align": ("close",), "rest": ("close",),
+              "howto": ("close",), "edit": ("note",), "drop": ("note",)},
+    "case": {"goal": ("new",), "root": ("new",), "all": ("list",)},  # Codex acceptance: `case cancel --goal …` closed the case
+    "readme": {"file": (None,)},  # None — the bare call: `el readme --file x` writes, `readme set … --file x` dropped it
+}
+BARE = {"todo": "shows the plan", "readme": "writes the README"}
+OPTION_DOORS = {("todo", "done", "run"): 'the doer\'s proof is a kind: el todo done N.M run:"<command → outcome>" "what came out"',
+                ("todo", "done", "by"): "the doer is signed by its session (el sign); --by names the second hand"}
+
+
+def _unused_option(args) -> Optional[StoreError]:
+    table = OPTION_ACTIONS.get(getattr(args, "cmd", None) or "", {})
+    action = getattr(args, "action", None)
+    for name, takers in table.items():
+        value = getattr(args, name, None)
+        if action in takers or value is None or value is False or value == []:  # a switch not given reads False
+            continue
+        readers = " · ".join(f"el {args.cmd} {t}" if t else f"bare el {args.cmd}" for t in takers)
+        if action is None:  # a bare `el todo` shows the plan (Codex review, 2026-10-11: `el todo --run …` showed it, the run was gone)
+            return StoreError(f"bare el {args.cmd} {BARE.get(args.cmd, 'is its own call')} and takes no --{name} — nothing "
+                              f"was written; --{name} is read by {readers}", 2, recovery=f"el {args.cmd} -h")
+        door = OPTION_DOORS.get((args.cmd, action, name), "")
+        return StoreError(f"el {args.cmd} {action} does not take --{name} — nothing was written; --{name} is read by "
+                          f"{readers}" + (f"; {door}" if door else f"; without it: the same call minus --{name}"), 2,
+                          recovery=f"el {args.cmd} -h")
+    return None
 
 
 def _glued_option(argv: List[str]) -> Optional[str]:
@@ -426,6 +480,12 @@ def _run(argv=None) -> int:
         if glued:
             raise StoreError(glued, 2)
         args, extra = parser.parse_known_args(argv)  # a wrong call raises StoreError(2) in el's voice — see Parser.error
+        after = getattr(args, "case_after", None)
+        if after is not None:  # --case after the command: the call's own case, as before it
+            if args.case is not None and args.case != after:
+                raise StoreError(f"--case names {args.case} and {after} — one call acts on one case: keep one "
+                                 f"(el --case <name> <command> …)", 2)
+            args.case = after
         if extra:
             if (getattr(args, "cmd", None) == "todo" and getattr(args, "action", None) in ("reopen", "accept", "cancel", "done", "hold")
                     and not any(e.startswith("-") for e in extra)):  # a reason or a verdict; an item's words are never guessed
@@ -436,7 +496,13 @@ def _run(argv=None) -> int:
             else:  # in the voice of the command called, with its examples, as argparse said it before
                 sub = next((a.choices.get(getattr(args, "cmd", None)) for a in parser._actions
                             if isinstance(a, argparse._SubParsersAction)), None)
-                (sub or parser).error(f"unrecognized arguments: {' '.join(extra)}")
+                words = "" if any(e.startswith("-") for e in extra) else (
+                    " — words after an option are not joined to the text: put the text in one pair of quotes, before or "
+                    "after the options")  # an item's words are never guessed (Codex review, 2026-10-11: `add 1 a --case x b`)
+                (sub or parser).error(f"unrecognized arguments: {' '.join(extra)}{words}")
+        unused = _unused_option(args)
+        if unused is not None:
+            raise unused
         shown = False  # a bare `el readme` that shows, not writes — a look that refreshes is not a write aimed at the case
         trace = shell_trace(args)
         if trace:
@@ -597,7 +663,7 @@ def _run(argv=None) -> int:
                 elif args.action == "resume":
                     out = commands.todo_resume(case, args.ref)
                 elif args.action == "reopen":
-                    out = commands.todo_reopen(case, args.ref, text, by=args.by)
+                    out = commands.todo_reopen(case, args.ref, text, by=args.by, runs=args.run or [])
                 elif args.action == "accept":
                     out = commands.todo_accept(case, args.ref, text, args.by, runs=args.run or [])
                 elif args.action == "brief":
@@ -696,9 +762,9 @@ def _run(argv=None) -> int:
         if recital:  # the command keeps its last line — the one a `tail -1` reader takes (Codex, 2026-10-07)
             last = max((i for i, ln in enumerate(out.lines) if ln.strip()), default=len(out.lines))
             out.lines[last:last] = recital
-        for w in out.warnings:
+        for w in _carry_case(list(out.warnings), args):
             print(f"warning: {w}", file=sys.stderr)
-        print("\n".join(out.lines))
+        print("\n".join(_carry_case(out.lines, args)))
         return 0
     except StoreError as e:
         restored = store.rollback()  # the refusal is whole: what this command wrote before it is put back
@@ -715,6 +781,7 @@ def _run(argv=None) -> int:
                 known = None
             if known:
                 lines[-1:-1] = [f"  {known}"]
+        lines = _carry_case(lines, args)
         if args is not None and args.cmd in (None, "status"):
             # the entry explains itself on stdout (feedback #4) — and only there: printed to both streams,
             # a terminal with 2>&1 showed the same refusal twice, as two failures (feedback 2026-09-14)
@@ -724,6 +791,24 @@ def _run(argv=None) -> int:
         else:
             print("\n".join(lines), file=sys.stderr)
         return e.code
+
+
+CASE_COMMANDS = ("todo", "phase", "log", "readme", "done", "check", "order", "facts", "mv", "relink", "spawn", "status",
+                 "migrate", "case cancel")
+CARRY_RE = re.compile(r"(?<![\w/.-])el (?=(?:" + "|".join(re.escape(c) for c in CASE_COMMANDS) + r")\b(?!:))")  # not `el done:` — a label
+
+
+def _carry_case(lines: List[str], args) -> List[str]:
+    """`--case` acts on one call (1.60.0), so a command el prints in the answer to such a call names the same case —
+    or, run as printed, it acts on the case in hand, another one (Codex acceptance, 2026-10-11: the recovery of an
+    accept refused under `--case` accepted an item of the other case). Commands that already name a case are left as
+    they are; help, feedback, sign and the like act on no case."""
+    name = getattr(args, "case", None) if args is not None else None
+    if not name or getattr(args, "cmd", None) not in (None, *{c.split()[0] for c in CASE_COMMANDS}):
+        return lines
+    word = name if re.fullmatch(r"[\w.@+/-]+", name) else shlex.quote(name)
+    opt = f"--case={word}" if name.startswith("-") else f"--case {word}"
+    return [CARRY_RE.sub(f"el {opt} ", ln) for ln in lines]
 
 
 NAMES_A_COMMAND = re.compile(r"\bel (?:--[a-z]+ \S+ )?[a-z]")  # a line that names an el command — a door

@@ -124,7 +124,8 @@ class ThePhaseCloseNamesTheDoor(Base):
         code, out, err = self.close_a_phase()
         self.assertEqual(code, 0, err)
         line = next(ln for ln in out.split("\n") if ln.startswith("knowledge: does a document"))
-        self.assertIn('el readme add context "knowledge: [name](path) — what it holds"', line)
+        # a call named by --case gets its doors with the same --case (2026-10-11: --case acts on one call)
+        self.assertIn('readme add context "knowledge: [name](path) — what it holds"', line)
         self.assertIn("docs/doors.md", line)
 
     def test_a_case_that_named_its_knowledge_is_not_asked(self):

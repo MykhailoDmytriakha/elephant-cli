@@ -319,7 +319,7 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   DECISION and the old RESULT stays as history. `resume` only lifts a hold.
 - the second hand (F23): `el todo brief N.M` prints the prompt for a fresh session · its verdict:
   `el todo accept N.M --by codex --run "make test → 12 OK" "what was checked"` (one `--run` per `run:` proof, re-run
-  now) or `el todo reopen N.M --by codex "what is wrong"` — el help acceptance. In a case with two hands el renders the
+  now) or `el todo reopen N.M --by codex --run "make test → 3 fail" "what is wrong"` — el help acceptance. In a case with two hands el renders the
   mark: `[/]` done, awaiting acceptance · `[x]` accepted — the legend under the TODO title says so while one is owed.
 - the general list (F24): `el todo add later "…"` → `## Later`, `Lk` · `el todo move Lk N` takes it into a phase ·
   `el todo move N.M later` puts an open item there with its pockets — el help later.
@@ -544,7 +544,8 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
 - The hand is the session's: the case it last wrote to or took (case new · spawn · case use), else the case a write
   was last aimed at — where the last agent stopped, even if its last word was `readme touch` — which it then holds;
   another agent writing in the same tree does not move it. `--case <name>` (or EL_CASE) names a case for one command —
-  a look or a write; the hand stays and the output says where; it moves only by `el case use <name>` (and by case new,
+  a look or a write, typed before the command or after it; the hand stays and the output says where, and every command
+  el prints in that answer carries the same --case; the hand moves only by `el case use <name>` (and by case new,
   spawn, a plain write). A harness that gives el no session id keeps that rule: set EL_SESSION, or pass
   --case. One agent works one case at a time. In a tree the entry names the other open cases by their top: a parent
   with `(+K open nested)` — its own Links list its children. A fresh session that lands on a case another live session
@@ -688,7 +689,7 @@ ACCEPTANCE
   weak    el todo done 2.3 … and the phase closes on the doer's word
   strong  el todo brief 2.3 → a fresh session opens the files, re-runs every `run:` proof, holds the result to `why`
           and to `expect` → el todo accept 2.3 --by codex --run "make test → 12 OK" "…" · or el todo reopen 2.3 --by
-          codex "what is missing"
+          codex --run "make test → 3 fail" "what is missing"
 
 AN ITEM
   weak    el todo add 3 "database"
@@ -880,8 +881,11 @@ records the verdict.
   checked: the close line of the phase names it first. Another engine is the strongest hand for it.
 - the verdict — `el todo accept N.M --by codex --run "make test → 12 OK" "what you checked and how"` → under the item
   `accepted: codex · another session · 2026-09-25 · re-ran 1 of 1` and `DECISION · принято N.M: …` with a body line
-  `re-run: …` per command; the return — `el todo reopen N.M --by codex "what is missing or wrong"` → the tick and the
-  acceptance go, the reason stays.
+  `re-run: …` per command; the return — `el todo reopen N.M --by codex --run "make test → 3 fail" "what is missing or
+  wrong"` → the tick and the acceptance go, the reason and the re-runs stay in the DECISION. One event holds a headline
+  and 5 body lines (the brief says the size): a verdict longer than that is refused with its budget in numbers — keep
+  in the words what decides it, each re-run its own short `--run`, a longer comparison in a file of the case named in
+  the words, where your brief lets you write one.
 - re-run, not re-read (the owner's word, 2026-09-25: «the second hand runs the commands and says it worked»): every
   `run:` proof of the item is re-run by the acceptor, one `--run "<command> → <what came out now>"` each; accept
   refuses without them and names them. Could not run one here — `--run "<command> → not run: why"`, counted as not

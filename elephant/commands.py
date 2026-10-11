@@ -626,9 +626,22 @@ def _default_next_in_state(readme_body: str) -> bool:
 
 # ---- journal ------------------------------------------------------------------------------------
 BODY_WRAP = 160
+EVENT_FIT = grammar.EVENT_WARN_CHARS + grammar.EVENT_BODY_LINES * BODY_WRAP  # about what one event holds, wrapped
 
 
-def _render_event(typ: str, text: str):
+class TooLong(StoreError):
+    """F7: the text does not fit one event — raised before anything is written, so a command that writes an event on
+    the agent's behalf (a verdict) can say it in its own role's words."""
+
+
+def _event_too_long(what: str) -> TooLong:
+    """The refusal names the size and a door (feedback 2026-10-11: «too long even for a headline plus 5 body lines» said
+    neither how much fits nor a way out the writer could take)."""
+    return TooLong(f"event text is too long even for a headline plus {grammar.EVENT_BODY_LINES} body lines (F7): {what} — "
+                   f"put the story into the phase file (## Notes) or a file of the case, and log a short line with its path", 3)
+
+
+def _render_event(typ: str, text: str, room: int = 0):
     """Turn text into journal lines: `  TYPE · headline` + up to 5 wrapped body lines (F7).
 
     A long text is split at word boundaries instead of being refused — the limit shapes the
@@ -639,7 +652,7 @@ def _render_event(typ: str, text: str):
     paras = [" ".join(p.split()) for p in text.split("\n") if p.strip()]
     text, extra = (paras[0] if paras else ""), paras[1:]
     if extra:
-        lines, _ = _render_event(typ, text)  # the first line is the headline (split by length if it must)
+        lines, _ = _render_event(typ, text, room=0 if text.endswith(" …") else 2)  # room for the « …» it will get
         if not lines[0].endswith(" …"):
             lines[0] += " …"  # a headline with a body says so — the entry shows headlines only
         body = [ln[4:] for ln in lines[1:]]
@@ -651,10 +664,9 @@ def _render_event(typ: str, text: str):
                 para = para[cut:].strip()
             body.append(para)
         if len(body) > grammar.EVENT_BODY_LINES:
-            raise StoreError(f"event text is too long even for a headline plus {grammar.EVENT_BODY_LINES} body lines (F7) — "
-                             f"put the story into the phase file and log a short line with a path", 3)
+            raise _event_too_long(f"{len(body)} body lines, {grammar.EVENT_BODY_LINES} fit")
         return [lines[0]] + [f"    {b}" for b in body], True
-    if len(f"{typ} · {text}") <= grammar.EVENT_CHARS:
+    if len(f"{typ} · {text}") <= grammar.EVENT_CHARS - room:
         return [f"  {typ} · {text}"], False
     # split under the SOFT threshold, so a split line never triggers "close to the limit" later
     head_budget = grammar.EVENT_WARN_CHARS - len(typ) - 3
@@ -677,8 +689,7 @@ def _render_event(typ: str, text: str):
             body.append(rest[:cut])
             rest = rest[cut:].strip()
     if rest:
-        raise StoreError(f"event text is too long even for a headline plus {grammar.EVENT_BODY_LINES} body lines (F7) — "
-                         f"put the story into the phase file and log a short line with a path", 3)
+        raise _event_too_long(f"{len(text)} chars, about {EVENT_FIT} fit")
     return [f"  {typ} · {head} …"] + [f"    {b}" for b in body], True
 
 
@@ -3238,18 +3249,21 @@ def todo_hold(case: Path, ref: str, reason: str, check: Optional[str] = None) ->
     return out
 
 
-def todo_reopen(case: Path, ref: str, why: str, by: Optional[str] = None) -> Outcome:
+def todo_reopen(case: Path, ref: str, why: str, by: Optional[str] = None, runs: Optional[List[str]] = None) -> Outcome:
     """A tick taken back with a reason (feedback 2026-09-09: a database drift found at 22.2 sent
     22.1–22.6 back to open; `resume` only lifts a hold, so the agent edited the file and met the
     stamp). The RESULT logged at `done` stays — it is history — and a DECISION says it no longer
     holds. The item is open again: the phase cannot close over it, its dependents are blocked again.
     `--by <who>` — the return of an acceptor (F23): named in the DECISION with its session; every return counts
-    towards «stuck» (three and Order says so)."""
+    towards «stuck» (three and Order says so). `--run` — what the acceptor's re-run came out now: a body line of the
+    DECISION, as at accept (three Codex acceptors, 2026-10-11: reopen took --run, answered exit 0 and dropped it — a
+    re-run that came out otherwise is the very proof of a return)."""
     out = Outcome()
     why = " ".join(why.split())
     if not why:
         raise StoreError(f"reopen needs the reason: el todo reopen {ref} \"why the result no longer holds\"", 2)
     who = _acceptor(by, ref, "reopen") if by is not None else ""
+    reruns = _rerun_forms(runs or [])
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)  # a closed phase refuses: its items live in the phase file
     for it in items:  # F25: a sub-item comes back only under an item that is open — the answer above rested on it
@@ -3271,21 +3285,24 @@ def todo_reopen(case: Path, ref: str, why: str, by: Optional[str] = None) -> Out
         # by its doer read «returned by an acceptor 1» on entry — no second hand had found a defect)
         own = status == "same"
         tag = " (исполнитель: та же сессия)" if own else f" (приёмка: {who} · {_session_word(status, 'ru')})"
+    refs = _refs(phase, items)
+    verb = "возвращён" if len(items) == 1 else "возвращены"
+    event = f"{refs} {verb} в работу — {why}{tag}" + _rerun_body(reruns)
+    _verdict_fits(event, why, reruns)  # before the tick moves: a refusal writes nothing
     for it in items:
         # the result, its proofs and its acceptance go with the tick; why/notes stay; the RESULT stays in the journal
         it.done, it.result, it.evidence, it.accepted, it.done_by = False, "", [], "", ""
         it.cancelled, it.cancel_reason = False, ""  # the reason it was cancelled stays in the journal
     out.absorb(_write_todo(case, todo))
-    refs = _refs(phase, items)
-    verb = "возвращён" if len(items) == 1 else "возвращены"
-    out.lines += log(case, "DECISION", f"{refs} {verb} в работу — {why}{tag}", f"p{phase.n}").lines
+    out.lines += log(case, "DECISION", event, f"p{phase.n}").lines
     refuted = {f"{it.ref}" for it in items}
     resting = [it for it in _all_items(todo) if it.done and set(it.after) & refuted]
     if resting:  # the fact chain: what stands on the refuted item is under question — shown, never reopened by el
         out.say("  standing on it, done: " + ", ".join(f"{it.ref}" for it in resting)
                 + " — a fact resting on a refuted one is under question; Order names them until you confirm, rewire or reopen (el facts)")
     what = f"{items[0].text}" if len(items) == 1 else f"({len(items)} items)"
-    out.say(f"reopened: {refs} {what} → TODO.md · DECISION in the journal (the RESULTs stay as history)"
+    out.say(f"reopened: {refs} {what} → TODO.md · DECISION in the journal (the RESULTs stay as history"
+            + (f"; re-run{'s' if len(reruns) > 1 else ''}: {len(reruns)} kept in it" if reruns else "") + ")"
             + (f" · {', '.join(it.ref for it in back)} was cancelled — open again, the reason stays in the journal" if back else "")
             + (" · the doer's own session: a correction, not an acceptor's return" if own else ""))
     return out
@@ -3643,11 +3660,12 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
         engine = "" if who == "owner" else f" · {_engine_word(it.done_by, hand_sign)}: {hand_text}"  # L8: the mind beside the hand
         it.accepted = f"{who} · {_session_word(_session_status(journal, phase, it, who))} · {date}{tally}{engine}"
         differs += [(it, pr, r) for pr, r in zip(proofs, ran) if _outcome(pr).casefold() != _outcome(r).casefold()]
-    out.absorb(_write_todo(case, todo))
     refs = _refs(phase, items)
-    body = "".join(f"\nre-run: {r}" for r in reruns[:4]) + (f"\nre-run: … +{len(reruns) - 4} more" if len(reruns) > 4 else "")
     said = f": «{text}»" if who == "owner" else f" — {text}"
-    out.lines += log(case, "DECISION", f"принято {refs}: {who} · {_session_word(status, 'ru')}{engine_ru}{said}{body}", f"p{phase.n}").lines
+    event = f"принято {refs}: {who} · {_session_word(status, 'ru')}{engine_ru}{said}" + _rerun_body(reruns)
+    _verdict_fits(event, text, reruns)  # before the TODO is written: a refusal writes nothing
+    out.absorb(_write_todo(case, todo))
+    out.lines += log(case, "DECISION", event, f"p{phase.n}").lines
     engine = "" if who == "owner" else " · " + (next(iter(engines)) if len(engines) == 1 else "differs by item — see accepted: lines")
     out.say(f"accepted: {refs} by {who} ({_session_word(status)}{engine}) → TODO.md (accepted: line) · DECISION in the journal")
     if "subagent" in statuses and not sub_sign[1]:
@@ -3665,7 +3683,7 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
         out.say("  session not given — recorded as reported (EL_SESSION, or the harness's own session id, tells more)")
     for it, pr, r in differs:  # two records compared word for word, the meaning is the acceptor's — shown, not refused
         out.warn(f"{it.ref}: the doer's run came out «{_outcome(pr)}», yours «{_outcome(r)}» — a result that differs "
-                 f"is a return: el todo reopen {it.ref} --by {who} \"now: {_outcome(r)}\" (the same thing in other words? "
+                 f"is a return: el todo reopen {it.ref} --by {who} {_quoted('now: ' + _outcome(r))} (the same thing in other words? "
                  f"then the acceptance stands)")
     return out
 
@@ -3701,19 +3719,122 @@ def _outcome(run: str) -> str:
     return " ".join(run.split("→", 1)[1].split()) if "→" in run else ""
 
 
+def _rerun_forms(runs: List[str]) -> List[str]:
+    """`--run "command → what came out now"`, as accept and reopen both take it."""
+    runs = [" ".join(r.replace("->", "→").split()) for r in runs]
+    for r in runs:
+        if "→" not in r:
+            raise StoreError(f"--run takes the command and what came out now, joined by → or ->: --run "
+                             f"{_quoted(r + ' → <outcome now>')} (could not run it: --run {_quoted(r + ' → not run: why')})", 2)
+    return runs
+
+
+def _rerun_body(reruns: List[str]) -> str:
+    """The re-runs as body lines of the verdict's DECISION, every one of them: short ones share a line (` · `), a long
+    one wraps (Codex review, 2026-10-11: «four shown, +1 more» lost the fifth re-run's words — a kept count is not a kept
+    re-run). What does not fit the event is refused by `_verdict_fits`, with a door."""
+    lines, cur = [], ""
+    for r in reruns:
+        if cur and len(cur) + 3 + len(r) <= BODY_WRAP - len("re-run: "):
+            cur += " · " + r
+        else:
+            if cur:
+                lines.append(cur)
+            cur = r
+    if cur:
+        lines.append(cur)
+    return "".join(f"\nre-run: {ln}" for ln in lines)
+
+
+def _quoted(s: str) -> str:
+    """A shell word for `s` that a printed command carries as is: double quotes where nothing in it is special to the
+    shell, else single quotes with a `'` kept as typed (the owner's rule: a ready command works as printed)."""
+    if not any(c in s for c in '"$`\\!'):
+        return f'"{s}"'
+    return _sh(s)
+
+
+def _case_opt(case: Path) -> str:
+    """`--case <case>` for a printed command: the case's path under .cases/ — one name may live under two parents, and
+    `.cases/<name>` names a top case exactly when a nested one shares its name; `.` for the project case itself; a word
+    the shell and argparse take back intact (Codex review, 2026-10-11: a ready command printed `--case child` and met
+    «names several cases»; a name with a space split in two)."""
+    case = case.resolve()  # find_root resolves (/var is /private/var on macOS): compare like with like
+    try:
+        root = store.find_root(case)
+    except StoreError:
+        root = None
+    if root is None:
+        sel = case.name
+    elif _is_project(case):
+        sel = "."
+    else:
+        sel = case.relative_to(root).as_posix() if case.is_relative_to(root) else case.name
+        if "/" not in sel and sum(c.name == case.name for c in store.all_cases(root)) > 1:
+            sel = f".cases/{sel}"
+    word = sel if re.fullmatch(r"[\w.@+/-]+", sel) else _quoted(sel)
+    return f"--case={word}" if sel.startswith("-") else f"--case {word}"
+
+
+def _run_slot(proof: str, outcome: str = "<what came out now>") -> str:
+    """` --run "<command> → <outcome>"` for a run proof, quoted so the line works in a shell — or a placeholder that says
+    which command, when the command's own quotes leave no safe quoting (Codex review, 2026-10-11: `python3 -c "print(1)"`
+    printed inside double quotes broke the brief's verdict line)."""
+    cmd = proof.split("→")[0].strip()
+    return f" --run {_quoted(f'{cmd} → {outcome}')}"
+
+
+def _body_lines(para: str) -> int:
+    """How many body lines one paragraph of an event takes, wrapped as _render_event wraps it."""
+    n = 1
+    while len(para) > BODY_WRAP:
+        cut = para.rfind(" ", 0, BODY_WRAP)
+        para = para[cut if cut > 0 else BODY_WRAP:].strip()
+        n += 1
+    return n
+
+
+def _verdict_fits(event: str, words: str, reruns: List[str]) -> None:
+    """A verdict too long for one event is refused with its budget in numbers, in the acceptor's own terms (feedback
+    2026-10-11: «put the story into the phase file» sent a second hand, whose brief allows one verdict, to edit the doer's
+    phase; then a «ready» command that still had to be rewritten, and a new file the acceptor may not write): how much of
+    the words fits beside the re-runs — measured by rendering — and how many lines the re-runs take. No command is
+    printed: the words are the acceptor's to shorten."""
+    def fits(n: int) -> bool:
+        try:
+            _render_event("DECISION", event.replace(words, words[:n], 1))
+            return True
+        except TooLong:
+            return False
+
+    if fits(len(words)):
+        return
+    taken = sum(_body_lines(ln) for ln in _rerun_body(reruns).split("\n")[1:])
+    if not fits(0):  # the re-runs alone overflow the event: no wording of the verdict can help
+        raise StoreError(f"the verdict does not fit one journal event (F7): its {len(reruns)} re-run(s) take {taken} body "
+                         f"lines of {grammar.EVENT_BODY_LINES} — nothing was written. Give each --run as the command and what "
+                         f"came out in a few words: a line holds {BODY_WRAP - len('re-run: ')} chars, short re-runs share one; "
+                         f"the full output stays where it lies (a log, a file) — name it in the words", 3)
+    lo, hi = 0, len(words)
+    while lo < hi:  # the longest prefix of the words that still renders
+        mid = (lo + hi + 1) // 2
+        lo, hi = (mid, hi) if fits(mid) else (lo, mid - 1)
+    raise StoreError(f"the verdict does not fit one journal event (F7): {len(words)} chars of words, {lo} fit"
+                     + (f" beside {len(reruns)} re-run(s) on {taken} body line(s)" if reruns else "")
+                     + " — nothing was written. The same call with the words shortened: keep what decides it (what is "
+                     "missing or what you compared, the counts); each re-run goes as its own --run, not into the words; a "
+                     "longer comparison — a file of the case named in the words, where your brief lets you write one", 3)
+
+
 def _reruns(ref: str, who: str, proofs: List[str], runs: List[str]) -> List[str]:
     """The second hand re-runs every `run:` proof and says what came out now (the owner's word, 2026-09-25: «the agent is
     the second hand — it runs the commands and says it worked»). el runs nothing itself (2026-09-22): it asks, one `--run`
     per proof, and records what was said — `→ not run: why` is an honest answer, counted as not re-run."""
-    runs = [" ".join(r.replace("->", "→").split()) for r in runs]
-    for r in runs:
-        if "→" not in r:
-            raise StoreError(f"--run takes the command and what came out now, joined by → or ->: --run \"{r} → <outcome now>\" "
-                             f"(could not run it: --run \"{r} → not run: why\")", 2)
+    runs = _rerun_forms(runs)
     if who == "owner" or len(runs) >= len(proofs):
         return runs
     missing = proofs[len(runs):]
-    shown = " ".join(f'--run "{p.split("→")[0].strip()} → <what came out now>"' for p in missing)
+    shown = "".join(_run_slot(p) for p in missing).strip()
     raise StoreError(f"{ref} stands on {len(proofs)} run proof(s): {' · '.join(proofs)} — the second hand re-runs each and says what "
                      f"came out now: el todo accept {ref} --by {who} {shown} \"what you checked\" (could not run one: "
                      f"--run \"<command> → not run: why\"; the owner's word needs none: --by owner)", 2)
@@ -3864,10 +3985,14 @@ def todo_brief(case: Path, ref: str, sample: Optional[int] = None) -> Outcome:
                 "  3. Something missing, wrong or unproved → return it, naming what exactly. It does what `why` asks and the "
                 "proofs show it → accept, saying what you checked.")
     out.say("Verdict — run ONE per item from the project folder:")
+    VERDICT_SIZE = (f"  (one verdict is one journal event — a headline and {grammar.EVENT_BODY_LINES} body lines, about "
+                    f"{EVENT_FIT} chars for the words and every --run together; a --run takes a body line of "
+                    f"{BODY_WRAP - len('re-run: ')} chars, short ones share one: the command and what came out in a few words)")
     for it in items:
-        reruns = "".join(f' --run "{pr.split("→")[0].strip()} → <what came out now>"' for k, pr in it.evidence if k == "run")
-        out.say(f"  el --case {name} todo accept {it.ref} --by <you: codex|claude|gemini|subagent>{reruns} \"what you checked and how\"",
-                f"  el --case {name} todo reopen {it.ref} --by <you> \"what is missing or wrong\"")
+        reruns = "".join(_run_slot(pr) for k, pr in it.evidence if k == "run")
+        out.say(f"  el {_case_opt(case)} todo accept {it.ref} --by <you: codex|claude|gemini|subagent>{reruns} \"what you checked and how\"",
+                f"  el {_case_opt(case)} todo reopen {it.ref} --by <you>{reruns} \"what is missing or wrong\"")
+    out.say(VERDICT_SIZE)
     if mine and doers == {mine}:  # the reader will be a subagent of this session: its mind is not the session's signature
         out.say("A subagent of the doer's session: put your own model before the verdict — EL_MODEL='<your model>' el … todo "
                 "accept … — the session's signature is the doer's, not yours.")

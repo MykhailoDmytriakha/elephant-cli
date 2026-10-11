@@ -106,8 +106,8 @@ class ARefusalIsWhole(Base):
         before, jbefore = self.todo.read_bytes(), self.journal.read_bytes()
         code, out, err = self.as_("second2", "todo", "reopen", "1.1", "--by", "subagent", LONG)
         self.assertEqual(code, 3)
-        self.assertIn("put back as it was:", err)
-        self.assertIn("TODO.md", err)
+        # since 2026-10-11 the verdict is measured before the tick moves: the refusal comes before any write, not after it
+        self.assertIn("nothing was written", err)
         self.assertEqual(self.todo.read_bytes(), before, "«nothing was written» is true byte for byte")
         self.assertEqual(self.journal.read_bytes(), jbefore)
         code, out, err = self.as_("second2", "todo", "reopen", "1.1", "--by", "subagent", "short reason")
