@@ -8,10 +8,12 @@ holds — outside the project, keyed by the session id the harness gives (see `h
 import datetime
 import hashlib
 import json
+import math
 import os
 import re
 import shlex
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -571,6 +573,72 @@ def parent_case(case: Path, root: Path):
     if case.parent == root:
         return project_case(root)
     return None
+
+
+# ---- one writer in the space at a time -----------------------------------------------------------------
+# A command reads a case file, changes it, writes it back whole. Two el processes in one space both read the old TODO,
+# and the later write drops the earlier one's change while each says «done» (L7, 2026-10-10: two concurrent `todo add`
+# lost an item 6 times in 30 — the memory many agents share lied without a word). A command holds the space's lock from
+# its first read to its last write. One lock for the space, not one per case: a command may write a child and its
+# parent, and two locks taken in two orders would wait on each other. The lock file lives outside the project — nothing
+# for git or the case map to see — and the lock goes with the process: a killed command leaves none behind.
+LOCK_WAIT = 30.0  # seconds; a command takes milliseconds — this long a wait means something holds it, and it is said
+_SPACE_LOCK = None
+
+
+def space_lock_path(root: Path) -> Path:
+    """Where the lock of the space at `root` (the `.cases/` folder) lives: the temp folder, keyed by the real path."""
+    key = hashlib.sha1(str(Path(root).resolve()).encode("utf-8")).hexdigest()[:16]
+    base = os.environ.get("EL_LOCK_DIR") or os.path.join(tempfile.gettempdir(), "elephant-locks")
+    return Path(base) / f"{key}.lock"
+
+
+def lock_space() -> None:
+    """Take the space's lock for this command — waiting while another el command holds it, up to EL_LOCK_WAIT seconds,
+    then a refusal that wrote nothing. No space yet (`case new` in a new project), no POSIX locks, or a lock file el
+    cannot make: the command runs as before — a lock is a guard, never a reason to refuse the work."""
+    global _SPACE_LOCK
+    if _SPACE_LOCK is not None:
+        return
+    try:
+        import fcntl
+        root = find_root()
+        path = space_lock_path(root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fh = open(path, "a+")
+    except (ImportError, StoreError, OSError):
+        return
+    try:
+        wait = float(os.environ.get("EL_LOCK_WAIT", LOCK_WAIT))
+    except ValueError:
+        wait = LOCK_WAIT
+    wait = max(0.0, wait) if math.isfinite(wait) else LOCK_WAIT  # `inf` or `nan` would wait forever or not at all (Codex)
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _SPACE_LOCK = fh
+            return
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                fh.close()
+                raise StoreError(f"another el command has been writing in this case space for {wait:g} s (another session, a "
+                                 f"subagent, a script) — nothing was written: run the same command again; a lock no live "
+                                 f"process holds is gone by itself (to wait longer: EL_LOCK_WAIT=<seconds>)", 4)
+            time.sleep(0.05)
+        except OSError:  # a file system without locks: run as before
+            fh.close()
+            return
+
+
+def unlock_space() -> None:
+    global _SPACE_LOCK
+    fh, _SPACE_LOCK = _SPACE_LOCK, None
+    if fh is not None:
+        try:
+            fh.close()  # closing the file lets the lock go
+        except OSError:
+            pass
 
 
 # ---- one command, one change: all or nothing --------------------------------------------------------

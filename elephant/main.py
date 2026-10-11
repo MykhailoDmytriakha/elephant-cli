@@ -404,12 +404,14 @@ def run(argv=None) -> int:
         raise
     finally:
         store.commit()
+        store.unlock_space()  # after the last write and any rollback: the next command reads what this one left
 
 
 def _run(argv=None) -> int:
     parser = build_parser()
     args = None
     try:
+        store.lock_space()  # one writer in the space at a time, from the first read to the last write (L7, 2026-10-10)
         calls = store.count_call()  # every call counts, a refused one too; the recitation below speaks on a case command
         glued = _glued_option(list(argv) if argv is not None else sys.argv[1:])
         if glued:
