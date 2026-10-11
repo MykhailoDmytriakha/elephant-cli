@@ -678,7 +678,15 @@ def _run(argv=None) -> int:
                 parser.print_usage()
                 return 2
             if store.touched() and args.cmd not in (None, "status", "spawn"):
-                store.hold(root, case)  # the case this session last wrote to stays its hand (spawn holds the child)
+                if not (getattr(args, "case", None) or os.environ.get("EL_CASE")):
+                    store.hold(root, case)  # the case this session last wrote to stays its hand (spawn holds the child)
+                else:  # a write named by --case or EL_CASE is that call's; the hand moves only by `case use` (the owner's
+                    # word, 2026-10-11: «--case one call; switching the hand works explicitly, another way» — a report:
+                    # `--case <nested> log …` moved the session's hand, and its next plain write landed in the nested case)
+                    mine = store.held(root) if getattr(args, "case", None) else None  # an exported EL_CASE is the hand itself
+                    if mine is not None and mine.resolve() != case.resolve():
+                        out.say(f"hand: stays on {mine.name} — --case acts on this call only; to work on in {case.name}: "
+                                f"el case use {case.name}")
                 if store.is_open(case) and not shown and not _looks(args):
                     store.mark_aimed(case)  # and a fresh session without a hand starts there (2026-10-07)
         nudge = commands.acceptance_as_text(locals().get("case"), _written_text(args))

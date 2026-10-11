@@ -543,8 +543,9 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   `el case use <name>` — switch the hand.
 - The hand is the session's: the case it last wrote to or took (case new · spawn · case use), else the case a write
   was last aimed at — where the last agent stopped, even if its last word was `readme touch` — which it then holds;
-  another agent writing in the same tree does not move it. `--case <name>` names a case for one command (a write there
-  moves the hand, a look does not). A harness that gives el no session id keeps that rule: set EL_SESSION, or pass
+  another agent writing in the same tree does not move it. `--case <name>` (or EL_CASE) names a case for one command —
+  a look or a write; the hand stays and the output says where; it moves only by `el case use <name>` (and by case new,
+  spawn, a plain write). A harness that gives el no session id keeps that rule: set EL_SESSION, or pass
   --case. One agent works one case at a time. In a tree the entry names the other open cases by their top: a parent
   with `(+K open nested)` — its own Links list its children. A fresh session that lands on a case another live session
   holds is told so under the entry's first line, with `el case use` to take its own. Where el keeps a session's hand,

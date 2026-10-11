@@ -56,16 +56,20 @@ class TheHandBelongsToTheSession(Base):
         self.assertIn("[ ] 1.1 item of ant", (self.case("ant") / "TODO.md").read_text(), "the other session's case untouched")
         self.assertNotIn("RESULT · 1.1", (self.case("ant") / "JOURNAL.md").read_text())
 
-    def test_an_explicit_write_moves_the_hand_a_read_does_not(self):
+    def test_case_acts_on_one_call_and_says_where_the_hand_stays(self):
+        """The owner's word, 2026-10-11 (a report: `--case <nested> log …` moved the session's hand): --case is that one
+        call's, a look or a write; the hand moves only by `case use` (until 1.59.0 a --case write moved it)."""
         self.new("s1", "bee")
         self.new("s2", "ant")
         self.as_("s1", "--case", "ant", "status")  # a look at another case is not taking it
         code, out, _ = self.as_("s1", "status")
         self.assertIn("case in hand: ", out)
         self.assertIn("bee", out.splitlines()[0])
-        self.as_("s1", "--case", "ant", "log", "DECISION", "chose x")  # a write is: the case it last wrote to
+        code, out, _ = self.as_("s1", "--case", "ant", "log", "DECISION", "chose x")  # nor is a write
+        self.assertIn("hand: stays on", out)
+        self.assertIn("el case use", out)
         code, out, _ = self.as_("s1", "status")
-        self.assertIn("ant", out.splitlines()[0])
+        self.assertIn("bee", out.splitlines()[0])
 
     def test_case_use_and_spawn_take_the_hand(self):
         self.new("s1", "bee")
