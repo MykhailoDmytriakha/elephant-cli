@@ -507,6 +507,13 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   owner's words: `el readme edit context goal "…"`. Planning or opening a phase prints the promises no phase carries
   yet: copied into its goal, the words match. Two slots of one kind need two proofs — `[run: tests] [run: load]` is
   «1 of 2 filled» with one run, at done, in the Digest and in a goal.
+- a fork — either one is enough (the owner's word, 2026-10-09): slots side by side with `|` between, the words before
+  them — `--goal "in hand or a claim filed [file: photo] | [ref: claim number]"` — are ONE promise, proved by either
+  side; in a goal and in Context alike. Each branch is an item with its own slot. A fork has a point where it is
+  decided, and el holds it: the `done` that proves one side names the other side's open items, Order keeps them until
+  they end — `el todo cancel N.M "why it is no longer needed"` writes the point into the journal («развилка … решена»)
+  — and the close and the Digest say which side kept it. «Or» written in words between two slots is two promises to el:
+  the moment you write it, el offers the fork form. An item is one branch: a fork lives in the goal, not in `expect:`.
 - the recipe question (P8; the owner's word, 2026-09-25 — 48 PROBLEM events and four recipes on the tool's own case):
   a phase that logged a PROBLEM no recipe answers closes with `--howto .howto/<verb>.md` (the file exists, its first line
   is `when: <the error words>` — grep finds it next time; logged as a link) or `--howto "none: why nothing repeats"`;

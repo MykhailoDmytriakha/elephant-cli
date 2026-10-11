@@ -4,6 +4,7 @@ Each function takes the case folder (already resolved by main), does its precond
 validates through the grammar (exit 3) and writes with a fresh stamp. Functions return the lines
 to print on success; warnings are collected in `Outcome.warnings` and printed to stderr by main.
 """
+import copy
 import datetime as dt
 import hashlib
 import os
@@ -1368,6 +1369,12 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     elif fresh:
         out.say(f"done: {_refs(phase, fresh)} ({len(fresh)} items) → TODO.md · one RESULT in the journal · evidence: {shown}")
     out.say(*expect_lines)  # after `done:` — the promise, then what arrived
+    if _real_phase(todo, phase):  # the moment a fork is decided — the other side named while the point is fresh (2026-10-09)
+        promises = _goal_promises(phase, _phase_goal(case, phase))
+        for promise in promises:
+            won, left = _fork_left(phase, promise, promises)
+            if left and promise[2] in {f"{it.ref}" for it in items}:
+                out.say(f"  {_fork_point(phase.n, promise, won, left)}")
     for it in items:
         if it.fact:
             out.say(f"  fact {it.ref}: «{it.fact}» — established; it enters the chain: el facts")
@@ -1773,41 +1780,74 @@ def _goal_coverage(phase: grammar.Phase, goal: str) -> List[Tuple[Tuple[str, str
     whose `expect:` carries the same slot — the phase's statement decomposes into its items' statements — and
     is proved when that item's own proof for that slot arrived (L5: one run no longer proves the item's two run
     slots, so it no longer proves two of the goal's). A bare kind (`[owner]`) is proved by a done proof of that kind
-    the named promises did not use. Returns [(slot, status, ref)]: status ∈ proved · promised (item open) · uncovered."""
-    slots = grammar.expected_kinds(goal)
+    the named promises did not use. A fork `[a] | [b]` (2026-10-09) is allocated after the promises that stand alone and
+    takes ONE side: the first side with a free proof wins, the others reserve nothing (Codex, 2026-10-09: an unused side
+    took the proof an independent promise needed); a bare side names its carriers and the item whose proof it took.
+    Returns [(slot, status, ref)]: status ∈ proved · promised (item open) · uncovered."""
+    ms = list(grammar.EXPECT_SLOT_RE.finditer(goal))
+    slots = [(m.group(1), (m.group(2) or "").strip()) for m in ms]
+    forks = [g for g in grammar.fork_groups(goal, ms) if len(g) > 1]
+    in_fork = {i for g in forks for i in g}
     status: Dict[int, Tuple[str, str]] = {}
-    used: Dict[str, int] = {}
     nodes = grammar.flat(phase.items)  # F25: a sub-item carries a criterion like an item — the beacon may sit one level down
     pairs = {it.ref: _pair_slots(grammar.expected_kinds(it.expect), it.evidence if it.done else []) for it in nodes}
-    taken = set()  # (item, pair): one proof serves one goal slot — `[run: tests] [run: tests]` needs two (Codex, 2026-10-05)
-    for i, (kind, what) in enumerate(slots):
-        key = _slot_key(kind, what)
-        if not key[1]:
-            continue
-        carriers = [it for it in nodes if key in {_slot_key(k, w) for k, w in grammar.expected_kinds(it.expect)}]
-        free = next(((it, j) for it in carriers for j, (k, w, pr) in enumerate(pairs[it.ref])
-                     if _slot_key(k, w) == key and pr is not None and (it.ref, j) not in taken), None)
-        if free:
-            taken.add((free[0].ref, free[1]))
-            status[i] = ("proved", f"{free[0].ref}")
-            used[kind] = used.get(kind, 0) + 1
-        elif carriers:
-            status[i] = ("promised", ", ".join(f"{it.ref}" for it in carriers))
-        else:
-            status[i] = ("uncovered", "")
-    left: Dict[str, int] = {}  # a bare kind twice needs two done proofs of it (L5), beyond those the named ones took
+    # a proof is a thing — (item, kind, its n-th proof of that kind) — so a bare promise and a named one never count one twice
+    proofs: Dict[str, List[Tuple[str, str, int]]] = {}
     for it in nodes:
+        n_of: Dict[str, int] = {}
         for k, _ in (it.evidence if it.done else []):
-            left[k] = left.get(k, 0) + 1
-    for k, n in used.items():
-        left[k] = left.get(k, 0) - n
-    for i, (kind, what) in enumerate(slots):
-        if i in status:
-            continue
-        ok = left.get(kind, 0) > 0
-        if ok:
-            left[kind] -= 1
-        status[i] = ("proved" if ok else "uncovered", "")
+            proofs.setdefault(k, []).append((f"{it.ref}", k, n_of.get(k, 0)))
+            n_of[k] = n_of.get(k, 0) + 1
+    pair_of: Dict[Tuple[str, int], Tuple[str, str, int]] = {}  # an expect slot of an item → the proof _pair_slots gave it
+    for it in nodes:
+        n_of = {}
+        for j, (k, _, pr) in enumerate(pairs[it.ref]):
+            if pr is not None:
+                pair_of[(it.ref, j)] = (f"{it.ref}", k, n_of.get(k, 0))
+                n_of[k] = n_of.get(k, 0) + 1
+    used = set()  # one proof serves one goal slot — `[run: tests] [run: tests]` needs two (Codex, 2026-10-05)
+
+    def carriers(key):
+        return [it for it in nodes if key in {_slot_key(k, w) for k, w in grammar.expected_kinds(it.expect)}]
+
+    def held(key) -> Tuple[str, str]:  # who works towards it, without taking a proof
+        its = carriers(key)
+        return ("promised", ", ".join(f"{it.ref}" for it in its)) if its else ("uncovered", "")
+
+    def take(i) -> Tuple[str, str]:
+        key = _slot_key(*slots[i])
+        free = next(((it, j) for it in carriers(key) for j, (k, w, pr) in enumerate(pairs[it.ref])
+                     if _slot_key(k, w) == key and pr is not None and pair_of[(it.ref, j)] not in used), None)
+        if free:
+            used.add(pair_of[(free[0].ref, free[1])])
+            return "proved", f"{free[0].ref}"
+        return held(key)
+
+    def bare(kind: str) -> str:  # any proof of the kind no promise took yet — the item it came from
+        pid = next((p for p in proofs.get(kind, []) if p not in used), None)
+        if pid is None:
+            return ""
+        used.add(pid)
+        return pid[0]
+
+    for i, (kind, what) in enumerate(slots):  # the promises that stand alone, named first, in their order — as before forks
+        if what and i not in in_fork:
+            status[i] = take(i)
+    for i, (kind, what) in enumerate(slots):  # a bare kind (L5) by a proof the named ones left
+        if not what and i not in in_fork:
+            status[i] = ("proved", "") if bare(kind) else ("uncovered", "")
+    for g in forks:  # each fork whole, in order, after every promise that stands alone: ONE side takes a proof
+        won = False
+        for i in [i for i in g if slots[i][1]] + [i for i in g if not slots[i][1]]:
+            kind, what = slots[i]
+            if won:
+                status[i] = held(_slot_key(kind, what))
+            elif what:
+                status[i] = take(i)
+            else:
+                by = bare(kind)
+                status[i] = ("proved", by) if by else held((kind, ""))
+            won = won or status[i][0] == "proved"
     return [((kind, what), *status[i]) for i, (kind, what) in enumerate(slots)]
 
 
@@ -1847,6 +1887,113 @@ def _near_words(phase: grammar.Phase, goal: str, kind: str, what: str) -> str:
     door = f"el todo expect {it.ref} {_sh(fixed)}" if fixed else f"el todo expect {it.ref} \"… {_slot(kind, what)} …\""
     return (f" — {it.ref} expects {slot}: one promise in other words? the same words make it count: {door} "
             f"· or the goal in the item's words")
+
+
+def _fork_text(slots) -> str:
+    return " | ".join(_slot(k, w) for k, w in slots)
+
+
+def _goal_promises(phase: grammar.Phase, goal: str):
+    """The goal's promises as written (F12): one slot, or a fork `[a] | [b]` kept by either side (the owner's word,
+    2026-10-09: «A or B always has a point where it is decided — hold that point»; a live errand: «the parcel in hand or a
+    claim filed», and el asked for both). [(slots, status, ref, members)]: a fork is proved by its first proved side (ref
+    names that item), promised while a side has an item, uncovered when none has; members — each side as _goal_coverage
+    reads it."""
+    flat = _goal_coverage(phase, goal)
+    found, i = [], 0
+    for slots in grammar.promise_groups(goal):
+        members, i = flat[i:i + len(slots)], i + len(slots)
+        won = next((m for m in members if m[1] == "proved"), None)
+        if won:
+            found.append((slots, "proved", won[2], members))
+        elif any(m[1] == "promised" for m in members):
+            found.append((slots, "promised", ", ".join(m[2] for m in members if m[1] == "promised"), members))
+        else:
+            found.append((slots, "uncovered", "", members))
+    return found
+
+
+def _fork_left(phase: grammar.Phase, promise, promises=()) -> Tuple[str, List[grammar.Item]]:
+    """A fork decided by one side, and the other side's items still open: the point has passed and they have not ended.
+    The winner is a position, not a value (`[ref: a] | [ref: a]` holds its second item too); an item that also carries
+    a promise not yet proved is not the fork's to end (Codex, 2026-10-09: the advice cancelled the only carrier of a
+    mandatory run). («[a] by 1.6», [items]) — ("", []) for anything else."""
+    slots, status, _, members = promise
+    if len(slots) < 2 or status != "proved":
+        return "", []
+    w = next(i for i, m in enumerate(members) if m[1] == "proved")
+    won = members[w]
+    others = {_slot_key(*members[i][0]) for i in range(len(members)) if i != w}
+    needed = {_slot_key(*sl) for other in promises if other is not promise and other[1] != "proved" for sl in other[0]}
+    left = []
+    for it in grammar.flat(phase.items):
+        tree = [it] + [x for x in it.subs if not x.cancelled]  # cancelling an item sweeps its sub-items with it
+        keys = {_slot_key(k, w_) for k, w_ in grammar.expected_kinds(it.expect)}
+        below = {_slot_key(k, w_) for x in tree for k, w_ in grammar.expected_kinds(x.expect)}
+        if (not it.done and not it.cancelled and keys & others and not below & needed
+                and won[2] not in {f"{x.ref}" for x in tree}):
+            left.append(it)
+    return _slot(*won[0]) + (f" by {won[2]}" if won[2] else ""), left
+
+
+def _fork_point(n: int, promise, won: str, left: List[grammar.Item]) -> str:
+    """The moment of a fork, said where it is read: decided, and what of the other side is still open."""
+    return (f"phase {n}: the fork {_fork_text(promise[0])} is decided — {won}; the other side's {', '.join(it.ref for it in left)} "
+            f"still open: the point has passed → el todo cancel {left[0].ref} \"why it is no longer needed\" · or finish it, "
+            f"if both are wanted after all")
+
+
+def _real_phase(todo: grammar.Todo, phase: Optional[grammar.Phase]) -> bool:
+    """A phase of the plan, not the general list's phase-shaped view — a real phase 0 is one (Codex, 2026-10-09)."""
+    return phase is not None and any(p is phase for p in todo.phases)
+
+
+def _q(text: str) -> str:
+    """An argument as printed in a command: in double quotes when the shell keeps it whole there, else single-quoted."""
+    return f'"{text}"' if not re.search(r'["$`\\!]', text) else _sh(text)
+
+
+def _fork_lines(case: Path, todo: grammar.Todo) -> List[str]:
+    """Order: a fork of a running phase decided by one side while the other side's items are still open."""
+    lines = []
+    for p in todo.phases:
+        if p.done or not _phase_file(case, p.n, p.name).exists():
+            continue
+        promises = _goal_promises(p, _phase_goal(case, p))
+        for promise in promises:
+            won, left = _fork_left(p, promise, promises)
+            if left:
+                lines.append(_fork_point(p.n, promise, won, left))
+    return lines
+
+
+OR_WORDS_RE = re.compile(r"(?i)(?:^|[\s,(])(?:или|либо|or)(?=[\s,)]|$)")
+
+
+def _say_fork_word(text: str, out: "Outcome", context: bool = False) -> None:
+    word = _fork_word_hint(text, context) if text else ""
+    if word:
+        out.say(f"fork? {word}")
+
+
+def _fork_word_hint(text: str, context: bool = False) -> str:
+    """Two promises joined by «or» in words are two promises to el — said at the moment the goal is written (the live
+    errand, 2026-10-08: «[file: photo] or a claim [ref: number]», and the close asked for both). In Context only what el
+    reads as a promise: not a rule line, not a slot quoted in a code span or a link's name (Codex, 2026-10-09)."""
+    if context and text.strip().lstrip("- ").startswith("rule:"):
+        return ""
+    ms = _promise_slots(text, grammar.EXPECT_SLOT_RE) if context else list(grammar.EXPECT_SLOT_RE.finditer(text))
+    for a, b in zip(ms, ms[1:]):
+        gap = text[a.end():b.start()]
+        if ";" not in gap and "|" not in gap and OR_WORDS_RE.search(gap):
+            return (f"{a.group(0)} … or … {b.group(0)}: el holds both as promises — if either one is enough, write them side "
+                    f"by side as a fork, {a.group(0)} | {b.group(0)} (the words go before): either side proves it, and when one "
+                    f"is proved el names the other side's items to end — el help phases")
+    for m in ms:
+        if OR_WORDS_RE.search(m.group(2) or ""):
+            return (f"{m.group(0)} says «or» inside one proof — two things? a fork of two proofs: [{m.group(1)}: …] | [kind: …] "
+                    f"— el help phases")
+    return ""
 
 
 def _cancelled(p: grammar.Phase) -> bool:
@@ -1928,6 +2075,37 @@ def _case_promises(readme_body: str) -> List[Tuple[Tuple[str, str], str]]:
     return out
 
 
+def _case_forks(readme_body: str) -> List[List[int]]:
+    """Indices into _case_promises grouped into promises: a fork `[a] | [b]` on one Context line is one promise, kept by
+    either side — the same form as a phase goal's, one size up (the owner's word, 2026-10-09)."""
+    parsed = grammar.parse_readme(readme_body)
+    if parsed.errors:
+        return []
+    groups: List[List[int]] = []
+    base = 0
+    for ln in parsed.sections.get("Context", []):
+        if ln.strip().startswith("- rule:"):
+            continue
+        ms = _promise_slots(ln, grammar.EXPECT_SLOT_RE)
+        groups += [[base + i for i in g] for g in grammar.fork_groups(ln, ms)]
+        base += len(ms)
+    return groups
+
+
+def _case_promise_groups(case: Path, todo: grammar.Todo, readme_body: str):
+    """[(members, status)] — members are _case_coverage rows; a fork is proved by either side, promised while a phase
+    carries a side, uncovered when none does."""
+    cov = _case_coverage(case, todo, readme_body)
+    found = []
+    for g in _case_forks(readme_body):
+        members = [cov[i] for i in g if i < len(cov)]
+        if not members:
+            continue
+        sts = {m[2] for m in members}
+        found.append((members, "proved" if "proved" in sts else "promised" if "promised" in sts else "uncovered"))
+    return found
+
+
 def _case_coverage(case: Path, todo: grammar.Todo, readme_body: str):
     """Each proof the case promised (L6) against its phases — the phase-level check (F12) one size up, the owner's word
     2026-10-05 («the expectation lives at every size of the node» was taught and checked by nothing): a promise with words
@@ -1951,7 +2129,10 @@ def _case_coverage(case: Path, todo: grammar.Todo, readme_body: str):
             carriers.append((_slot_key(k, w), p, st == "proved"))
     results: Dict[int, tuple] = {}
     taken = set()
-    for idx, ((kind, what), where) in sorted(enumerate(promises), key=lambda e: not e[1][0][1]):  # named first (Codex, 2026-10-05)
+    forks = [g for g in _case_forks(readme_body) if len(g) > 1]
+    in_fork = {i for g in forks for i in g}
+    alone = [e for e in enumerate(promises) if e[0] not in in_fork]
+    for idx, ((kind, what), where) in sorted(alone, key=lambda e: not e[1][0][1]):  # named first (Codex, 2026-10-05)
         key = _slot_key(kind, what)
         mine = [(i, p, ok) for i, (k, p, ok) in enumerate(carriers) if k == key and i not in taken]
         if not key[1] and not any(ok for _, _, ok in mine):  # a bare kind: any free proof of it, carried or not (Codex, 2026-10-05)
@@ -1968,6 +2149,28 @@ def _case_coverage(case: Path, todo: grammar.Todo, readme_body: str):
         if pick[2]:
             left[kind] = left.get(kind, 0) - 1  # the proof under that carrier serves this promise and no other
         results[idx] = ((kind, what), where, "proved" if pick[2] else "promised", str(pick[1].n))
+    for g in forks:  # a fork, after the promises that stand alone: ONE side takes a proved carrier, the rest reserve nothing
+        win = next(((idx, i, p) for idx in sorted(g, key=lambda x: not promises[x][0][1])
+                    for i, (k, p, ok) in enumerate(carriers)
+                    if ok and i not in taken and k == _slot_key(*promises[idx][0])
+                    and left.get(promises[idx][0][0], 0) > 0), None)  # a proof a bare promise already counted is spent (Codex, 2026-10-09)
+        if win:
+            taken.add(win[1])
+            left[promises[win[0]][0][0]] = left.get(promises[win[0]][0][0], 0) - 1
+        bare = None
+        if not win:  # a bare side: any free proof of its kind (as a bare promise that stands alone)
+            bare = next((idx for idx in g if not promises[idx][0][1] and left.get(promises[idx][0][0], 0) > 0), None)
+            if bare is not None:
+                left[promises[bare][0][0]] -= 1
+        for idx in g:
+            (kind, what), where = promises[idx]
+            if win and idx == win[0]:
+                results[idx] = ((kind, what), where, "proved", str(win[2].n))
+            elif idx == bare:
+                results[idx] = ((kind, what), where, "proved", "")
+            else:
+                held = next((p for i, (k, p, _) in enumerate(carriers) if i not in taken and k == _slot_key(kind, what)), None)
+                results[idx] = ((kind, what), where, "promised" if held else "uncovered", str(held.n) if held else "")
     return [results[i] for i in range(len(promises))]
 
 
@@ -2007,9 +2210,15 @@ def _case_promise_lines(case: Path, todo: grammar.Todo, readme_body: str) -> Lis
         return []
     lines = []
     free = max((p.n for p in todo.phases), default=0) + 1
-    for (kind, what), where, status, _ in _case_coverage(case, todo, readme_body):
+    for members, status in _case_promise_groups(case, todo, readme_body):
         if status != "uncovered":
             continue
+        if len(members) > 1:  # a fork: a phase that proves either side
+            fork = _fork_text([m[0] for m in members])
+            lines.append(f"the case promises the fork {fork} and no phase promises either side — name the phase that proves "
+                         f"one, {_carry_command(free, fork)} · or correct the promise: {_promise_fix(members[0][1])}")
+            continue
+        (kind, what), where, _, _ = members[0]
         near = _near_promises(case, todo, kind, what)
         lines.append(f"the case promises {_slot(kind, what)} and no phase promises it — the goal nobody works towards: name the "
                      f"phase that proves it, {_carry_command(free, _slot(kind, what))} · or correct the promise: {_promise_fix(where)}"
@@ -2022,8 +2231,8 @@ def _case_promise_hint(case: Path, todo: grammar.Todo, n: int, out: Outcome) -> 
     (L6: the case and its phases said the same thing in different words, and a word-for-word check could not see it)."""
     phase = todo.phase(n)
     carried = {_slot_key(k, w) for k, w in grammar.expected_kinds(_phase_goal(case, phase))} if phase else set()
-    left = [_slot(k, w) for (k, w), _, st, _ in _case_coverage(case, todo, _readme_text(case)) if st == "uncovered"
-            and _slot_key(k, w) not in carried]
+    left = [_fork_text([m[0] for m in members]) for members, st in _case_promise_groups(case, todo, _readme_text(case))
+            if st == "uncovered" and not any(_slot_key(*m[0]) in carried for m in members)]
     if left:
         out.say(f"the case promises {' '.join(left)} and no phase carries it yet — is it this one? copy the slot into its goal, "
                 f"in the same words: the case closes when each of its promises is proved inside a phase")
@@ -2107,8 +2316,15 @@ def _promise_lines(case: Path, todo: grammar.Todo) -> List[str]:
     for p in todo.phases:
         if p.done or not _phase_file(case, p.n, p.name).exists():
             continue
-        for (kind, what), status, ref in _goal_coverage(p, _phase_goal(case, p)):
-            if status == "uncovered" and what:
+        for slots, status, ref, _ in _goal_promises(p, _phase_goal(case, p)):
+            if status == "uncovered" and len(slots) > 1 and any(w for _, w in slots):
+                lines.append(f"phase {p.n} {p.name} promises the fork {_fork_text(slots)} and no item promises either side — name "
+                             f"each branch as an item: el todo add {p.n} \"…\" --expect {_q(_slot(*slots[0]))} · el todo add {p.n} \"…\" "
+                             f"--expect {_q(_slot(*slots[1]))}; when one is proved, the other ends with its reason · or correct the "
+                             f"goal line in phases/{_phase_file(case, p.n, p.name).name}")
+                continue
+            (kind, what) = slots[0]
+            if status == "uncovered" and what and len(slots) == 1:
                 near = _near_words(p, _phase_goal(case, p), kind, what)
                 if near:  # the item is there, in other words: the fix is one command, not a new item (feedback 2026-10-08)
                     lines.append(f"phase {p.n} {p.name} promises {_slot(kind, what)} and no item promises it in these words{near}")
@@ -3704,13 +3920,29 @@ def todo_cancel(case: Path, ref: str, why: str) -> Outcome:
     reason = _pocket_text("cancel", why, subs[0].ref) if subs else why  # it stands on the sub-item's line in TODO
     tops = [it for it in items if not it.k]
     swept = [s for it in tops for s in it.open_subs()]  # an item cancelled ends its open sub-items with the same reason
+    points = []  # the other side of a decided fork ends here: the journal keeps the point (the owner's word, 2026-10-09)
+    if _real_phase(todo, phase):
+        gone_tops, gone_subs = {f"{it.ref}" for it in tops}, {f"{x.ref}" for x in subs + swept}
+        gone = gone_tops | gone_subs | {f"{x.ref}" for it in tops for x in it.subs}  # a cancelled item takes its whole subtree
+        after = copy.deepcopy(phase)  # what the fork says once these are gone — not what the old winner said (Codex, 2026-10-09)
+        after.items = [it for it in after.items if f"{it.ref}" not in gone_tops]
+        for it in after.items:
+            for x in it.subs:
+                x.cancelled = x.cancelled or f"{x.ref}" in gone_subs
+        goal = _phase_goal(case, phase)
+        before, now = _goal_promises(phase, goal), _goal_promises(after, goal)
+        for promise, kept in zip(before, now):
+            _, left = _fork_left(phase, promise, before)
+            if any(f"{it.ref}" in gone for it in left) and kept[1] == "proved":
+                points.append(f"развилка {_fork_text(promise[0])} решена: {_fork_left(after, kept, now)[0]}")
+    point = "".join(f" · {p}" for p in points)
     for s in subs + swept:
         s.cancelled, s.cancel_reason, s.held, s.hold_reason, s.hold_check = True, reason, False, "", ""
     for it in tops:
         phase.items.remove(it)
     out.absorb(_write_todo(case, todo))
     named = ", ".join(f"{_ref(phase, it)} «{it.text}»" for it in tops + subs + swept)
-    out.lines += log(case, "DECISION", f"снято {named} — {why}", _phase_of(todo, case) if phase.n == 0 else f"p{phase.n}").lines
+    out.lines += log(case, "DECISION", f"снято {named} — {why}{point}", _phase_of(todo, case) if phase.n == 0 else f"p{phase.n}").lines
     where = "the general list" if phase.n == 0 else f"phase {phase.n}"
     if tops:
         out.say(f"cancelled: {', '.join(f'{_ref(phase, it)} «{it.text}»' for it in tops)} — out of TODO, the reason is in the journal; "
@@ -3835,6 +4067,7 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
         _sync_progress(case, todo, out)
         out.say(f"re-planned: phase {n} {name} — {existing.summary or '(no goal)'} ({', '.join(changes)}) → TODO.md")
         _case_promise_hint(case, todo, n, out)
+        _say_fork_word(intent if "goal" in changes else "", out)
         return out
     todo.phases.append(grammar.Phase(n, name, False, 0, intent))
     out.absorb(_write_todo(case, todo))
@@ -3842,6 +4075,7 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     out.say(f"planned: phase {n} {name} → TODO.md (no phase file until it opens) · items now: el todo add {n} \"…\" · "
             f"open once the previous phase is closed: el phase open {n}")
     _case_promise_hint(case, todo, n, out)
+    _say_fork_word(intent or "", out)
     return out
 
 
@@ -4103,12 +4337,12 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
         out.warn(f"phase {n} opened without the owner's agreed scope (this case's rule: two hands) → el phase agree {n} \"the owner's words\"")
     _case_promise_hint(case, todo, n, out)
     opened, opened_goal = todo.phase(n), _phase_goal(case, todo.phase(n))
-    coverage = _goal_coverage(opened, opened_goal)
-    hints.attach(out, "phase_open", rel=f"phases/{pf.name}", n=n,
-                 promised=[_slot(k, w) for k, w in grammar.expected_kinds(opened_goal)],
-                 covered=[_slot(k, w) for (k, w), st, _ in coverage if st != "uncovered"],
-                 near=[(_slot(k, w), f"{_slot(k, w)}{_near_words(opened, opened_goal, k, w)}") for (k, w), st, _ in coverage
-                       if st == "uncovered" and w and _near_item_slots(opened, opened_goal, k, w)])
+    promises = _goal_promises(opened, opened_goal)  # a fork is one promise, kept by either side
+    uncovered = [sl for sl, st, *_ in promises if st == "uncovered"]
+    paired = [sl for sl in uncovered if len(sl) == 1 and sl[0][1] and _near_item_slots(opened, opened_goal, *sl[0])]
+    hints.attach(out, "phase_open", rel=f"phases/{pf.name}", n=n, promised=len(promises), covered=len(promises) - len(uncovered),
+                 near=[f"{_slot(*sl[0])}{_near_words(opened, opened_goal, *sl[0])}" for sl in paired],
+                 gaps=[[_q(_slot(*side)) for side in sl] for sl in uncovered if sl not in paired])
     return out
 
 
@@ -4188,10 +4422,24 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
         missing.append(f"phase {n} logged {len(unanswered)} PROBLEM(s) no recipe answers — «{order._short(unanswered[0].text, 60)}»: "
                        f"{HOWTO_ASK}: el phase close {n} \"…\" --howto …")
     goal_now = _phase_goal(case, phase)
-    for (kind, what), status, ref in _goal_coverage(phase, goal_now):  # F12: the phase's own promise holds its close
+    forks_left: Dict[str, str] = {}  # an open item that is the other side of a decided fork → the fork and its winner
+    promises_now = _goal_promises(phase, goal_now)
+    for promise in promises_now:  # F12: the phase's own promise holds its close
+        slots, status, ref, members = promise
+        won, left = _fork_left(phase, promise, promises_now)
+        forks_left.update({f"{it.ref}": f"{_fork_text(slots)}, decided — {won}" for it in left})
         if status == "proved":
             continue
         where = (f"the goal line in phases/{pf.name}" if pf.exists() else f"el phase plan {n} \"{phase.name}\" --goal \"…\"")
+        if len(slots) > 1:  # a fork: either side proves it (the owner's word, 2026-10-09)
+            side = next((m for m in members if m[1] == "promised"), None)
+            missing.append(f"phase {n} promised the fork {_fork_text(slots)} and neither side is proved"
+                           + (f" — {ref} promise(s) a side: prove one, el todo done {side[2].split(', ')[0]} {side[0][0]}:… \"…\""
+                              if side else
+                              f" — no item promises either side: el todo add {n} \"…\" --expect {_q(_slot(*slots[0]))}")
+                           + f" · or correct the promise: {where}")
+            continue
+        (kind, what) = slots[0]
         if status == "promised":
             missing.append(f"phase {n} promised {_slot(kind, what)} — {ref} promises it and is not proved with a {kind}: "
                            f"el todo done {ref} {kind}:… \"…\" · or correct the promise: {where}")
@@ -4199,8 +4447,10 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
             missing.append(f"phase {n} promised {_slot(kind, what)} and no done item proves it — name the criterion as an item: "
                            f"el todo add {n} \"…\" --expect \"{_slot(kind, what)}\" and prove it · or correct the promise: {where}")
     if open_items:  # F20: a phase closes only when every item ended — done with evidence, or cancelled with a reason
+        fork = next((r for r in open_items if r in forks_left), None)
         missing.append(f"phase {n}: open items {', '.join(open_items)} — each must end one of two ways: "
-                       f"el todo done N.M <kind> \"what came out\" · el todo cancel N.M \"why\" (or cancel the phase: el phase cancel {n} \"why\")")
+                       f"el todo done N.M <kind> \"what came out\" · el todo cancel N.M \"why\" (or cancel the phase: el phase cancel {n} \"why\")"
+                       + (f" · {fork} is the other side of the fork {forks_left[fork]}: el todo cancel {fork} \"why\"" if fork else ""))
     unaccepted = [f"{it.ref}" for it in grammar.flat(phase.items) if it.done and not it.accepted]
     if unaccepted and _two_hands(_readme_text(case)):  # F23: this case asked for two hands — the close waits for the second
         owed = [it for it in grammar.flat(phase.items) if it.done and not it.accepted]
@@ -4385,12 +4635,16 @@ def _digest(case: Path, pf: Path, phase: grammar.Phase, evs: List[grammar.Event]
     lines = [head]
     if any(it.accepted for it in nodes):  # F23: how the phase was accepted rises with it (feedback 2026-09-29)
         lines.append(f"- acceptance: {_acceptance_tally(nodes)}")
-    coverage = _goal_coverage(phase, goal)
-    if coverage:  # the phase's own promise (its goal), decomposed into its items and their proofs
-        proved = [(sl, ref) for sl, st, ref in coverage if st == "proved"]
+    coverage = _goal_promises(phase, goal)
+    if coverage:  # the phase's own promise (its goal), decomposed into its items and their proofs; a fork says its side
+        def said(slots, ref, members):
+            won = next(m for m in members if m[1] == "proved")
+            head = f"{_slot(*slots[0])}" if len(slots) == 1 else f"the fork {_fork_text(slots)} — {_slot(*won[0])}"
+            return f"{head} by {ref}" if ref else head
+        proved = [(sl, ref, mem) for sl, st, ref, mem in coverage if st == "proved"]
         lines.append(f"- phase promise: {len(proved)} of {len(coverage)} proved"
-                     + (" — " + " · ".join(f"{_slot(*sl)} by {ref}" if ref else _slot(*sl) for sl, ref in proved) if proved else "")
-                     + (" — not proved: " + " ".join(_slot(*sl) for sl, st, _ in coverage if st != "proved") if len(proved) < len(coverage) else ""))
+                     + (" — " + " · ".join(said(*pr) for pr in proved) if proved else "")
+                     + (" — not proved: " + " ".join(_fork_text(sl) for sl, st, *_ in coverage if st != "proved") if len(proved) < len(coverage) else ""))
     promised = [it for it in nodes if not it.cancelled and grammar.expected_kinds(it.expect)]
     if promised:  # F22: the record held to its own promises — met, or short and said so
         met = [it for it in promised if all(pr is not None for *_, pr in _pair_slots(grammar.expected_kinds(it.expect), it.evidence))]
@@ -4657,6 +4911,7 @@ def readme_add(case: Path, section: str, line: str) -> Outcome:
     parsed.sections.setdefault(name, []).append(f"- {line}")
     _write_readme(case, _render_readme(parsed), out, anchor=name == "State")
     out.say(f"README {name}: line added")
+    _say_fork_word(line if name == "Context" else "", out, context=True)
     return out
 
 
@@ -4699,6 +4954,7 @@ def readme_edit(case: Path, section: str, ref: str, text: str) -> Outcome:
     parsed.sections[name][bullets[k - 1]] = f"- {text}"
     _write_readme(case, _render_readme(parsed), out)
     out.say(f"README {name}: line {k} edited → «{text}» (was: «{old[2:]}»)")
+    _say_fork_word(text if name == "Context" else "", out, context=True)
     return out
 
 
@@ -5169,8 +5425,15 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None, by: 
     if live:  # F20: a parent closes only when every child is done or cancelled; BROKEN holds it open (F18)
         raise StoreError("cannot close the case: nested cases still open — " + ", ".join(live) +
                          " → close each (el --case <name> done \"…\") or cancel it with a reason", 4)
-    coverage = _case_coverage(case, todo, _readme_text(case, out))
-    unproved = [cv for cv in coverage if cv[2] != "proved"]
+    groups = _case_promise_groups(case, todo, _readme_text(case, out))
+    unproved = [members for members, st in groups if st != "proved"]
+    if unproved and len(unproved[0]) > 1:  # a fork: either side proved in a phase closes it (the owner's word, 2026-10-09)
+        fork = _fork_text([m[0] for m in unproved[0]])
+        free = max((p.n for p in todo.phases), default=0) + 1
+        raise StoreError(f"cannot close the case: it promised the fork {fork} in Context and neither side is proved inside a phase "
+                         f"→ prove one: a phase whose goal carries it, closed with its proof ({_carry_command(free, fork)}) · or "
+                         f"correct the promise to what was proved, in the owner's words: {_promise_fix(unproved[0][0][1])}", 4)
+    unproved = [members[0] for members in unproved]
     if unproved:  # L6: the case's own promise holds its close, as a phase's goal holds the phase's (F12)
         (kind, what), where, status, refs = unproved[0]
         near = _near_promises(case, todo, kind, what)
@@ -5238,9 +5501,12 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None, by: 
     out.lines = log(case, "PHASE", f"дело закрыто → {summary}" + (f" · слово владельца: «{owner_words}»" if owner_words else "")).lines + out.lines
     _deliver_to_parent(root, case, summary, out)
     out.say(f"closed: {case.name}")
-    if coverage:
-        out.say(f"case promises: {len(coverage)} of {len(coverage)} proved — "
-                + " · ".join(_slot(*sl) + (f" by phase {refs}" if refs else "") for sl, _, _, refs in coverage))
+    if groups:  # a fork says its side
+        def side(members):
+            won = next(m for m in members if m[2] == "proved")
+            head = _slot(*won[0]) if len(members) == 1 else f"the fork {_fork_text([m[0] for m in members])} — {_slot(*won[0])}"
+            return head + (f" by phase {won[3]}" if won[3] else "")
+        out.say(f"case promises: {len(groups)} of {len(groups)} proved — " + " · ".join(side(m) for m, _ in groups))
     if tally:
         out.say(f"acceptance: {tally} → the closed: line, drawn at the parent")
     return out
@@ -5974,6 +6240,7 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_closed_wait_lines(case, todo_now))       # waiting for a child that closed, its close cut off (L7)
         lines.extend(_ended_phase_lines(case, todo_now, journal, readme_body))  # every item ended: accept, then close (F20, F23)
         lines.extend(_promise_lines(case, todo_now))               # a promised proof nobody works towards (F12)
+        lines.extend(_fork_lines(case, todo_now))                  # a fork decided, its other side still open (F12)
         lines.extend(_case_promise_lines(case, todo_now, readme_body))  # the same, one size up: the case's promise (L6)
         lines.extend(_expect_gap_lines(case, todo_now))            # an item of a running phase with no expectation (F22)
         lines.extend(_running_order_lines(case, todo_now))         # the phase in flight is held to the current form

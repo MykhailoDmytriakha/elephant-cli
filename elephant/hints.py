@@ -106,17 +106,25 @@ def _log(typ: str, text: str = "", project: Optional[Path] = None, item: Optiona
 
 
 # ---- opening and closing --------------------------------------------------------------------------
-def _phase_open(rel: str, n: int = 0, promised=(), covered=(), near=(), **_) -> Optional[str]:
+def _phase_open(rel: str, n: int = 0, promised=0, covered=0, near=(), gaps=(), **_) -> Optional[str]:
+    """`promised`/`covered` count promises (a fork is one); `near` — single slots an item says in other words, with the
+    command that joins them; `gaps` — the uncovered promises, each its sides already quoted for the shell (a fork has two
+    or more) — structure, never split from rendered text (Codex, 2026-10-09: `[ref: a | b]` read as a fork)."""
+    def branch(sides):  # one item per side of a fork; the one slot otherwise
+        if len(sides) > 1:
+            return (f"the fork {' | '.join(s.strip(chr(34) + chr(39)) for s in sides)}: name each branch as an item, "
+                    + " · ".join(f'el todo add {n} "…" --expect {s}' for s in sides[:2])
+                    + "; when one is proved, the other ends with its reason")
+        return f'{sides[0].strip(chr(34) + chr(39))} has no item: el todo add {n} "…" --expect {sides[0]}'
     if near:  # the items are there, in other words (feedback 2026-10-08): the pair, and the one command that joins it
-        paired = {slot for slot, _ in near}
-        rest = [sl for sl in promised if sl not in covered and sl not in paired]
-        return (f"the goal promises {len(promised)} proof(s) and {len(covered)} have an item in its words — "
-                + "; ".join(words for _, words in near[:2]) + (f" (+{len(near) - 2} more: el order)" if len(near) > 2 else "")
-                + (f"; {rest[0]} has no item: el todo add {n} \"…\" --expect \"{rest[0]}\"" if rest else ""))
-    if promised and len(covered) < len(promised):  # the goal promises proofs no item works towards yet
-        gap = [sl for sl in promised if sl not in covered]
-        return (f"the goal promises {len(promised)} proof(s) and {len(covered)} have an item — name each criterion as an item "
-                f"with the same slot: el todo add {n} \"…\" --expect \"{gap[0]}\" — the beacon at the end; the steps to it come as you "
+        return (f"the goal promises {promised} proof(s) and {covered} have an item in its words — "
+                + "; ".join(near[:2]) + (f" (+{len(near) - 2} more: el order)" if len(near) > 2 else "")
+                + (f"; {branch(gaps[0])}" if gaps else ""))
+    if promised and gaps:  # the goal promises proofs no item works towards yet
+        if len(gaps[0]) > 1:  # a fork: one item per branch, and the point where one is chosen (the owner's word, 2026-10-09)
+            return (f"the goal promises {promised} proof(s) and {covered} have an item — {branch(gaps[0])} — el help phases")
+        return (f"the goal promises {promised} proof(s) and {covered} have an item — name each criterion as an item "
+                f"with the same slot: el todo add {n} \"…\" --expect {gaps[0][0]} — the beacon at the end; the steps to it come as you "
                 f"find them, before it (--before {n}.K) — el help phases")
     if not promised:
         return (f"what must be true when phase {n} closes? promise it in the goal, one proof per criterion — "

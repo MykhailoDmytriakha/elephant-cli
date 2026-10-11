@@ -144,6 +144,28 @@ ANY_SLOT_RE = re.compile(r"\[([a-z][a-z-]*)(?::[^\]]*)?\]")
 def expected_kinds(expect: str):
     """The proof placeholders of an `expect:` line: [(kind, what), …]."""
     return [(m.group(1), (m.group(2) or "").strip()) for m in EXPECT_SLOT_RE.finditer(expect)]
+
+
+FORK_GAP_RE = re.compile(r"\s*\|\s*")
+
+
+def fork_groups(text: str, matches) -> List[List[int]]:
+    """Slot matches grouped into promises: slots joined by `|` and nothing else are one fork — `[file: photo] | [ref: claim]`
+    is kept by either side (the owner's word, 2026-10-09: «A or B always has a point where it is decided — hold that
+    point»); every other slot is a promise of its own."""
+    groups: List[List[int]] = []
+    for i, m in enumerate(matches):
+        if i and FORK_GAP_RE.fullmatch(text[matches[i - 1].end():m.start()]):
+            groups[-1].append(i)
+        else:
+            groups.append([i])
+    return groups
+
+
+def promise_groups(text: str) -> List[List[Tuple[str, str]]]:
+    """The promises of a goal as written: [[(kind, what)], [(kind, what), (kind, what)], …] — a fork has two sides or more."""
+    ms = list(EXPECT_SLOT_RE.finditer(text))
+    return [[(ms[i].group(1), (ms[i].group(2) or "").strip()) for i in g] for g in fork_groups(text, ms)]
 SECTION_RE = re.compile(r"^## (.+)$")
 PHASE_TITLE_RE = re.compile(r"^# Phase (\d+) — (.+)$")
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
