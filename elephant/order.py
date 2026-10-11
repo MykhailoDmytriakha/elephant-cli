@@ -468,9 +468,26 @@ def duplicates(folders: List[Folder]) -> List[Tuple[str, str, float]]:
                 continue
             small, other = (a, b) if len(sa) <= len(sb) else (b, a)
             share = len(sa & sb) / min(len(sa), len(sb))
-            if share >= DUP_SHARE:
+            if share >= DUP_SHARE and not (_links_to(a, b) or _links_to(b, a)):
                 pairs.append((small.rel, other.rel, share))
     return sorted(pairs, key=lambda x: -x[2])
+
+
+def _links_to(a: Doc, b: Doc) -> bool:
+    """Does a's text link to b? Two files that share text and are linked were related by their author on purpose — the
+    second run's report «over [run 1](run-1.md): what differs», a draft and its final; the reader sees the relation and
+    the difference in words, and the Order line has its honest close (feedback 2026-10-10: its advice «say the difference
+    in each summary» did not close it — only a merge did, and merging two honest reports spoils them)."""
+    try:
+        text = a.path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    target = b.path.resolve()
+    for m in LINK_RE.finditer(text):
+        dest = m.group(2).split("#", 1)[0]
+        if dest and not re.match(r"[a-z]+://", dest) and (a.path.parent / dest).resolve() == target:
+            return True
+    return False
 
 
 def budgets(folders: List[Folder]) -> List[str]:
@@ -787,7 +804,8 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
             out.append(f"nested case {k.name}: from before el (never stamped, outside the grammar) — it holds this case open (F18) → el --case {k.name} migrate")
     for small, other, share in duplicates(folders):
         out.append(f"{small} ≈ {other}: {int(share * 100)} % of {small.rsplit('/', 1)[-1]}'s text is verbatim in "
-                   f"{other.rsplit('/', 1)[-1]} → say the difference in each summary, or merge")
+                   f"{other.rsplit('/', 1)[-1]} → relate them: link one from the other, saying in words how it differs "
+                   f"(«second run over [run 1](run-1.md): …») · or merge them")
     out.extend(budgets(folders))
     try:
         from . import store, stamp  # local: store imports order for the README render

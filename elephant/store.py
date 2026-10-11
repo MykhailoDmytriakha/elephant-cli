@@ -522,9 +522,13 @@ def hand(root: Path, explicit: Optional[str] = None) -> Path:
         raise StoreError("no case here yet — nothing to pick up", 4,
                          recovery="el case new \"name\" --goal \"what done looks like, in the owner's words\"")
     open_cases = [c for c in cases if is_open(c)]
-    if not open_cases:
-        raise StoreError(f"every case here is closed ({len(cases)}) — nothing to pick up", 4,
-                         recovery="el case list · el case new \"name\" --goal \"…\"")
+    if not open_cases:  # a closed case takes new work by a new phase (the polygon, 2026-10-10: eight calls to find the door)
+        tops = [c for c in cases if not any(c != o and o in c.parents for o in cases)]
+        top = tops[0].name if len(tops) == 1 else "<name>"
+        raise StoreError(f"every case here is closed ({len(cases)}) — nothing to pick up on its own; new work goes into a case "
+                         f"as a new phase", 4,
+                         recovery=f"continue one: el --case {top} phase plan N \"Name\" --goal \"…\" · the cases: el case list · "
+                                  f"a new one: el case new \"name\" --goal \"…\"")
     def freshness(c: Path):  # the journal's mtime marks the case a command was last aimed at (`mark_aimed`)
         j = file_path(c, "JOURNAL.md")
         return j.stat().st_mtime if j.exists() else 0

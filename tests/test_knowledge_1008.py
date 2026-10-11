@@ -80,7 +80,8 @@ class TheEntryOfEveryCaseNamesIt(Base):
         self.assertEqual(code, 4)
         lines = out.rstrip("\n").split("\n")
         self.assertTrue(any(ln.strip().startswith("knowledge: 1 document(s)") for ln in lines), out)
-        self.assertIn("recovery: el case list", lines[-1])
+        self.assertTrue(lines[-1].strip().startswith("recovery: "), lines[-1])  # the door is the last line
+        self.assertIn("el case list", lines[-1])
 
     def test_many_documents_name_three_and_count_the_rest(self):
         for i in range(4):

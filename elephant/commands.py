@@ -4,6 +4,7 @@ Each function takes the case folder (already resolved by main), does its precond
 validates through the grammar (exit 3) and writes with a fresh stamp. Functions return the lines
 to print on success; warnings are collected in `Outcome.warnings` and printed to stderr by main.
 """
+import contextlib
 import copy
 import datetime as dt
 import hashlib
@@ -1743,6 +1744,17 @@ def _valid_date(due: str) -> str:
     return due
 
 
+@contextlib.contextmanager
+def _nothing_added(what: str):
+    """A pocket refused at `todo add` refuses the item with it — and says so first (the polygon, 2026-10-10: forty adds
+    refused on a 164-char note; the agent's recipe recorded «todo add silently creates no items»: the first line named
+    the note, not the item that was not added)."""
+    try:
+        yield
+    except StoreError as e:
+        raise StoreError(f"nothing added — the item {what} is refused with its pocket: {e}", e.code, recovery=e.recovery) from None
+
+
 def _pocket_text(label: str, text: str, ref: str) -> str:
     """A pocket line (F22) at the write door: one line, non-empty, within the pointer limit."""
     text = " ".join(text.split())
@@ -2566,13 +2578,14 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why:
                          f"`el todo add {ref} \"…\" --before {phase.n}.K` puts it in place)", 3)
     m = _next_number(case, todo, phase)
     item = grammar.Item(phase.n, m, False, text, 0, due=due)
-    if why:
-        item.why = _pocket_text("why", why, f"{phase.n}.{m}")
-    item.notes = [_pocket_text("note", n, f"{phase.n}.{m}") for n in (notes or [])]
-    if expect:
-        item.expect = _expect_text(expect, f"{phase.n}.{m}")
-    if fact and fact.strip() not in ("-", "—", "no", "none"):
-        item.fact = _pocket_text("fact", fact, f"{phase.n}.{m}")
+    with _nothing_added(f"«{order._short(text, 50)}»"):
+        if why:
+            item.why = _pocket_text("why", why, f"{phase.n}.{m}")
+        item.notes = [_pocket_text("note", n, f"{phase.n}.{m}") for n in (notes or [])]
+        if expect:
+            item.expect = _expect_text(expect, f"{phase.n}.{m}")
+        if fact and fact.strip() not in ("-", "—", "no", "none"):
+            item.fact = _pocket_text("fact", fact, f"{phase.n}.{m}")
     phase.items.insert(at, item)
     if after:
         _set_after(case, todo, item, after)
@@ -2644,13 +2657,14 @@ def _add_sub(case: Path, ref: str, text: str, before: Optional[str], why: str, n
     sub = grammar.Item(parent.n, parent.m, False, text, 0, due=due)
     sub.k = k
     me = sub.ref
-    if why:
-        sub.why = _pocket_text("why", why, me)
-    sub.notes = [_pocket_text("note", n, me) for n in (notes or [])]
-    if expect:
-        sub.expect = _expect_text(expect, me)
-    if fact and fact.strip() not in ("-", "—", "no", "none"):
-        sub.fact = _pocket_text("fact", fact, me)
+    with _nothing_added(f"«{order._short(text, 50)}»"):
+        if why:
+            sub.why = _pocket_text("why", why, me)
+        sub.notes = [_pocket_text("note", n, me) for n in (notes or [])]
+        if expect:
+            sub.expect = _expect_text(expect, me)
+        if fact and fact.strip() not in ("-", "—", "no", "none"):
+            sub.fact = _pocket_text("fact", fact, me)
     parent.subs.insert(at, sub)
     if after:
         _set_after(case, todo, sub, after)
@@ -2901,8 +2915,13 @@ def _find_item(todo: grammar.Todo, ref: str):
     if phase is not None and phase.done:  # before «no item»: a closed phase folds to one line, its items are in its file
         raise StoreError(_closed_item_refusal(todo, phase, ref.strip()), 4)
     item = next((it for it in phase.items if it.m == int(m.group(2))), None) if phase else None
-    if item is None:
-        raise StoreError(f"no item {m.group(1)}.{m.group(2)} in TODO.md", 4)
+    if item is None:  # the numbers the phase holds — an agent that guessed the next number reads them, not guesses again
+        # (the polygon, 2026-10-10: `todo add 2 …` gave 2.7 — 2.1–2.6 were taken before — and `done 2.1` said only «no item»)
+        if phase is None:
+            have = ", ".join(str(p.n) for p in todo.phases) or "none"
+            raise StoreError(f"no item {m.group(1)}.{m.group(2)}: there is no phase {m.group(1)} (phases: {have}) — el todo", 4)
+        raise StoreError(f"no item {m.group(1)}.{m.group(2)} in phase {phase.n} (items: {_number_ranges(phase)}) — an item's "
+                         f"number is for life, a new one takes the next free number and `todo add` prints it: el todo show {phase.n}", 4)
     if m.group(3):  # F25: a sub-item under its item
         sub = next((s for s in item.subs if s.k == int(m.group(3))), None)
         if sub is None:
@@ -3715,16 +3734,19 @@ def _context_goal(readme_body: str) -> str:
 # wording; «re-run every run» on a document sent acceptors re-running the sources' experiments for twenty minutes).
 # Rereading a document checks what is in it; what it lost is seen only by deriving it again from the sources. On the
 # question the item asks (2026-10-10, a control wave: a correct digest of one feature was returned 3 of 3 by acceptors
-# who listed every closed path of the campaign journal it came from — fifteen paths of other questions «missing»).
+# who listed every closed path of the campaign journal it came from — fifteen paths of other questions «missing»). And a
+# condition as the source states it (the re-audit of 2026-10-10: asked for «the condition for returning to each», a
+# rewriter supplied conditions the source never gave — «prefill > 4–6 s» for a path closed for another reason).
 DOCUMENT_PROTOCOL = (
     "  1. BEFORE you open it, open its sources — the files and refs the case goal, the phase, the item, its notes and the "
     "inputs above name — and write down yourself, on the question this item and the case goal ask: every path that was "
-    "tried and closed on it, with its numbers; the condition for returning to each; the final status of the work (parked · "
-    "shipped · reverted · open); the bars it was held to. A source wider than the question (a campaign's journal) is read "
-    "for this question: the paths of its other questions are not missing here.",
+    "tried and closed on it, with its numbers; the condition for returning to each, as the source states it — none stated "
+    "is «not stated», never one supplied; the final status of the work (parked · shipped · reverted · open); the bars it "
+    "was held to. A source wider than the question (a campaign's journal) is read for this question: the paths of its "
+    "other questions are not missing here.",
     "  2. Read what the sources recorded — do not re-run their experiments: the record is what the document is held to.",
     "  3. Only then open the document and compare: what of your list is missing, what differs, what the document says "
-    "that the sources do not.",
+    "that the sources do not — a return condition or a status the source never gave is that too.",
     "  4. Your verdict text carries both counts — «sources: N closed paths · document: M · missing: …». Anything missing, "
     "different or unsupported → return it, naming what exactly. Everything there → accept, saying what you compared.")
 

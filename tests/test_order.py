@@ -131,7 +131,7 @@ class Duplicates(Base):
         self.doc("docs/other.md", "# Other\nsummary: c\n" + " ".join(f"иное{i}" for i in range(60)) + "\n")
         code, out, err = run()
         self.assertIn("docs/one.md ≈ docs/two.md", out)
-        self.assertIn("% of one.md's text is verbatim in two.md → say the difference in each summary, or merge", out)
+        self.assertIn("% of one.md's text is verbatim in two.md → relate them: link one from the other", out)
         self.assertNotIn("docs/other.md ≈", out)
         code, out, err = run("check")
         self.assertEqual(code, 0, "duplicates are shown, never refused")

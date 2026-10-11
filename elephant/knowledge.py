@@ -176,7 +176,7 @@ Every `el` entry ends with `## Order`: each line = one thing out of place + the 
 - folder without a description → `el readme add links "docs/ — что здесь"` (the folder line is
   yours; the file lines under it are rendered by el from the summaries).
 - two files sharing their text (≥ 50 % of the smaller one's phrasing appears verbatim in the other)
-  → say the difference in each summary, or merge. Shared vocabulary is not shared text: two
+  → relate them: link one from the other, saying in words how it differs; or merge. Shared vocabulary is not shared text: two
   documents on one subject share the names and dates and stay two documents.
 - a file over 24 KB of markdown → split by summary or trim. There is no folder total: a byte
   count cannot tell deliverables from water.
@@ -592,7 +592,7 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
                                           the breakdown after it (el help files)
 - a person the cases deal with          → .cases/people/<name>.md, `summary:` as line 2 (role · what they
                                           own · how to reach); cases link to the card (el help people)
-- two files sharing their text (Order names them) → say the difference in each summary, or merge
+- two files sharing their text (Order names them) → link one from the other saying how it differs, or merge
 - finished for today                     → `el` → Order says "State is behind"? rewrite State
 - closed a phase                        → `el phase close N "…"` (does TODO+journal+README itself)
 - took a measurement                    → `el log RESULT "…"` + the number in README State
@@ -865,7 +865,8 @@ records the verdict.
   session. No second agent at hand? The owner pastes it into a new chat.
 - a document of the case is judged by deriving, not rereading (the polygon, 2026-10-09): when a proof is a markdown
   inside the case, the brief asks the acceptor to write down from the sources FIRST — every path tried and closed with
-  its numbers, the condition for returning to each, the final status, the bars — and only then to compare; the
+  its numbers, the condition for returning to each as the source states it (none stated: «not stated», never
+  supplied), the final status, the bars — and only then to compare; the
   sources' experiments are read, not re-run; the verdict carries both counts («sources: N closed paths · document: M ·
   missing: …»). Rereading checks what is in a document; what it lost shows only when derived again.
 - the verdict — `el todo accept N.M --by codex --run "make test → 12 OK" "what you checked and how"` → under the item
