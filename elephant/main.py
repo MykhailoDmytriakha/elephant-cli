@@ -891,6 +891,11 @@ CASE_COMMANDS = ("todo", "phase", "log", "readme", "done", "check", "order", "fa
 CARRY_RE = re.compile(r"(?<![\w/.-])el (?=(?:" + "|".join(re.escape(c) for c in CASE_COMMANDS) + r")\b(?!:))")  # not `el done:` — a label
 
 
+# a quoted stretch is someone's words (2026-10-12: «el todo …» in an item's text came back as «el --case x todo …»); an
+# apostrophe inside a word (item's) opens nothing
+QUOTED_RE = re.compile(r"""(«[^»]*»|(?<!\w)'(?:[^'\n]|'\\'')*'(?!\w)|(?<!\w)"[^"\n]*"(?!\w))""")
+
+
 def _carry_case(lines: List[str], args) -> List[str]:
     """`--case` acts on one call (1.60.0), so a command el prints in the answer to such a call names the same case —
     or, run as printed, it acts on the case in hand, another one (Codex acceptance, 2026-10-11: the recovery of an
@@ -901,7 +906,10 @@ def _carry_case(lines: List[str], args) -> List[str]:
         return lines
     word = name if re.fullmatch(r"[\w.@+/-]+", name) else shlex.quote(name)
     opt = f"--case={word}" if name.startswith("-") else f"--case {word}"
-    return [CARRY_RE.sub(f"el {opt} ", ln) for ln in lines]
+    def carry(ln: str) -> str:  # only el's own words: a quote holds the agent's — «…», a shell-quoted argument
+        parts = QUOTED_RE.split(ln)
+        return "".join(p if i % 2 else CARRY_RE.sub(f"el {opt} ", p) for i, p in enumerate(parts))
+    return [ln if isinstance(ln, commands.Stored) else carry(ln) for ln in lines]  # the case as stored
 
 
 NAMES_A_COMMAND = re.compile(r"\bel (?:--[a-z]+ \S+ )?[a-z]")  # a line that names an el command — a door

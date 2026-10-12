@@ -52,6 +52,16 @@ class Outcome:
             self.warnings.append(HAND_EDIT_REPORT)
 
 
+class Stored(str):
+    """A line of the case printed as it is stored — README, TODO, an item, a journal headline. The `--case` carry (1.61.0)
+    rewrites the commands el composes, never these: an item stored as «el todo …» was printed as «el --case x todo …»,
+    words the agent never wrote (the maintainer's report, 2026-10-12)."""
+
+
+def _stored(*ls) -> List[str]:
+    return [Stored(ln) for ln in ls]
+
+
 # The one moment el sees a workaround (the owner's word, 2026-10-06): a hand edit past the stamp is often a command el
 # lacks or one the agent could not find — both are reports (depth 1 and 2), and only the agent knows which it was.
 HAND_EDIT_REPORT = ("edited by hand because el had no command for it, or you could not find one? "
@@ -877,11 +887,51 @@ def _clause_cut(text: str, limit: int):
     return text[:cut].rstrip(), text[cut:].strip(), False
 
 
+def _bare_paths(text: str) -> List[str]:
+    """Paths written as words, outside markdown links, that name a file on disk — from here, from the project root or inside
+    a case; a token is a path only by the file it names, never by its shape (Codex, 2026-10-12: a URL's query, an anchor,
+    an absolute path — each shape a pattern got wrong). The anchor stays with the path."""
+    try:
+        root = store.find_root()
+        bases = [Path.cwd(), root.parent] + list(store.all_cases(root))
+    except Exception:
+        bases = [Path.cwd()]
+    found = []
+    def names_a_file(path: str) -> bool:
+        try:
+            here = Path(path).expanduser()
+            return here.is_file() if here.is_absolute() else any((b / path).is_file() for b in bases)
+        except (OSError, ValueError):
+            return False
+
+    for raw in grammar.LINK_RE.sub(" ", text).split():
+        # the token as written first, then without the punctuation around it — the file decides which (Codex, round 3)
+        for tok in dict.fromkeys((raw, raw.strip("`([<«\"'").rstrip("`)]>»\"',;:.!?"))):
+            if "://" in tok:
+                continue
+            # the whole token first (a `#` may be in a file's name), then cut at each `#`, longest first — the file decides
+            # where the anchor begins (Codex, rounds 4–5: `docs/review#draft.md#section`)
+            cuts = [tok] + [tok[:i] for i in range(len(tok) - 1, -1, -1) if tok[i] == "#"]
+            path = next((p for p in dict.fromkeys(cuts) if p and ("/" in p or "." in p) and names_a_file(p)), None)
+            if path is not None:
+                if tok not in found:
+                    found.append(tok)
+                break
+    return found
+
+
 def _too_long(what: str, text: str, limit: int, rule: str) -> str:
     """The head of every length refusal — one voice at every door (feedback 2026-10-05: a note refused «when linking a
-    doc» made the agent ask el to stop counting link targets, which never counted; the pocket refusal had not said so)."""
+    doc» made the agent ask el to stop counting link targets, which never counted; the pocket refusal had not said so).
+    A bare path counts whole — named with its size, the link that costs only its name (a live report, 2026-10-12: a note
+    8 over with an artifact's path in it asked for a wider limit; written as a link the path costs nothing)."""
     names = sum(grammar.visible_len(m.group(0)) for m in grammar.LINK_RE.finditer(text))
     share = f" — {names} of them are link names: a short name keeps the link" if names else ""
+    bare = _bare_paths(text)
+    if bare:
+        path = max(bare, key=len)
+        share += (f" — «{order._short(path, 60)}» is a bare path, {len(path)} of them: written as a markdown link, only "
+                  f"its name counts")  # no link template: a path can carry what breaks one (Codex, round 3)
     return f"{what} is {grammar.visible_len(text)} visible chars, limit {limit} ({rule}); markdown links count as their name{share}"
 
 
@@ -2458,9 +2508,37 @@ def todo_show_all(case: Path) -> Outcome:
     door to write — the line a `tail -1` reader keeps."""
     out = Outcome()
     body, _ = stamp.split(store.read(case, "TODO.md"))
-    out.say(body.rstrip("\n"), "",
+    focus = _open_focus(case)  # names stored words and no door: printed as stored (Codex: nested «» exposed an item's text)
+    out.say(*([Stored(focus), ""] if focus else []), *_stored(body.rstrip("\n")), "",
             'write: el todo add N "…" · el todo done N.M <kind> "what came out" · one item\'s card: el todo show N.M — el help todo')
     return out
+
+
+def _open_focus(case: Path) -> str:
+    """The first line of a bare `el todo`: what is left in each running phase — open items, then held ones (a live report,
+    2026-10-12: one open item stood between done ones of 7–12 lines each, results and proofs, and the reader hunted for
+    it). The file keeps every block — results and proof versions live there; the line only says where to look. "" when
+    nothing is open or the TODO does not parse."""
+    try:  # read, never load: a look does not rebuild the file
+        todo = grammar.parse_todo(stamp.split(store.read(case, "TODO.md"))[0])
+    except Exception:
+        return ""
+    if todo.errors:
+        return ""
+    parts = []
+    for p in sorted(todo.phases, key=lambda x: x.n):
+        if p.done or p.held or not _phase_file(case, p.n, p.name).exists():  # a paused phase is not now (Codex)
+            continue
+        live = [it for it in grammar.flat(p.items) if not it.done and not it.cancelled]  # sub-items too (Codex)
+        opens = [it for it in live if not it.held]
+        held = [it for it in live if it.held]
+        if not live:
+            continue
+        named = lambda its: ", ".join(f"{it.ref} «{order._short(it.text, 40)}»" for it in its[:5]) + (
+            f" +{len(its) - 5} more" if len(its) > 5 else "")
+        parts.append(f"phase {p.n}: " + (named(opens) if opens else "nothing open")
+                     + (f" · on hold: {named(held)}" if held else ""))
+    return ("open now — " + " · ".join(parts)) if parts else ""
 
 
 def phase_show(case: Path, n: int) -> Outcome:
@@ -2479,7 +2557,7 @@ def phase_show(case: Path, n: int) -> Outcome:
     body = stamp.split(store.read(case, "TODO.md"))[0].rstrip("\n").split("\n")
     start = phase.line - 1
     end = next((i for i in range(start + 1, len(body)) if body[i].startswith(("- [", "## ", "# "))), len(body))
-    out.say(*body[start:end])
+    out.say(*_stored(*body[start:end]))
     pf = _phase_file(case, phase.n, phase.name)
     if phase.done and not pf.exists():  # history without its file: say so, never the door of an open phase (Codex)
         journal = _sh_path(_from_here(store.file_path(case, "JOURNAL.md")))
@@ -2487,7 +2565,7 @@ def phase_show(case: Path, n: int) -> Outcome:
                     f"events stay in the journal: grep -n -A3 '· p{phase.n}$' {journal}")
         return out
     if phase.done:
-        out.say("", f"— {pf.relative_to(case).as_posix()} —", *pf.read_text(encoding="utf-8").rstrip("\n").split("\n"))
+        out.say("", f"— {pf.relative_to(case).as_posix()} —", *_stored(*pf.read_text(encoding="utf-8").rstrip("\n").split("\n")))
         out.say("", "the whole plan: el todo · this phase is history — a step now goes to an open phase: el todo add N \"…\"")
     else:
         items = grammar.flat(list(phase.items))
@@ -2512,18 +2590,19 @@ def todo_show(case: Path, ref: str) -> Outcome:
                      if tuple(int(x) for x in f"{it.ref}".split(".")) == want), None)
         if hist is not None:
             rel = _phase_file(case, closed.n, closed.name).relative_to(case).as_posix()
-            out.say(f"phase {closed.n} {closed.name} (closed — history, kept in {rel})", *_item_block(hist, _case_two_hands(case)))
+            out.say(Stored(f"phase {closed.n} {closed.name} (closed — history, kept in {rel})"),  # the name as stored (Codex)
+                    *_stored(*_item_block(hist, _case_two_hands(case))))
             out.say("", f"the whole phase: el todo show {closed.n} · new work on it is new work: el todo add later "
                         f"\"re-check {ref.strip()}: …\"")
             return out
     phase, item = _find_item(todo, ref)
     if phase.n == 0:
-        out.say(f"general list (Later) · since {item.since or '—'} — the next phase boundary decides: el todo move {ref} N", *_later_block(item))
+        out.say(f"general list (Later) · since {item.since or '—'} — the next phase boundary decides: el todo move {ref} N", *_stored(*_later_block(item)))
         return out
     state = "planned" if not _phase_file(case, phase.n, phase.name).exists() else "open"
     parent = _parent_of(phase, item)
-    out.say(f"phase {phase.n} {phase.name} ({state})" + (f" · under {parent.ref} «{order._short(parent.text, 60)}»" if parent else ""),
-            *_item_block(item, _case_two_hands(case), depth=1 if parent else 0))
+    out.say(Stored(f"phase {phase.n} {phase.name} ({state})" + (f" · under {parent.ref} «{order._short(parent.text, 60)}»" if parent else "")),
+            *_stored(*_item_block(item, _case_two_hands(case), depth=1 if parent else 0)))  # names and words as stored (Codex)
     out.say(*(f"  {_changed_line(*c)}" for c in _changed_proofs(case, todo, [phase]) if c[1] is item))  # L8
     by_ref = {f"{it.ref}": it for it in _all_items(todo)}
     kids = {k.name for k in order.child_cases(case, _is_project(case))}
@@ -2535,7 +2614,8 @@ def todo_show(case: Path, ref: str) -> Outcome:
             continue
         proofs = " · ".join(f"{k} {pr}".strip() for k, pr in pre.evidence) or (pre.result or "")
         mark = "✓" if pre.done else "open"
-        out.say(f"  ← {r} {mark} «{order._short(pre.text, 50)}»" + (f" — {proofs}" if proofs else ("" if pre.done else " — nothing to hand over yet")))
+        out.say(Stored(f"  ← {r} {mark} «{order._short(pre.text, 50)}»"  # the inputs are stored proofs: no door on this line
+                       + (f" — {proofs}" if proofs else ("" if pre.done else " — nothing to hand over yet"))))
     feeds = [f"{it.ref}" for it in _all_items(todo) if ref in it.after]
     if feeds:
         out.say(f"  → feeds {', '.join(feeds)}")
@@ -5410,7 +5490,7 @@ def readme_show(case: Path, root: Optional[Path] = None) -> Outcome:
         journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
         out.lines += _entry_head(case, root, readme_body, todo, journal, _order_lines(case, root, readme_body, journal))
         out.say(ENTRY_BODY_MARK.replace("README · TODO · journal headlines", "README (TODO and journal: el)"), "")
-    out.say(readme_body.rstrip("\n"), "",
+    out.say(*_stored(readme_body.rstrip("\n")), "",
             "write a line: el readme set <prefix> \"…\" · add|edit|drop <section> … · touch — whole file: el readme --file x.md · "
             "el help readme")
     return out
@@ -6999,20 +7079,20 @@ def entry(root: Path, case: Path) -> Outcome:
     out.lines += _entry_head(case, root, readme_body, todo, journal, issues)
     out.say(ENTRY_BODY_MARK, "")
     body_from = len(out.lines)
-    out.say(readme_body.rstrip("\n"), "")
+    out.say(*_stored(readme_body.rstrip("\n")), "")
     if not todo.errors:
         shown, collapsed = render_todo_entry(todo, _two_hands(readme_body), _is_project(case))
-        out.say(shown.rstrip("\n"))
+        out.say(*_stored(shown.rstrip("\n")))
         if collapsed:
             out.say(f"({collapsed} done item(s) collapsed here — result and proofs: TODO.md · one item in full: el todo show N.M)")
         out.say("")
     else:
-        out.say(todo_body.rstrip("\n"), "")
+        out.say(*_stored(todo_body.rstrip("\n")), "")
     parked = _parked_line(case, todo, journal if not journal.errors else None) if not todo.errors else None
     if parked:
         out.say(parked, "")  # knowledge parked under a planned phase has a moment of return — counted until then (F22)
     if journal.entries:
-        out.say(*_journal_headlines(journal, ENTRY_LIMIT), "")
+        out.say(*_stored(*_journal_headlines(journal, ENTRY_LIMIT)), "")
     body_to = len(out.lines)
     out.say(f"how to work: el help start · what goes where: el help where · rules: {_rules_pointer(root)} · full check: el check")
     total = "\n".join(out.lines)
@@ -7020,7 +7100,7 @@ def entry(root: Path, case: Path) -> Outcome:
         # the head — the thread, the counts, Order, the hint — is what the entry is FOR: cut the body, keep head and footer
         head, body, foot = out.lines[:body_from], out.lines[body_from:body_to], out.lines[body_to:]
         room = max(MAX_SCREEN - len("\n".join(head + foot)) - 120, 0)
-        out.lines = head + ["\n".join(body)[:room], "", f"[body truncated at {room} chars — README/TODO/JOURNAL are on disk]", ""] + foot
+        out.lines = head + [Stored("\n".join(body)[:room]), "", f"[body truncated at {room} chars — README/TODO/JOURNAL are on disk]", ""] + foot
     return out
 
 
