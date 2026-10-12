@@ -147,6 +147,48 @@ def _command_usage(parser: argparse.ArgumentParser, name: str) -> Optional[str]:
             + (f"; the dose it lives in: el help {topic}" if topic else "") + f"; every dose: el help <{knowledge.topic_list()}>")
 
 
+def _action_usage(parser: argparse.ArgumentParser, name: str) -> Optional[str]:
+    """`el help cancel` — an action of a command (`el todo cancel`, `el phase cancel`) answers with where it lives, its
+    example lines from `el --help` and the dose (the maintainer's own wall report, 2026-10-12: «no topic `cancel`» and a
+    grep through `el help todo` by hand — `el help mv` answered a command, an action was a dead end). None: not an action."""
+    word = name.strip().lower()
+    subs = next((a for a in parser._actions if isinstance(a, argparse._SubParsersAction)), None)
+    if subs is None or not word:
+        return None
+    homes = [cmd for cmd, sp in subs.choices.items()
+             if any(a.dest == "action" and a.choices and word in a.choices for a in sp._actions)]
+    if not homes:
+        return None
+    shown = []
+    for c in homes:
+        rx = re.compile(rf"(^|\s)el {re.escape(c)} {re.escape(word)}(\s|$)")
+        shown += [f"  {ln.strip()}" for ln in EXAMPLES.splitlines() if ln.startswith("  ") and rx.search(ln.strip())]
+    lines = [f"`{word}` is an action, not a knowledge dose — " + " · ".join(f"el {c} {word}" for c in homes) + ":"]
+    lines += list(dict.fromkeys(shown))  # one example line may show two homes
+    doses = list(dict.fromkeys(f"el help {HELP_TOPIC[c]}" for c in homes if c in HELP_TOPIC))
+    lines.append((f"the dose{'s' if len(doses) > 1 else ''} it lives in: {' · '.join(doses)}; " if doses else "")
+                 + f"the whole form: {' · '.join(f'el {c} -h' for c in homes)}")
+    return "\n".join(lines)
+
+
+def _also_names(parser: argparse.ArgumentParser, name: str) -> Optional[str]:
+    """The last line under a dose whose word also names a command or an action that lives in another dose (Codex, 2026-10-12:
+    `el help note` showed the todo dose and never named `el phase note`; `el help done` showed evidence, not `el done`)."""
+    word = name.strip().lower()
+    shown = next((c for c in (word, knowledge.ALIASES.get(word), word.rstrip("s"), word + "s") if c and c in knowledge.TOPICS), None)
+    subs = next((a for a in parser._actions if isinstance(a, argparse._SubParsersAction)), None)
+    if subs is None or not word:
+        return None
+    homes = [(f"el {word}", word)] if word in subs.choices else []
+    homes += [(f"el {c} {word}", c) for c, sp in subs.choices.items()
+              if any(a.dest == "action" and a.choices and word in a.choices for a in sp._actions)]
+    other = [(h, HELP_TOPIC.get(c)) for h, c in homes if HELP_TOPIC.get(c) != shown]
+    if not other:
+        return None
+    doses = list(dict.fromkeys(f"el help {t}" for _, t in other if t))
+    return f"`{word}` also names " + " · ".join(h for h, _ in other) + (f" — {' · '.join(doses)}" if doses else "")
+
+
 class Parser(argparse.ArgumentParser):
     """argparse with el's voice. A wrong call is a StoreError (exit 2, C4/C5) — what is missing, the
     examples, the recovery — never the library's bare `usage:` line: for the agent who typed `el feedback`
@@ -379,6 +421,50 @@ OPTION_DOORS = {("todo", "done", "run"): 'the doer\'s proof is a kind: el todo d
                 ("todo", "done", "by"): "the doer is signed by its session (el sign); --by names the second hand"}
 
 
+FOREIGN_DOORS = {"log": "an event's details go into its text: past 200 chars el wraps it into a headline and body lines "
+                        "itself, and a line break in the text starts a body line — el log DECISION \"what · instead of what "
+                        "· why\""}
+
+
+def _foreign_option(parser: argparse.ArgumentParser, cmd: Optional[str], extra: List[str],
+                    argv: Optional[List[str]] = None) -> Optional[str]:
+    """Options of other commands typed on this one — what the refusal says instead of «unrecognized arguments»: where each
+    is read and, for `log`, where its words go (a live wall report, 2026-10-12: `el log DECISION "…" --note "…"` twice —
+    `--note` is `todo add`'s — and argparse echoed the whole note back as unrecognized). Said in the voice of the command
+    called, with its examples (2026-10-08). No «the same call minus …»: which leftover is a flag's value is a guess, and
+    Codex found a new shape of the wrong guess in each of five rounds (`2`, `-2`, `-.2`, `-`, `-z SECRET`, words after
+    `--`) — options are named, values never echoed. An option no command knows, or a call with `--`: argparse's words."""
+    raw = list(argv or [])
+    subs = next((a for a in parser._actions if isinstance(a, argparse._SubParsersAction)), None)
+    if not cmd or subs is None or "--" in raw:
+        return None
+    homes = {}  # option → the other commands that take it
+    for name, sp in subs.choices.items():
+        for a in sp._actions:
+            for o in a.option_strings:
+                if name != cmd:
+                    homes.setdefault(o, []).append(name)
+    opts = list(dict.fromkeys(t.split("=", 1)[0] for t in extra
+                              if t.startswith("-") and t != "-" and not re.fullmatch(r"-\d+|-\d*\.\d+", t)))
+    by_readers, unknown = {}, []
+    for opt in opts:
+        readers = []
+        for name in dict.fromkeys(homes.get(opt, []) if opt.startswith("--") else []):
+            takers = OPTION_ACTIONS.get(name, {}).get(opt[2:].replace("-", "_"))
+            readers += [f"el {name} {t}" if t else f"bare el {name}" for t in takers] if takers else [f"el {name}"]
+        if readers:
+            by_readers.setdefault(" · ".join(dict.fromkeys(readers)), []).append(opt)
+        else:
+            unknown.append(opt)
+    if not by_readers:
+        return None
+    read = "; ".join(f"{' · '.join(o)} {'is' if len(o) == 1 else 'are'} read by {r}" for r, o in by_readers.items())
+    if unknown:  # beside another command's option: named too, never echoed with a value (Codex, 2026-10-12)
+        read += f"; {' · '.join(unknown)} {'is' if len(unknown) == 1 else 'are'} no el command's option"
+    door = FOREIGN_DOORS.get(cmd, "")
+    return f"does not take {' · '.join(opts)} — nothing was written; {read}" + (f"; {door}" if door else "")
+
+
 def _unused_option(args) -> Optional[StoreError]:
     table = OPTION_ACTIONS.get(getattr(args, "cmd", None) or "", {})
     action = getattr(args, "action", None)
@@ -496,6 +582,10 @@ def _run(argv=None) -> int:
             else:  # in the voice of the command called, with its examples, as argparse said it before
                 sub = next((a.choices.get(getattr(args, "cmd", None)) for a in parser._actions
                             if isinstance(a, argparse._SubParsersAction)), None)
+                foreign = _foreign_option(parser, getattr(args, "cmd", None), extra,
+                                          list(argv) if argv is not None else sys.argv[1:])
+                if foreign is not None:
+                    (sub or parser).error(foreign)
                 words = "" if any(e.startswith("-") for e in extra) else (
                     " — words after an option are not joined to the text: put the text in one pair of quotes, before or "
                     "after the options")  # an item's words are never guessed (Codex review, 2026-10-11: `add 1 a --case x b`)
@@ -510,16 +600,19 @@ def _run(argv=None) -> int:
         if args.cmd == "help":
             if args.topic:
                 dose = knowledge.resolve(args.topic)
-                usage = _command_usage(parser, args.topic) if dose is None else None
+                usage = (_command_usage(parser, args.topic) or _action_usage(parser, args.topic)) if dose is None else None
                 if usage:
                     print(usage)
                     return 0
                 if dose is None:
                     raise StoreError(f"no topic `{args.topic}` — topics: {knowledge.topic_list()}", 2, recovery="el help <topic>")
                 print(dose)
+                also = _also_names(parser, args.topic)
+                if also:
+                    print(also)
                 return 0
             parser.print_help()
-            print(f"\ntopics (open at the moment of need): el help <{knowledge.topic_list()}> — singular forms and common words work too (phase, item, proof, hint)")
+            print(f"\ntopics (open at the moment of need): el help <{knowledge.topic_list()}> — singular forms and common words work too (phase, item, proof, hint), and the name of a command or its action (mv, cancel)")
             return 0
         if args.cmd == "feedback":
             if args.wall is None and not args.title:  # the bare call asks the form: the dose answers, as before
@@ -530,7 +623,7 @@ def _run(argv=None) -> int:
             else:
                 out = commands.feedback(args.title or "", args.expected, args.actual, args.why, args.acceptance, args.repro,
                                         args.onboarding)
-            print("\n".join(out.lines))
+            print("\n".join(_carry_case(out.lines, args)))  # the PROBLEM line acts on the call's case (Codex, 2026-10-12)
             return 0
         if args.cmd == "onboarding":  # the project is the folder that holds .cases/ — or here, before the first case
             if args.show:
@@ -804,7 +897,7 @@ def _carry_case(lines: List[str], args) -> List[str]:
     accept refused under `--case` accepted an item of the other case). Commands that already name a case are left as
     they are; help, feedback, sign and the like act on no case."""
     name = getattr(args, "case", None) if args is not None else None
-    if not name or getattr(args, "cmd", None) not in (None, *{c.split()[0] for c in CASE_COMMANDS}):
+    if not name or getattr(args, "cmd", None) not in (None, "feedback", *{c.split()[0] for c in CASE_COMMANDS}):
         return lines
     word = name if re.fullmatch(r"[\w.@+/-]+", name) else shlex.quote(name)
     opt = f"--case={word}" if name.startswith("-") else f"--case {word}"

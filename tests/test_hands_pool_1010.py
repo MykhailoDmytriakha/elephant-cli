@@ -88,7 +88,7 @@ class TheWordsAfterAnOptionAreTheText(Base):
     def test_another_command_still_refuses_extra_words_in_its_own_voice(self):
         code, _, err = run("done", "x", "--reflect", "r")
         self.assertEqual(code, 2)
-        self.assertIn("el done: unrecognized arguments", err)
+        self.assertIn("el done: does not take --reflect", err)  # 2026-10-12: another command's option is named, in done's voice
 
 
 class ANumberMeantAsWrittenHasItsDoor(Base):

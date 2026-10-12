@@ -1912,16 +1912,37 @@ def _near_item_slots(phase: grammar.Phase, goal: str, kind: str, what: str) -> L
     return [(it, slot, fixed) for _, it, slot, fixed in found]
 
 
-def _near_words(phase: grammar.Phase, goal: str, kind: str, what: str) -> str:
+def _near_words(phase: grammar.Phase, goal: str, kind: str, what: str, goal_door: str = "") -> str:
     """` — 1.1 expects [file: photo of the parcel]: one promise in other words? the same words make it count: el todo expect 1.1 '…'`,
-    or "" when no item says it in other words."""
+    or "" when no item says it in other words. `goal_door` — where the goal is corrected, named after «the goal in the item's
+    words» (a live wall report, 2026-10-11: the close named no item, the agent found the goal line by itself)."""
     near = _near_item_slots(phase, goal, kind, what)
     if not near:
         return ""
     it, slot, fixed = near[0]
-    door = f"el todo expect {it.ref} {_sh(fixed)}" if fixed else f"el todo expect {it.ref} \"… {_slot(kind, what)} …\""
-    return (f" — {it.ref} expects {slot}: one promise in other words? the same words make it count: {door} "
-            f"· or the goal in the item's words")
+    goal_slot = _slot(kind, what)
+    loose = f"… {goal_slot} …"  # a door is printed only when it passes the expect door as printed (Codex, 2026-10-12)
+    words = (fixed if fixed else loose if grammar.visible_len(loose) <= grammar.POCKET_CHARS
+             else goal_slot if grammar.visible_len(goal_slot) <= grammar.POCKET_CHARS else "")
+    goal = "the goal in the item's words" + (f": {goal_door}" if goal_door else "")
+    if not words:
+        return f" — {it.ref} expects {slot}: one promise in other words? {goal}"
+    return (f" — {it.ref} expects {slot}: one promise in other words? the same words make it count: "
+            f"el todo expect {it.ref} {_sh(words) if fixed else _q(words)} · or {goal}")
+
+
+def _add_door(n: int, slot: str, tail: str = "") -> str:
+    """`el todo add N "…" --expect '<slot>'` — only when the slot fits an item's expect as printed (Codex, 2026-10-12: a
+    151-char goal slot printed an add that the expect door refused); "" otherwise, and the goal line is the door."""
+    if grammar.visible_len(slot) > grammar.POCKET_CHARS:
+        return ""
+    return f"el todo add {n} \"…\" --expect {_q(slot)}{tail}"
+
+
+def _near_fork(phase: grammar.Phase, goal: str, slots, goal_door: str = "") -> str:
+    """The first side of a fork an item promises in other words — `_near_words` for that side, or "" (Codex, 2026-10-12: a fork
+    whose side a done item carried in other words was not named at the close)."""
+    return next((t for t in (_near_words(phase, goal, k, w, goal_door) for k, w in slots if w) if t), "")
 
 
 def _fork_text(slots) -> str:
@@ -2353,22 +2374,34 @@ def _promise_lines(case: Path, todo: grammar.Todo) -> List[str]:
             continue
         for slots, status, ref, _ in _goal_promises(p, _phase_goal(case, p)):
             if status == "uncovered" and len(slots) > 1 and any(w for _, w in slots):
-                lines.append(f"phase {p.n} {p.name} promises the fork {_fork_text(slots)} and no item promises either side — name "
-                             f"each branch as an item: el todo add {p.n} \"…\" --expect {_q(_slot(*slots[0]))} · el todo add {p.n} \"…\" "
-                             f"--expect {_q(_slot(*slots[1]))}; when one is proved, the other ends with its reason · or correct the "
-                             f"goal line in phases/{_phase_file(case, p.n, p.name).name}")
+                pf_fork = _phase_file(case, p.n, p.name)
+                near = _near_fork(p, _phase_goal(case, p), slots, f"the goal line in phases/{pf_fork.name}")
+                if near:
+                    lines.append(f"phase {p.n} {p.name} promises the fork {_fork_text(slots)} and no item promises either side "
+                                 f"in these words{near}")
+                    continue
+                adds = [d for d in (_add_door(p.n, _slot(*sl)) for sl in slots[:2]) if d]  # only doors that pass (Codex)
+                lines.append(f"phase {p.n} {p.name} promises the fork {_fork_text(slots)} and no item promises either side — "
+                             + (f"name each branch as an item: {' · '.join(adds)}; when one is proved, the other ends with its "
+                                f"reason · or " if adds else f"no side fits an item's expect (≤ {grammar.POCKET_CHARS} chars) — ")
+                             + f"correct the goal line in phases/{_phase_file(case, p.n, p.name).name}")
                 continue
             (kind, what) = slots[0]
             if status == "uncovered" and what and len(slots) == 1:
-                near = _near_words(p, _phase_goal(case, p), kind, what)
+                pf_near = _phase_file(case, p.n, p.name)
+                near = _near_words(p, _phase_goal(case, p), kind, what,
+                                   goal_door=f"the goal line in phases/{pf_near.name}" if pf_near.exists() else "")
                 if near:  # the item is there, in other words: the fix is one command, not a new item (feedback 2026-10-08)
                     lines.append(f"phase {p.n} {p.name} promises {_slot(kind, what)} and no item promises it in these words{near}")
                     continue
                 # the criterion is the beacon at the end; the way to it grows before it (feedback 2026-09-30: read as
                 # «decompose everything now», while the steps to the probe were still to be found)
+                add = _add_door(p.n, _slot(kind, what))  # printed only when it passes the expect door (Codex, 2026-10-12)
                 lines.append(f"phase {p.n} {p.name} promises {_slot(kind, what)} and no item promises it — the criterion nobody works towards: "
-                             f"name it as the phase's last item now, el todo add {p.n} \"…\" --expect \"{_slot(kind, what)}\"; the steps to it come "
-                             f"as you find them, before it: el todo add {p.n} \"…\" --before {p.n}.K · or correct the goal line in phases/{_phase_file(case, p.n, p.name).name}")
+                             + (f"name it as the phase's last item now, {add}; the steps to it come as you find them, before it: "
+                                f"el todo add {p.n} \"…\" --before {p.n}.K · or " if add else
+                                f"longer than an item's expect holds ({grammar.visible_len(_slot(kind, what))} > {grammar.POCKET_CHARS}) — ")
+                             + f"correct the goal line in phases/{_phase_file(case, p.n, p.name).name}")
     return lines
 
 
@@ -4956,10 +4989,17 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
         where = (f"the goal line in phases/{pf.name}" if pf.exists() else f"el phase plan {n} \"{phase.name}\" --goal \"…\"")
         if len(slots) > 1:  # a fork: either side proves it (the owner's word, 2026-10-09)
             side = next((m for m in members if m[1] == "promised"), None)
+            near = "" if side else _near_fork(phase, goal_now, slots, where)  # a side in other words, as for one slot (Codex)
+            add = next((d for d in (_add_door(n, _slot(*sl)) for sl in slots) if d), "")
+            if near:
+                missing.append(f"phase {n} promised the fork {_fork_text(slots)} and neither side is proved in these words{near}"
+                               + (f" · a side of its own: {add}" if add else ""))
+                continue
             missing.append(f"phase {n} promised the fork {_fork_text(slots)} and neither side is proved"
                            + (f" — {ref} promise(s) a side: prove one, el todo done {side[2].split(', ')[0]} {side[0][0]}:… \"…\""
                               if side else
-                              f" — no item promises either side: el todo add {n} \"…\" --expect {_q(_slot(*slots[0]))}")
+                              f" — no item promises either side: {add}" if add else
+                              " — no side fits an item's expect (≤ %d chars)" % grammar.POCKET_CHARS)
                            + f" · or correct the promise: {where}")
             continue
         (kind, what) = slots[0]
@@ -4967,8 +5007,22 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
             missing.append(f"phase {n} promised {_slot(kind, what)} — {ref} promises it and is not proved with a {kind}: "
                            f"el todo done {ref} {kind}:… \"…\" · or correct the promise: {where}")
         else:
-            missing.append(f"phase {n} promised {_slot(kind, what)} and no done item proves it — name the criterion as an item: "
-                           f"el todo add {n} \"…\" --expect \"{_slot(kind, what)}\" and prove it · or correct the promise: {where}")
+            # the item is there in other words: Order named it, the close names it too — one fact, one voice (a live wall
+            # report, 2026-10-11: «promised [run: x] and no done item proves it» over a done, accepted item expecting
+            # [run: x red on HEAD]; the only door printed was a new item — a ritual over finished work). Counting it by a
+            # shared prefix is not el's to do: «red on HEAD» may not be the promise «x passes» — the agent says which.
+            near = _near_words(phase, goal_now, kind, what, goal_door=where) if what else ""
+            add = _add_door(n, _slot(kind, what), " and prove it")  # quoted as the shell keeps it, printed when it fits (Codex)
+            if near:
+                missing.append(f"phase {n} promised {_slot(kind, what)} and no done item proves it in these words{near}"
+                               + (f" · a promise of its own: {add}" if add else ""))
+            elif add:
+                missing.append(f"phase {n} promised {_slot(kind, what)} and no done item proves it — name the criterion as an item: "
+                               f"{add} · or correct the promise: {where}")
+            else:
+                missing.append(f"phase {n} promised {_slot(kind, what)} and no done item proves it — the promise is longer than an "
+                               f"item's expect holds ({grammar.visible_len(_slot(kind, what))} > {grammar.POCKET_CHARS}): "
+                               f"correct the promise: {where}")
     if open_items:  # F20: a phase closes only when every item ended — done with evidence, or cancelled with a reason
         fork = next((r for r in open_items if r in forks_left), None)
         missing.append(f"phase {n}: open items {', '.join(open_items)} — each must end one of two ways: "
@@ -6172,8 +6226,8 @@ def feedback(title: str, expected: str, actual: str, why: str, acceptance: str, 
     path.write_text("\n".join(sections), encoding="utf-8")
     out.say(f"feedback written: {path}")
     # the report is a pause, not the end of the work (the owner's word, 2026-10-06: stop, write, go on, tell at the end)
-    out.say(f"go on by your workaround · in your case: el log PROBLEM \"el: {title} — workaround: …\" · "
-            "at the end tell the owner the report is there")
+    out.say(f"go on by your workaround · in your case: el log PROBLEM {_q(f'el: {title} — workaround: …')} · "
+            "at the end tell the owner the report is there")  # quoted as the shell keeps it: a title may carry "…" (Codex)
     return out
 
 
@@ -6215,8 +6269,16 @@ def feedback_wall(which: str, expected: str, title: Optional[str], why: str = ""
     seen = sum(1 for x in walls if x.get("key") == w.get("key"))
     if seen > 1:
         repro += f"\n(the same wall {seen} times this session)"
-    out.lines += feedback(title or f"refused: {head}"[:90], expected, actual, why, "", repro,
-                          onboarding or "not said — a quick wall report (el feedback --wall)").lines
+    # the PROBLEM line acts on the call's --case (carried by main) or the case in hand — the case the wall was met in is not
+    # guessed: from argv or a kept name it was ambiguous for nested cases and suffixes (Codex rounds 4–5, 2026-10-12)
+    written = feedback(title or f"refused: {head}"[:90], expected, actual, why, "", repro,
+                       onboarding or "not said — a quick wall report (el feedback --wall)").lines
+    if len(walls) > 1:  # which wall went in, in words (a live wall report, 2026-10-11: the agent's words were about wall 67,
+        # the bare --wall attached 73 — a cascade it caused — and the report's title, Actual and «reported» named 73)
+        other = k - 1 if k > 1 else k + 1  # a number that runs as printed, not a placeholder (Codex, 2026-10-12)
+        out.say(f"attached: wall {k} of {len(walls)} — «{head}» — your words were about another one? "
+                f"el feedback --wall {other} --expected \"…\" · every wall with its number: el feedback --wall")
+    out.lines += written
     return out
 
 
@@ -6228,8 +6290,15 @@ def _wall_command(w: dict) -> str:
 
 
 def _wall_head(w: dict) -> str:
-    first = (w.get("text") or "").split("\n")[0]
-    return re.sub(r"^el: ERROR \[exit \d+\] ", "", first)[:110]
+    """The refusal's first line — and, when it only announces a list («cannot close phase 1:»), its first reason (2026-10-11:
+    a report titled «refused: cannot close phase 1:» said nothing of why)."""
+    lines = [ln.strip() for ln in (w.get("text") or "").split("\n")]
+    first = re.sub(r"^el: ERROR \[exit \d+\] ", "", lines[0] if lines else "")
+    if first.endswith(":"):
+        reason = next((ln for ln in lines[1:] if ln and not re.match(r"exit \d+ = ", ln)), "")
+        if reason:
+            first = f"{first} {reason}"
+    return first[:110]
 
 
 # ---- mv: a file moves, its links follow -----------------------------------------------------------

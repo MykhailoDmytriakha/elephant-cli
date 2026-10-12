@@ -124,7 +124,9 @@ class AnExtraFlagNamesTheCommandCalled(Base):
     def test_the_examples_and_the_dose_are_dones(self):
         code, _, err = run("--case", "probe", "done", "all written", "--reflect", "x", "--align", "y")
         self.assertEqual(code, 2)
-        self.assertIn("el done: unrecognized arguments: --reflect x --align y", err)
+        # 2026-10-12: the flags of another command are named with where they are read, not echoed as «unrecognized»
+        self.assertIn("el done: does not take --reflect · --align — nothing was written; --reflect · --align are read by "
+                      "el --case probe phase close", err)
         # the examples answer a call named by --case with the same --case (2026-10-11: --case acts on one call)
         self.assertIn('el --case probe done "database connected and validated"', err)
         self.assertIn("recovery: el help cases · el --case probe done -h", err)
