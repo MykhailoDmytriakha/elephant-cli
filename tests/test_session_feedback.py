@@ -167,7 +167,7 @@ class MoveJournaling(Base):
 
 
 class HoldResume(Base):
-    def test_hold_groups_at_end_resume_restores(self):
+    def test_hold_keeps_its_place_resume_restores(self):
         run("todo", "add", "1", "позвонить в Спокан")
         run("todo", "add", "1", "составить бюджет")
         code, out, err = run("todo", "hold", "1.1", "возможно позвоню позже")
@@ -175,7 +175,8 @@ class HoldResume(Base):
         todo_text = (self.case / "TODO.md").read_text()
         self.assertIn("- [~] 1.1 позвонить в Спокан — hold: возможно позвоню позже", todo_text)
         lines = [l for l in todo_text.splitlines() if l.startswith("  - [")]
-        self.assertTrue(lines[-1].startswith("  - [~]"), "held items sit at the end")
+        # a held item stays in its place — a hold is a state, not a move (the owner's word, 2026-10-12; was: at the end)
+        self.assertTrue(lines[0].startswith("  - [~] 1.1"), "a held item keeps its place")
         self.assertNotIn("отложен", (self.case / "JOURNAL.md").read_text())
         item = self.todo().phase(1).items
         held = next(i for i in item if i.held)

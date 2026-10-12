@@ -188,7 +188,10 @@ def render_todo(todo: grammar.Todo, two_hands: bool = False, root_mode: bool = F
     for p in sorted(todo.phases, key=lambda x: x.n):
         out.append(_phase_head(p))
         out += [f"  - note: {n}" for n in p.notes]  # F22: what the phase has to know, parked until it runs
-        for it in [i for i in p.items if not i.held] + [i for i in p.items if i.held]:
+        # every item in its place, a held one too: a hold is a state, not a move — `[~]` marks it where it stands (the
+        # owner's word, 2026-10-12, on a live report: held items were drawn last, the file kept the drawn order, and a
+        # resumed 5.1 stayed after 5.3 for good)
+        for it in p.items:
             out += _item_block(it, two_hands and not p.done)  # a closed phase is history: the rule has no force there
         for w in p.waits:
             out.append(f"  - waits: {_case_link(w, root_mode)}")
@@ -230,7 +233,7 @@ def render_todo_entry(todo: grammar.Todo, two_hands: bool = False, root_mode: bo
     for p in sorted(todo.phases, key=lambda x: x.n):
         out.append(_phase_head(p))
         out += [f"  - note: {n}" for n in p.notes]
-        for it in [i for i in p.items if not i.held] + [i for i in p.items if i.held]:
+        for it in p.items:  # in its place, a held one too (the owner's word, 2026-10-12)
             if it.done:
                 out.append(f"  - [{'/' if two_hands and not p.done and not it.accepted else 'x'}] {it.ref} {it.text}{_sub_tally(it)}")
                 if it.fact:
@@ -3144,9 +3147,8 @@ def todo_edit(case: Path, ref: str, text: str) -> Outcome:
 
 
 def _list_lines(phase: grammar.Phase) -> List[str]:
-    """The phase as TODO renders it — active items in order, held ones last."""
-    items = [i for i in phase.items if not i.held] + [i for i in phase.items if i.held]
-    return [ln for it in items for ln in _item_block(it)]
+    """The phase as TODO renders it — every item in its place, a held one too (the owner's word, 2026-10-12)."""
+    return [ln for it in phase.items for ln in _item_block(it)]
 
 
 def _number_ranges(phase: grammar.Phase) -> str:
