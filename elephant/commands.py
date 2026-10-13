@@ -1438,9 +1438,9 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     if not _sign_fields(case)[1] and hints.enabled():
         out.say(_sign_hint())
     for it in fresh:
-        left = [r for r, _ in blocking.get(f"{it.ref}", []) if r not in done_now]
+        left = [f"{r} ({st})" for r, st in blocking.get(f"{it.ref}", []) if r not in done_now]  # each by its state: gone is not open
         if left:
-            out.warn(f"{it.ref} was after {', '.join(left)}, still open — was the dependency wrong, or the order?")
+            out.warn(f"{it.ref} was after {', '.join(left)} — was the dependency wrong, or the order?")
     if len(fresh) == 1:
         out.say(f"done: {_refs(phase, fresh)} {fresh[0].text} → TODO.md (result + {len(proofs)} proof line(s)) · RESULT in the journal · evidence: {shown}")
     elif fresh:
@@ -1665,7 +1665,7 @@ def _set_after(case: Path, todo: grammar.Todo, item: grammar.Item, refs: List[st
         if re.fullmatch(grammar.ITEM_REF, ref):
             if ref == me:
                 raise StoreError(f"{me} cannot be after itself", 2)
-            if ref not in items:
+            if ref not in items and not _done_in_closed(case, todo, [ref]):  # done in a closed phase: an input already there
                 raise StoreError(f"no item {ref} to be after — check the number or add it first (el todo add N \"…\")", 4)
         elif ref not in kids:
             raise StoreError(f"`{ref}` is neither an item N.M nor a nested case here" + (f" (cases: {', '.join(sorted(kids))})" if kids else ""), 4)
@@ -1704,10 +1704,26 @@ def _next_number(case: Path, todo: grammar.Todo, phase: grammar.Phase) -> int:
     return max(used, default=0) + 1
 
 
+def _done_in_closed(case: Path, todo: grammar.Todo, refs) -> Dict[str, grammar.Item]:
+    """The items among `refs` that ended done in a closed phase, read back from its file — only the phases the refs name.
+    A close folds the phase's items out of TODO; the item stays done (feedback 2026-10-12: a done, accepted 1.3 read
+    «gone (cancelled or dropped)» to 2.81, moved out of phase 1 before the close — in Order, the thread, show, done and
+    `todo after`). Cancelled or never there: not in the map, gone as before."""
+    want = {r for r in refs if re.fullmatch(grammar.ITEM_REF, r)}
+    named = {int(r.split(".")[0]) for r in want}
+    found: Dict[str, grammar.Item] = {}
+    for p in todo.phases:
+        if p.done and p.n in named:
+            found.update({f"{it.ref}": it for it in grammar.flat(_closed_phase_items(case, p)) if it.done and f"{it.ref}" in want})
+    return found
+
+
 def _blocking(case: Path, todo: grammar.Todo) -> Dict[str, List[Tuple[str, str]]]:
-    """item key → [(ref, 'open' | 'case open' | 'gone')] for open items with unsatisfied `after`."""
+    """item key → [(ref, 'open' | 'case open' | 'gone')] for open items with unsatisfied `after`; an item that ended
+    done in a closed phase satisfies the edge."""
     items = {f"{it.ref}": it for it in _all_items(todo)}
     kids = {k.name: order.child_status(k)[0] for k in order.child_cases(case, _is_project(case))}
+    ended = _done_in_closed(case, todo, {r for it in _all_items(todo) if not it.done for r in it.after if r not in items})
     out: Dict[str, List[Tuple[str, str]]] = {}
     for it in _all_items(todo):
         if it.done or not it.after:
@@ -1720,7 +1736,7 @@ def _blocking(case: Path, todo: grammar.Todo) -> Dict[str, List[Tuple[str, str]]
             elif r in kids:
                 if kids[r] != "closed":
                     blockers.append((r, "case open"))
-            else:
+            elif r not in ended:
                 blockers.append((r, "gone"))
         if blockers:
             out[f"{it.ref}"] = blockers
@@ -2608,6 +2624,7 @@ def todo_show(case: Path, ref: str) -> Outcome:
             *_stored(*_item_block(item, _case_two_hands(case), depth=1 if parent else 0)))  # names and words as stored (Codex)
     out.say(*(f"  {_changed_line(*c)}" for c in _changed_proofs(case, todo, [phase]) if c[1] is item))  # L8
     by_ref = {f"{it.ref}": it for it in _all_items(todo)}
+    by_ref.update(_done_in_closed(case, todo, [r for r in item.after if r not in by_ref]))
     kids = {k.name for k in order.child_cases(case, _is_project(case))}
     for r in item.after:
         pre = by_ref.get(r)
@@ -3765,16 +3782,38 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
     engines = {_engine_word(it.done_by, h[0]) for it, h in zip(items, hands)}
     engine_ru = "" if who == "owner" else " · " + (_engine_word(items[0].done_by, hands[0][0], "ru") if len(engines) == 1
                                                      else "по-разному по пунктам — см. accepted:")
-    left, differs = list(reruns), []
+    # Which re-run answers which proof (feedback 2026-10-12: a doer's one line «A · B · C» re-run as three --run A, B, C
+    # printed «differs» — el had laid the first re-run against the whole line): el pairs them one to one, in order, only
+    # when there are no more re-runs than proofs — the form the brief and the refusal ask; it compares word for word only
+    # one command → one outcome on both sides. Anything else it says it did not compare and shows both records.
+    all_proofs = [pr for it in items for k, pr in it.evidence if k == "run"]
+    paired = len(reruns) <= len(all_proofs)
+    not_run = sum(1 for r in reruns if _not_run(r))
+    left, differs, aside, counted = list(reruns), [], [], []
     for it, (hand_sign, hand_text) in zip(items, hands):  # the --run words go to the item proofs in order: each item counts its own re-runs
         proofs = [pr for k, pr in it.evidence if k == "run"]
-        mine, left = left[:len(proofs)], left[len(proofs):]
-        ran = [r for r in mine if not _outcome(r).startswith("not run")]
-        tally = (f" · re-ran {len(ran)} of {len(mine)}" + (f" ({len(mine) - len(ran)} not run)" if len(ran) < len(mine) else "")
-                 if mine else "")
+        if paired:
+            mine, left = left[:len(proofs)], left[len(proofs):]
+            ran = [r for r in mine if not _not_run(r)]
+            tally = (f" · re-ran {len(ran)} of {len(mine)}" + (f" ({len(mine) - len(ran)} not run)" if len(ran) < len(mine) else "")
+                     if mine else "")
+            for pr, r in zip(proofs, mine):  # pairs as given — a «not run» between them shifts nothing
+                if _not_run(r) or _words(pr) == _words(r):
+                    continue
+                if _one_run(pr) and _one_run(r):
+                    if _outcome(pr).casefold() != _outcome(r).casefold():
+                        differs.append((it, pr, r))
+                else:
+                    aside.append((it.ref, [pr], [r]))
+        else:  # more re-runs than proofs: whose is which el does not know — counted by the proofs, a «not run» against each
+            k = max(0, len(proofs) - not_run)
+            tally = (f" · re-ran {k} of {len(proofs)}" + (f" ({len(proofs) - k} not run)" if k < len(proofs) else "")) if proofs else ""
+        if tally:
+            counted.append(f"{it.ref} {tally[3:]}")
         engine = "" if who == "owner" else f" · {_engine_word(it.done_by, hand_sign)}: {hand_text}"  # L8: the mind beside the hand
         it.accepted = f"{who} · {_session_word(_session_status(journal, phase, it, who))} · {date}{tally}{engine}"
-        differs += [(it, pr, r) for pr, r in zip(proofs, ran) if _outcome(pr).casefold() != _outcome(r).casefold()]
+    if not paired and all_proofs and _words(" · ".join(all_proofs)) != _words(" · ".join(reruns)):
+        aside.append((ref, all_proofs, reruns))
     refs = _refs(phase, items)
     said = f": «{text}»" if who == "owner" else f" — {text}"
     event = f"принято {refs}: {who} · {_session_word(status, 'ru')}{engine_ru}{said}" + _rerun_body(reruns)
@@ -3796,6 +3835,17 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
                 "word, 2026-10-07) — the brief was all it knew")
     elif status == "unknown":
         out.say("  session not given — recorded as reported (EL_SESSION, or the harness's own session id, tells more)")
+    if reruns:  # what went into the record, as kept — every one (feedback 2026-10-12: «could not tell which were stored»)
+        out.say(f"  kept in the DECISION, every one — {len(reruns)} re-run(s):", *_stored(*(f"    {r}" for r in reruns)))
+        if counted:
+            out.say(f"  counted on the item(s): {' · '.join(counted)}")
+    for where, theirs, yours in aside:  # a comparison el cannot make is said, with both records — the acceptor's eyes decide
+        why = ("it pairs them one to one, in order, only when there are no more re-runs than proofs"
+               if len(yours) > len(theirs) else "it compares one command → one outcome, and one of the two holds several runs")
+        out.say(Stored(f"  {where}: not compared — the doer recorded {len(theirs)} run proof(s), you brought {len(yours)}; {why}. "
+                       f"The doer's: {' · '.join(f'«{p}»' for p in theirs)}"
+                       + (f" · yours: «{yours[0]}»" if len(yours) == 1 else " · yours: kept above")),
+                f"    the same? the acceptance stands · it differs → a return: el todo reopen {where} --by {who} \"now: what differs\"")
     for it, pr, r in differs:  # two records compared word for word, the meaning is the acceptor's — shown, not refused
         out.warn(f"{it.ref}: the doer's run came out «{_outcome(pr)}», yours «{_outcome(r)}» — a result that differs "
                  f"is a return: el todo reopen {it.ref} --by {who} {_quoted('now: ' + _outcome(r))} (the same thing in other words? "
@@ -3832,6 +3882,22 @@ def _unwrap_quote(text: str) -> str:
 def _outcome(run: str) -> str:
     """What came out, the part after the arrow of `command → outcome`."""
     return " ".join(run.split("→", 1)[1].split()) if "→" in run else ""
+
+
+def _not_run(run: str) -> bool:
+    """`command → not run: why` — the acceptor's honest «could not run it here»."""
+    return _outcome(run).startswith("not run")
+
+
+def _one_run(run: str) -> bool:
+    """One command → one outcome. A line with several arrows holds several runs (a fifth of the live run proofs,
+    2026-10-12: «unittest → 1055 OK; py_compile → OK») — which outcome answers which command, el does not split."""
+    return run.replace("->", "→").count("→") == 1
+
+
+def _words(run: str) -> str:
+    """A run as compared word for word: one arrow form, one space, one case."""
+    return " ".join(run.replace("->", "→").split()).casefold()
 
 
 def _rerun_forms(runs: List[str]) -> List[str]:
@@ -3895,6 +3961,8 @@ def _run_slot(proof: str, outcome: str = "<what came out now>") -> str:
     """` --run "<command> → <outcome>"` for a run proof, quoted so the line works in a shell — or a placeholder that says
     which command, when the command's own quotes leave no safe quoting (Codex review, 2026-10-11: `python3 -c "print(1)"`
     printed inside double quotes broke the brief's verdict line)."""
+    if not _one_run(proof):  # several runs in one line: its first command is not the proof (feedback 2026-10-12)
+        return f" --run {_quoted(f'<each command it holds> → {outcome}')}"
     cmd = proof.split("→")[0].strip()
     return f" --run {_quoted(f'{cmd} → {outcome}')}"
 
@@ -3948,9 +4016,9 @@ def _reruns(ref: str, who: str, proofs: List[str], runs: List[str]) -> List[str]
     runs = _rerun_forms(runs)
     if who == "owner" or len(runs) >= len(proofs):
         return runs
-    missing = proofs[len(runs):]
-    shown = "".join(_run_slot(p) for p in missing).strip()
-    raise StoreError(f"{ref} stands on {len(proofs)} run proof(s): {' · '.join(proofs)} — the second hand re-runs each and says what "
+    missing = proofs[len(runs):]  # the re-runs given stay in the command: printed without them, it met this refusal again
+    shown = ("".join(f" --run {_quoted(r)}" for r in runs) + "".join(_run_slot(p) for p in missing)).strip()
+    raise StoreError(f"{ref} stands on {len(proofs)} run proof(s): {' · '.join(f'«{p}»' for p in proofs)} — the second hand re-runs each and says what "
                      f"came out now: el todo accept {ref} --by {who} {shown} \"what you checked\" (could not run one: "
                      f"--run \"<command> → not run: why\"; the owner's word needs none: --by owner)", 2)
 
@@ -4002,6 +4070,8 @@ def _proof_for_brief(case: Path, kind: str, proof: str) -> str:
     if kind == "file":
         return f"file: {_brief_path(case, proof)}  (open it)"
     if kind == "run":
+        if not _one_run(proof):  # which outcome is whose el does not split — the acceptor re-runs each command it holds
+            return f"run: {proof}  (several runs in one line — re-run each, one --run per command; el keeps every one)"
         return f"run: {proof}  (re-run it and bring what came out now — el recorded it, nobody repeated it)"
     if kind == "ref":
         return f"ref: {proof}  (follow it if you can reach it)"
@@ -4028,6 +4098,7 @@ def todo_brief(case: Path, ref: str, sample: Optional[int] = None) -> Outcome:
     project = _project_root(case)
     readme_body = _readme_text(case)
     by_ref = {f"{it.ref}": it for it in _all_items(todo)}
+    by_ref.update(_done_in_closed(case, todo, [r for it in items for r in it.after if r not in by_ref]))  # the inputs it rests on
     name = case.name
     # which hand is reading (the polygon, 2026-10-07: a fresh Haiku session ran `el todo brief`, read «for a FRESH
     # session, paste it», took the paste for someone else's job and left eleven items to «a separate session» — itself)
@@ -4112,8 +4183,10 @@ def todo_brief(case: Path, ref: str, sample: Optional[int] = None) -> Outcome:
         out.say("A subagent of the doer's session: put your own model before the verdict — EL_MODEL='<your model>' el … todo "
                 "accept … — the session's signature is the doer's, not yours.")
     if any(k == "run" for it in items for k, _ in it.evidence):
-        out.say("Every run proof is re-run by you: one --run per proof with what came out now; could not run one — "
-                "--run \"<command> → not run: why\". A result that differs is a return, not an acceptance.")
+        several = any(k == "run" and not _one_run(pr) for it in items for k, pr in it.evidence)
+        out.say("Every run proof is re-run by you: one --run per proof with what came out now"
+                + ("; a proof holding several runs in one line — one --run per command it holds" if several else "")
+                + "; could not run one — --run \"<command> → not run: why\". A result that differs is a return, not an acceptance.")
     out.say("No `el` where you run? Give the owner the verdict and the reason — the owner records it.")
     return out
 
@@ -4321,7 +4394,7 @@ def _second_hand_doors(items: List[grammar.Item], first: str, span: str, journal
     mine = session_id()
     doers = {(_sign_parse(it.done_by)[2] if it.done_by else (_doer_session(journal, None, it) if journal is not None else ""))
              for it in items} - {""}
-    run = " --run \"<command> → what came out now>\"" if any(k == "run" for it in items for k, _ in it.evidence) else ""
+    run = " --run \"<command> → <what came out now>\"" if any(k == "run" for it in items for k, _ in it.evidence) else ""
     owner = f"the owner's word said to you: el todo accept {span} --by owner \"…\""
     sub = (f"a subagent with a clean context — hand it el todo brief {first} as its prompt, it answers "
            f"el todo accept {first} --by subagent{run} \"what it checked\"")

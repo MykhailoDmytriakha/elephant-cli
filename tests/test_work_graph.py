@@ -146,7 +146,7 @@ class Dependencies(Base):
         self.assertIn("el todo cancel 1.1", err)
         code, out, err = run("todo", "done", "1.2", "owner", "did it anyway")
         self.assertEqual(code, 0, err)
-        self.assertIn("1.2 was after 1.1, still open", err)
+        self.assertIn("1.2 was after 1.1 (open)", err)
 
     def test_numbers_are_not_reused_while_referenced_and_references_follow_moves(self):
         for t in ("a", "b", "c — after: 1.2"):

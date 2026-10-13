@@ -64,7 +64,7 @@ class TheSecondHandKnowsItself(Base):
         os.environ["EL_SESSION"] = "fresh1007"
         line = self.entry_line("acceptance: ")
         self.assertIn("done in session doer1007, you are another — you are the second hand", line)
-        self.assertIn('el todo accept 1.1-1.2 --by <you> --run "<command> → what came out now>"', line)
+        self.assertIn('el todo accept 1.1-1.2 --by <you> --run "<command> → <what came out now>"', line)
 
     def test_the_doer_is_sent_to_a_clean_context_subagent(self):
         line = self.entry_line("acceptance: ")

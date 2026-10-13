@@ -331,7 +331,9 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   the end of phase K under a new number there, and every `after` pointing at it is rewritten.
 - dependencies (F19): end the text with `— after: N.M, N.K, case-name` or `el todo after N.M "…"`
   (`none` clears). Targets must exist, no cycles; an item others wait for cannot be dropped, only
-  cancelled — its dependents are then shown as blocked by something gone, with two exits. On entry
+  cancelled — its dependents are then shown as blocked by something gone, with two exits. An item done
+  in a closed phase is not gone: the close folds it out of TODO, el reads it back from the phase file —
+  the edge is met, `todo show` prints its proofs as the input. On entry
   `unblocked:` lists open items whose blockers are all done (by due date, then position) and
   `blocked:` the rest — candidates, not the owner's `next:`.
 - cancel N.M "why" — the item stopped being needed: it leaves TODO and the reason goes to the
@@ -891,6 +893,10 @@ records the verdict.
   refuses without them and names them. Could not run one here — `--run "<command> → not run: why"`, counted as not
   re-run (`re-ran 0 of 1 (1 not run)`), said, not hidden. A result that differs is a return, not an acceptance.
   el runs nothing itself — it asks and records what was said. The owner's word needs no re-run.
+  el compares word for word only a pair it knows: no more re-runs than proofs, laid in order, and one command →
+  one outcome on both sides. A proof holding several runs in one line («tests → 12 OK; lint → clean») takes one
+  --run per command it holds; then el says «not compared» and shows both records — your eyes decide. accept prints
+  every re-run it kept and how it counted them on the item.
 - signed hands (L8, the owner's word 2026-10-05: «provider, model and number»): `done` writes under the item
   `done: Anthropic Claude Code · Opus 5.5 · session 70cc2077 · 2026-10-05`, and `accept` adds its own signature with how
   independent it is — `… · another engine: OpenAI Codex · GPT-6.1 Sol · session 3f2a91c0`: same session (it checked
