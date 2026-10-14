@@ -1166,6 +1166,66 @@ def _changed_proofs(case: Path, todo: grammar.Todo, phases: Optional[List[gramma
     return found
 
 
+def _gone_proofs(case: Path, todo: grammar.Todo, phases: Optional[List[grammar.Phase]] = None):
+    """[(phase, item, path, the version done against)] — versioned file proofs of done items in phases not closed whose path
+    holds no file any more: gone, or a folder now. A gone file is a dead link, said by its own Order line (relink is its
+    door); a folder in its place is no dead link, so Order and check say it here (`_not_a_file_lines`). The gates hold on
+    both: there is nothing to accept and nothing to close over (Codex, 2026-10-14: the version kept as `kept.txt`, the
+    original deleted, then a folder made at its path — accept and close passed with exit 0 over a proof that is not there)."""
+    found = []
+    for p in [p for p in (phases if phases is not None else todo.phases) if not p.done]:
+        for it in grammar.flat(p.items):
+            if not it.done:
+                continue
+            for kind, proof in it.evidence:
+                link, was = grammar.split_fingerprint(proof)
+                if kind == "file" and was and not (case / _link_path(link)).is_file():
+                    found.append((p, it, _link_path(link), was))
+    return found
+
+
+def _not_a_file_lines(case: Path, todo: grammar.Todo) -> List[Tuple[str, str]]:
+    """[(ref, line)] for gone proofs no dead-link line names — a folder in the file's place, or a path the dead-link scan does
+    not read as a link (`_dead_in_todo`): every gate that refuses over a gone proof has its line on entry (Order) and in check (Codex, 2026-10-14:
+    a proof path with a space, deleted — accept and close refused, check said «violations: 0»)."""
+    lines, seen = [], None
+    for _, it, path, was in _gone_proofs(case, todo):
+        seen = _dead_in_todo(case) if seen is None else seen
+        if path not in seen:
+            state = "is not a file any more" if (case / path).exists() else "is gone"
+            lines.append((it.ref, f"{it.ref} proof {path} {state} (done against #{was}) → {_gone_moves(case, it.ref, path, was)}"))
+    return lines
+
+
+def _dead_in_todo(case: Path) -> set:
+    """The paths the dead-link scan names in TODO.md — the one reader of links el has (code, URI schemes, `#` fragments are its
+    to judge, not a second regex's: Codex found an edge behind each imitation, 2026-10-14). A gone proof it names is said by
+    its line, and relink, which follows the same links, can mend it; a gone proof it does not name is said by el's own line,
+    and relink is not printed for it."""
+    try:
+        text = store.file_path(case, "TODO.md").read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    return {path for f, path in order.broken_links(case, [], "", text) if f == "TODO.md"}
+
+
+def _gone_moves(case: Path, ref: str, path: str, was: str, acceptor: bool = False, who: str = "") -> str:
+    """The doors of a versioned proof whose file is gone: the version kept as another file · the file moved (relink carries
+    the version when the bytes are the same) · or the item goes back."""
+    door, found = _copy_door(case, ref, path, was, acceptor)
+    back = f"el todo reopen {ref}" + (f" --by {who}" if who else "") + " \"why\""
+    try:  # relink reads its old path its own way (`~` expanded, project root tried): it must land on this very path
+        mended = _relink_source(case, path).resolve() == (case / path).resolve()
+    except Exception:
+        mended = False
+    if path not in _dead_in_todo(case) or path.startswith("-") or not mended:
+        # a door printed is a door that works (Codex, 2026-10-14): relink mends only the links the dead-link scan sees, and
+        # reads a leading `-` as an option
+        return f"{door} · or {back}"
+    moved = f"the file moved? el relink {_word(path)} <where it is now> — the version goes along when the bytes are the same"
+    return f"{door} · {moved} · or {back}" if found else f"{moved} · {door} · or {back}"
+
+
 def _proof_owners(case: Path) -> List[Path]:
     """The case and every case above it up to the project: a parent may prove by a document inside its child, and el's
     rewrite in the child then touches the parent's proof too (Codex's review of 2026-10-02)."""
@@ -1225,15 +1285,84 @@ def _carry_versions(fresh: List[Tuple[Path, set]], out: Outcome) -> None:
             out.absorb(_write_todo(owner, todo))
 
 
-def _changed_moves(ref: str, path: str) -> str:
-    return (f"this version is the proof: el todo done {ref} file:{path} \"what this version is\" (acceptance starts over) · "
-            f"or el todo reopen {ref} \"why\"")
+KEPT_COPY_LOOK = 50  # siblings el hashes looking for the version done against — a folder of versions, not a whole case
 
 
-def _changed_line(p: grammar.Phase, it: grammar.Item, path: str, was: str, now: str) -> str:
+def _kept_copy(case: Path, path: str, was: str) -> Optional[str]:
+    """A file beside the changed proof, of the same type, that holds the version done against — the copy an agent keeps
+    before working on (feedback 2026-10-13: `cp a.html a.v1.html`, then round five of the map went into a.html). The
+    case-relative path, or None. Only the proof's own folder is read: the door is printed whole or not at all."""
+    f = case / path
+    try:
+        siblings = sorted(x for x in f.parent.iterdir() if x.is_file() and x.suffix == f.suffix and x.name != f.name)
+    except OSError:
+        return None
+    for x in siblings[:KEPT_COPY_LOOK]:
+        rel = os.path.relpath(x, case)
+        try:  # the door itself reads the path — `file:` strips, expands `~`, follows links, versions only case files
+            _, proof = _parse_evidence(case, "N.M", f"file:{rel}")
+        except Exception:
+            continue
+        link, version = grammar.split_fingerprint(proof)
+        # only what `done` records with this version, under a link el reads back as this very path (Codex, 2026-10-14: a
+        # link to a project file got no version, a `)` broke the link, a `~` or a leading space named another file)
+        if version == was and _link_path(link) == rel:
+            return rel
+    return None
+
+
+def _word(text: str) -> str:
+    """One shell word handed back whole: bare when it is plain, quoted otherwise — a space or a shell character anywhere,
+    a `=` or `~` up front (zsh expands `=name` to a command's path; Codex, 2026-10-14)."""
+    return text if re.fullmatch(r"[\w.:/@+,][\w.:/@+,=-]*", text) else _sh(text)
+
+
+def _file_arg(path: str, case: Optional[Path] = None) -> str:
+    """`file:<path>` as the shell hands it back whole and the `file:` door reads back as this very path (Codex, 2026-10-14: a
+    copy named `note kept.txt` printed bare was refused; `file:~note.txt` and `file: note.txt` — of a proof recorded through
+    `./` — named another file). With the case given, the door itself is asked: `file:<path>`, else `file:./<path>`; neither
+    reads back as the path — the placeholder, never a command that does something else."""
+    if case is None:
+        return _word(f"file:{path}")
+    for token in (f"file:{path}", f"file:./{path}"):
+        try:
+            _, proof = _parse_evidence(case, "N.M", token)
+        except Exception:
+            continue
+        if _link_path(grammar.split_fingerprint(proof)[0]) == path:
+            return _word(token)
+    return "file:<its path>"
+
+
+def _copy_door(case: Optional[Path], ref: str, path: str, was: str, acceptor: bool = False) -> Tuple[str, bool]:
+    """The door to the version done against, kept as another file — named with its ready command when the copy lies beside
+    the changed file (same folder, same type), in words otherwise; one voice for the doer (Order, check, close) and the
+    acceptor (accept, brief), each in its role. (text, found)."""
+    copy = _kept_copy(case, path, was) if case is not None and was else None
+    if copy:
+        return ((f"the version claimed is kept in {copy} — the doer moves the proof there: el todo done {ref} {_file_arg(copy, case)}"
+                 if acceptor else f"the version done against is kept in {copy}: el todo done {ref} {_file_arg(copy, case)} — the proof "
+                 f"moves there, the acceptance stays"), True)
+    return ((f"the doer kept a copy of the version claimed? el todo done {ref} file:<the copy> moves the proof there"
+             if acceptor else f"kept a copy of the version done against? el todo done {ref} file:<the copy> moves the proof "
+             f"there, the acceptance stays"), False)
+
+
+def _changed_moves(ref: str, path: str, case: Optional[Path] = None, was: str = "") -> str:
+    """The doors of a proof whose file changed since done (L8). Three, not two: this version is the new claim · the version
+    done against is kept in another file, and the proof moves to it · or the item goes back (feedback 2026-10-13: with
+    only the first and the last, an agent who kept the round-1 copy could write round 5 as round 1's proof, or reopen
+    work that was done — both false)."""
+    door, found = _copy_door(case, ref, path, was)
+    this = (f"this version is the proof: el todo done {ref} {_file_arg(path, case)} "
+            f"\"what this version is\" (acceptance starts over)")
+    return (f"{door} · {this}" if found else f"{this} · {door}") + f" · or el todo reopen {ref} \"why\""
+
+
+def _changed_line(p: grammar.Phase, it: grammar.Item, path: str, was: str, now: str, case: Optional[Path] = None) -> str:
     ref = f"{it.ref}"
     return (f"{ref} {path} changed since done (#{was} → now {'#' + now if now != 'unreadable' else now})" + (", accepted on the earlier version" if it.accepted else "")
-            + f" → {_changed_moves(ref, path)}")
+            + f" → {_changed_moves(ref, path, case, was)}")
 
 
 def _proof_warnings(phase: grammar.Phase, items: List[grammar.Item], proofs: List[Tuple[str, str]], out: Outcome):
@@ -1409,7 +1538,8 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
         it.done, it.held, it.hold_reason = True, False, ""
         it.evidence = list(proofs)
         it.done_by = signed  # L8: who did it, on the item itself — read later, never guessed from the journal
-    renewed = [it for it in already if _merge_proofs(case, it, proofs)]  # L8: the same door as a done on done items
+    moved: list = []
+    renewed = [it for it in already if _merge_proofs(case, it, proofs, moved)]  # L8: the same door as a done on done items
     taken = _hand_taken(case, renewed)
     for it in renewed:
         it.done_by = signed  # a new version is a new claim, and this hand made it
@@ -1466,7 +1596,14 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
         renewed = f"result renewed (was: «{words0}»)" if words0 and words0 != outcome else "result kept"
         out.say(f"{it.ref} was already done — evidence now: "
                 f"{' · '.join(f'{k} {pr}'.strip() for k, pr in it.evidence)} (was: {before}) · {renewed} · RESULT in the journal")
+    out.say(*_moved_lines(moved))
     return out
+
+
+def _moved_lines(moved) -> List[str]:
+    """What a move of a proof onto the kept version did, said as such: no new claim, no new version, the acceptance kept."""
+    return [f"{ref}: the proof moved to {new} — it holds the version done against (#{version}), which {old} no longer "
+            f"holds; not a new claim: the doer and the acceptance stay" for ref, old, new, version in moved]
 
 
 ACCEPT_WORD_RE = re.compile(r"приёмк|приемк|принять|принят[ьоаы]|\baccept", re.I)
@@ -1518,13 +1655,16 @@ def _open_subs_refusal(it: grammar.Item, then: str) -> None:
                      f"el todo cancel {s0} \"why it is no longer needed\" — then {then}", 4)
 
 
-def _merge_proofs(case: Path, it: grammar.Item, proofs) -> Optional[Tuple[str, str, str]]:
+def _merge_proofs(case: Path, it: grammar.Item, proofs, moved: Optional[list] = None) -> Optional[Tuple[str, str, str]]:
     """Put `proofs` onto a done item: one proof line per file — the same file replaces its line (and any duplicate the item
     carries), another kind or file is added. A version is never dropped silently: when the line had one and the new proof
     has none (the file moved where el gives no version), the version is kept by hashing the file. Returns (path, was, now)
     when the file came in another version — a new claim (L8; Codex's review of 2026-10-02: a range mixing an open and a
     done item appended a second line of the same file, and a proof without a version erased tracking and kept the
-    acceptance)."""
+    acceptance). A file that holds the very version a proof of the item was done against, while that proof's own file no
+    longer holds it (changed or gone), takes that proof's line: the bytes handed in, and maybe accepted, are the same — only
+    where they lie moved, so the acceptance stays (feedback 2026-10-13: the kept copy of round one was ADDED beside the
+    changed file, and Order kept the item). Each move goes to `moved` as (ref, old path, new path, version)."""
     renewed = None
     for kind, proof in proofs:
         if kind != "file":
@@ -1532,10 +1672,22 @@ def _merge_proofs(case: Path, it: grammar.Item, proofs) -> Optional[Tuple[str, s
                 it.evidence.append((kind, proof))
             continue
         path = _link_path(proof)
+        version = grammar.split_fingerprint(proof)[1]
+        stale = {_link_path(pr) for k, pr in it.evidence if version and k == "file" and _link_path(pr) != path
+                 and grammar.split_fingerprint(pr)[1] == version and _fingerprint(case / _link_path(pr)) != version}
+        if stale and moved is not None:
+            moved.extend((it.ref, old, path, version) for old in sorted(stale))
         same = [j for j, (k, pr) in enumerate(it.evidence) if k == "file" and _link_path(pr) == path]
         if not same:
-            it.evidence.append((kind, proof))
+            at = next((j for j, (k, pr) in enumerate(it.evidence) if k == "file" and _link_path(pr) in stale), None)
+            if at is None:
+                it.evidence.append((kind, proof))
+            else:
+                it.evidence[at] = (kind, proof)  # in its place: the proof moved, it did not change
+            it.evidence = [(k, pr) for k, pr in it.evidence if not (k == "file" and _link_path(pr) in stale)]
             continue
+        it.evidence = [(k, pr) for k, pr in it.evidence if not (k == "file" and _link_path(pr) in stale)]
+        same = [j for j, (k, pr) in enumerate(it.evidence) if k == "file" and _link_path(pr) == path]
         was = next((grammar.split_fingerprint(it.evidence[j][1])[1] for j in same if grammar.split_fingerprint(it.evidence[j][1])[1]), "")
         link, now = grammar.split_fingerprint(proof)
         if was and not now:
@@ -1556,10 +1708,11 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
     «the journal filled with bookkeeping»). The TODO lines carry the proofs; git keeps the edit."""
     _proof_warnings(phase, items, proofs, out)
     renewed = []  # L8: the same file in another version — a new claim, not a proof for an old tick
+    moved: list = []  # the version done against, found kept in another file — the proof moves, the claim stays
     befores = {}
     for it in items:
         befores[it.ref] = " · ".join(f"{k} {pr}".strip() for k, pr in it.evidence) or "untyped"
-        r = _merge_proofs(case, it, proofs)
+        r = _merge_proofs(case, it, proofs, moved)
         if r:
             renewed.append((it, *r))
     if renewed and not outcome:
@@ -1574,6 +1727,7 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
             it.result = outcome
         out.say(f"{it.ref} was already done — evidence now: "
                 f"{' · '.join(f'{k} {pr}'.strip() for k, pr in it.evidence)} (was: {before}){words}")
+    out.say(*_moved_lines(moved))
     if renewed:  # what was done, and maybe accepted, was other bytes: the new version is a RESULT, its acceptance starts over
         owed = [it for it, *_ in renewed if it.accepted]
         for it in owed:
@@ -2399,7 +2553,8 @@ def _running_order_lines(case: Path, todo: grammar.Todo) -> List[str]:
         shown = ", ".join(r for r, _ in untyped[:4]) + (f" … +{len(untyped) - 4}" if len(untyped) > 4 else "")
         lines.append(f"{len(untyped)} tick(s) without a kind of evidence in the running phase — {shown} → el todo done N.M <kind> "
                      f"attaches it — words kept, no journal event (F20: the running phase holds the current form; closed phases stay as they are)")
-    lines += [_changed_line(*c) for c in _changed_proofs(case, todo)]  # L8: done against other bytes than lie there now
+    lines += [_changed_line(*c, case=case) for c in _changed_proofs(case, todo)]  # L8: done against other bytes than lie there now
+    lines += [line for _, line in _not_a_file_lines(case, todo)]
     return lines
 
 
@@ -2622,7 +2777,7 @@ def todo_show(case: Path, ref: str) -> Outcome:
     parent = _parent_of(phase, item)
     out.say(Stored(f"phase {phase.n} {phase.name} ({state})" + (f" · under {parent.ref} «{order._short(parent.text, 60)}»" if parent else "")),
             *_stored(*_item_block(item, _case_two_hands(case), depth=1 if parent else 0)))  # names and words as stored (Codex)
-    out.say(*(f"  {_changed_line(*c)}" for c in _changed_proofs(case, todo, [phase]) if c[1] is item))  # L8
+    out.say(*(f"  {_changed_line(*c, case=case)}" for c in _changed_proofs(case, todo, [phase]) if c[1] is item))  # L8
     by_ref = {f"{it.ref}": it for it in _all_items(todo)}
     by_ref.update(_done_in_closed(case, todo, [r for r in item.after if r not in by_ref]))
     kids = {k.name for k in order.child_cases(case, _is_project(case))}
@@ -3768,9 +3923,16 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
     changed = [c for c in _changed_proofs(case, todo, [phase]) if c[1] in items]
     if changed:  # L8: the acceptor would sign bytes the doer never claimed — the doer records them first, or it goes back
         _, it, path, was, now = changed[0]
+        door, found = _copy_door(case, it.ref, path, was, acceptor=True)
+        record = f"the doer records it: el todo done {it.ref} {_file_arg(path, case)} \"what this version is\""
         raise StoreError(f"{it.ref} proof {path} changed since done (#{was} → now #{now}) — this is not the version the doer "
-                         f"claimed: the doer records it: el todo done {it.ref} file:{path} \"what this version is\" · "
+                         f"claimed: {f'{door} · {record}' if found else f'{record} · {door}'} · "
                          f"or return it: el todo reopen {it.ref} --by {who} \"why\"", 4)
+    gone = [c for c in _gone_proofs(case, todo, [phase]) if c[1] in items]
+    if gone:  # L8: a proof that is gone is no version at all — nothing to sign
+        _, it, path, was = gone[0]
+        raise StoreError(f"{it.ref} proof {path} is gone (done against #{was}) — there is nothing to accept: "
+                         f"{_gone_moves(case, it.ref, path, was, acceptor=True, who=who)}", 4)
     reruns = _reruns(ref, who, [pr for it in items for k, pr in it.evidence if k == "run"], runs or [])
     journal = _journal(case, out)
     date, _ = _now()
@@ -4134,7 +4296,10 @@ def todo_brief(case: Path, ref: str, sample: Optional[int] = None) -> Outcome:
         if it.evidence:
             out.say("  proofs:", *(f"    - {_proof_for_brief(case, k, pr)}" for k, pr in it.evidence))
             out.say(*(f"  ⚠ {c[2]} changed since done (#{c[3]} → now {c[4]}) — the doer records this version before you accept: "
-                      f"el todo done {it.ref} file:{c[2]} \"…\"" for c in changed if c[1] is it))
+                      f"el todo done {it.ref} {_file_arg(c[2], case)} \"…\" · {_copy_door(case, it.ref, c[2], c[3], acceptor=True)[0]}"
+                      for c in changed if c[1] is it))
+            out.say(*(f"  ⚠ {g[2]} is gone (done against #{g[3]}) — nothing to accept until the doer moves the proof: "
+                      f"{_gone_moves(case, it.ref, g[2], g[3], acceptor=True)}" for g in _gone_proofs(case, todo, [phase]) if g[1] is it))
         else:
             out.say("  proofs: none recorded")
         for r in it.after:
@@ -5190,7 +5355,9 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
                        + _second_hand_doors(owed, unaccepted[0], unaccepted[0] if len(owed) == 1 else ", ".join(unaccepted)))
     for _, it, path, was, now in _changed_proofs(case, todo, [phase]):  # L8: the close would stand on bytes nobody claimed
         ref = it.ref
-        missing.append(f"phase {n}: {ref} proof {path} changed since done (#{was} → now #{now}) — {_changed_moves(ref, path)}")
+        missing.append(f"phase {n}: {ref} proof {path} changed since done (#{was} → now #{now}) — {_changed_moves(ref, path, case, was)}")
+    for _, it, path, was in _gone_proofs(case, todo, [phase]):  # L8: a gone proof is no version — the close would stand on nothing
+        missing.append(f"phase {n}: {it.ref} proof {path} is gone (done against #{was}) — {_gone_moves(case, it.ref, path, was)}")
     if missing:
         raise StoreError("cannot close phase %d:\n  " % n + "\n  ".join(missing), 4)
     if rest_items:  # every gate held: the rest leaves for the general list now, in the same write as the close
@@ -5688,15 +5855,38 @@ def readme_edit(case: Path, section: str, ref: str, text: str) -> Outcome:
     k = int(ref)
     bullets = [i for i, ln in enumerate(parsed.sections.get(name, [])) if ln.startswith("- ") and ln != DECISIONS_DRAWN_HEAD]
     if not 1 <= k <= len(bullets):
-        drawn = " — the decisions from the journal under them are drawn by el and go by themselves" if (
-            name == "Decisions" and DECISIONS_DRAWN_HEAD in parsed.sections.get(name, [])) else ""
-        raise StoreError(f"{name} has {len(bullets)} line(s) of yours, nothing at position {k}{drawn}", 4)
+        raise _no_position(name, parsed.sections.get(name, []), len(bullets), k, "edit")
     old = parsed.sections[name][bullets[k - 1]]
     parsed.sections[name][bullets[k - 1]] = f"- {text}"
     _write_readme(case, _render_readme(parsed), out)
     out.say(f"README {name}: line {k} edited → «{text}» (was: «{old[2:]}»)")
     _say_fork_word(text if name == "Context" else "", out, context=True)
     return out
+
+
+def _no_position(name: str, lines: List[str], bullets: int, k: int, verb: str) -> StoreError:
+    """Nothing at position k of a section, said by what the section holds: k counts bullets, and plain lines — the paragraph
+    of the goal in Context, or prose a whole rewrite put there — are text of the agent too, which no position reaches
+    (feedback 2026-10-14: «Context has 0 line(s) of yours» over seven plain lines the agent had written, and the door to
+    the sixth was not named)."""
+    drawn = " — the decisions from the journal under them are drawn by el and go by themselves" if (
+        name == "Decisions" and DECISIONS_DRAWN_HEAD in lines) else ""
+    plain = [ln for ln in lines if ln.strip() and not ln.startswith(("- ", " ", "\t"))]
+    if not plain:
+        return StoreError(f"{name} has {bullets} line(s) of yours, nothing at position {k}{drawn}", 4)
+    gi = _goal_line_index(lines) if name == "Context" else None
+    goal = gi is not None and not lines[gi].startswith("- ")
+    rest = len(plain) - (1 if goal else 0)
+    doors = []
+    if goal:
+        doors.append(f"the first is the case goal: el readme edit context goal \"…\"")
+    if rest:
+        doors.append(f"{'the other ' + str(rest) if goal else 'they'} only a whole rewrite reaches: el readme --file "
+                     f"<a copy of README.md with your change> (el keeps its own lines and the rules)")
+    return StoreError(f"{name} has {bullets} bullet(s) — k counts the lines that start with «- », nothing at position {k}"
+                      f"{drawn}; its {len(plain)} plain line(s) are a paragraph, not a list: " + " · ".join(doors)
+                      + f" · a line that changes on its own is a bullet: el readme add {name.lower()} \"…\" — then "
+                      f"el readme {verb} {name.lower()} <k> reaches it", 4)
 
 
 def readme_touch(case: Path) -> Outcome:
@@ -5798,9 +5988,7 @@ def readme_drop(case: Path, section: str, ref: str) -> Outcome:
     k = int(ref)
     bullets = [i for i, ln in enumerate(parsed.sections.get(name, [])) if ln.startswith("- ") and ln != DECISIONS_DRAWN_HEAD]
     if not 1 <= k <= len(bullets):
-        drawn = " — the decisions from the journal under them are drawn by el and go by themselves" if (
-            name == "Decisions" and DECISIONS_DRAWN_HEAD in parsed.sections.get(name, [])) else ""
-        raise StoreError(f"{name} has {len(bullets)} line(s) of yours, nothing at position {k}{drawn}", 4)
+        raise _no_position(name, parsed.sections.get(name, []), len(bullets), k, "drop")
     if name == "State" and grammar.DRAWN_WAIT_RE.match(parsed.sections[name][bullets[k - 1]]):
         raise _drawn_wait_refusal(parsed.sections[name][bullets[k - 1]])
     removed = parsed.sections[name].pop(bullets[k - 1])
@@ -7620,8 +7808,12 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
             for p_, it, path, was, now in _changed_proofs(case, store.todo_of(case)):  # L8: done against other bytes
                 ref = f"{it.ref}"
                 out.say(f"x {case.name}/TODO.md: F20 · {ref} proof {path} changed since done (#{was} → now #{now}) → "
-                        f"{_changed_moves(ref, path)}")
+                        f"{_changed_moves(ref, path, case, was)}")
                 log_lines.append(f"{date} {time} · {case.name} · TODO.md · F20 · {ref} proof {path} changed since done")
+                errors += 1
+            for ref, line in _not_a_file_lines(case, store.todo_of(case)):  # a folder where the proof was: no dead link says it
+                out.say(f"x {case.name}/TODO.md: F20 · {line}")
+                log_lines.append(f"{date} {time} · {case.name} · TODO.md · F20 · {ref} proof is gone or not a file")
                 errors += 1
         except StoreError:
             pass

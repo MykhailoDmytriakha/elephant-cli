@@ -243,6 +243,9 @@ happened. Now the lower layer is visible from the top, and the top is rendered f
 - the other sections are ordered lists addressed by position (1 = first bullet):
   `el readme add decisions "2026-09-05 · X over Y — why"` (to the end) ·
   `el readme edit decisions 3 "new text"` (in place, order kept) · `el readme drop decisions 3`.
+  Plain lines (no `- `) are a paragraph, not a list — no position reaches them: the first of Context is the case goal,
+  `el readme edit context goal "…"`; the others only a whole rewrite (`el readme --file <a copy of README.md>`). A line
+  that changes on its own is a bullet: `el readme add context "…"`, then edit/drop k.
   Sections: Context · State · Decisions · Problems · Links (your folder lines; file lines are rendered).
   Drawn by el, never typed: State `opened:` (when and with which goal the case began), `progress:`, `last:`, `as of:`,
   `ready:`/`closed:`; under your Decisions lines the five newest decisions of the journal (`el log DECISION`), dated,
@@ -417,9 +420,13 @@ as version A and then replaced by B kept its `[x]` everywhere. `done` writes the
 proof line (`- file: [note.txt](docs/note.txt) · #1a2b3c4d`: 8 hex of the sha256 of its content; a line ending is not
 content). In a phase not closed yet a proof whose file changed since (or can no longer be read) is said by `todo show`, `brief`, the entry (Order, and
 `acceptance: … · 1 on a version since changed`), `el facts` (its fact is under question) and `check` (a violation);
-`accept` refuses it — the acceptor would sign bytes the doer never claimed — and so does `phase close`. Two honest
+`accept` refuses it — the acceptor would sign bytes the doer never claimed — and so does `phase close`. Three honest
 moves: `el todo done N.M file:<path> "what this version is"` records the new version (a RESULT; an acceptance starts
-over, the old verdict stays in the journal) · `el todo reopen N.M "why"`. el's own rewrites carry the version along —
+over, the old verdict stays in the journal) · kept a copy of the version done against before going on (`cp map.html
+map.v1.html`)? `el todo done N.M file:<the copy>` moves the proof there — the same bytes, so the doer and the acceptance
+stay, no RESULT; a copy beside the file, of its type, el finds and names itself · `el todo reopen N.M "why"`. A proof
+whose file is gone holds `accept` and `phase close` the same way: moved — `el relink old new` carries the version when the
+bytes are the same; kept as a copy — `done` on it; else `reopen`. el's own rewrites carry the version along —
 `el mv`, `el relink`, `el order --adopt` rewrite documents (in this case and the cases above it), and that is not a
 change of content; a change the author made before them stays a change. One proof line per file: a range that mixes
 open and done items goes through the same door, and a version is never dropped by a proof given without one. No version: a file of the project (source code lives on — its fixed version is a commit,
@@ -930,9 +937,10 @@ records the verdict.
   words, as said"` — el writes them as a quote (`слово владельца: «…»`), never as the agent's account of them; one word
   for many items is one quote over a range, and the record shows it was one word.
 - a file of the case is accepted as a version (L8, 2026-10-02): `done` wrote the content's version on the proof line;
-  if the file changed since, `accept` refuses — you would sign bytes the doer never claimed — and names the two moves:
-  the doer records this version (`el todo done N.M file:<path> "…"`, the acceptance starts over) or you return it
-  (`el todo reopen N.M --by <you> "…"`). A change after your acceptance is said on entry and holds the phase close.
+  if the file changed since, `accept` refuses — you would sign bytes the doer never claimed — and names the moves:
+  the doer records this version (`el todo done N.M file:<path> "…"`, the acceptance starts over), or moves the proof to
+  a copy kept of the version claimed (`el todo done N.M file:<the copy>`), or you return it (`el todo reopen N.M --by
+  <you> "…"`). A change after your acceptance is said on entry and holds the phase close.
 - the tally rises with the work (feedback 2026-09-29: sixteen items accepted on one blanket word read ✓ everywhere above
   the item): one count, by kind — `3 of 4 done accepted — another session 2 · the owner's word 1 · re-ran 2 of 4 run
   proof(s)` — on the entry, in the Digest of a closed phase, beside the closer's words on the phase's own line (TODO, its
