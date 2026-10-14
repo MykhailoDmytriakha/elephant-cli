@@ -97,7 +97,7 @@ class APromiseIsNotALink(Base):
 class ALimitAsksToRephraseTheSource(Base):
     def test_a_long_summary_is_shown_whole_and_named_in_order(self):
         long_summary = ("what the two regions do differently: manifests, replicas, CPU, memory, routes and the database "
-                        "each one talks to, with the timing of every smoke call")
+                        "each one talks to, with the timing of every smoke call and the cold-cache numbers of both routes")
         (self.case / "research").mkdir()
         (self.case / "research" / "regions.md").write_text(f"# Regions\nsummary: {long_summary}\n\nbody\n", encoding="utf-8")
         out = run()[1]

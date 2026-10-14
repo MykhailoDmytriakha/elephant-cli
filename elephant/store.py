@@ -190,6 +190,18 @@ def _rel(case: Path, root: Path) -> str:
     return case.relative_to(root).as_posix() if case.is_relative_to(root) else case.name  # the project case sits above .cases/
 
 
+def case_arg(case: Path, root: Path) -> str:
+    """How a printed command names this case so that it runs as printed: the folder name when it resolves to this very case,
+    else its path from .cases/ (Codex, 2026-10-14: two nested cases of one name — the printed `--case <name>` was refused)."""
+    try:
+        if resolve_case(root, case.name).resolve() == case.resolve():
+            return case.name
+    except StoreError:
+        pass
+    rel = _rel(case, root)
+    return rel if "/" in rel else f".cases/{rel}"  # a top case shares its name with a nested one: a path, not a name
+
+
 def resolve_case(root: Path, name: Optional[str]) -> Path:
     """Find a case by name (exact folder name, nested allowed) or by unique suffix."""
     cases = all_cases(root)
@@ -525,13 +537,14 @@ def hand(root: Path, explicit: Optional[str] = None) -> Path:
         raise StoreError("no case here yet — nothing to pick up", 4,
                          recovery="el case new \"name\" --goal \"what done looks like, in the owner's words\"")
     open_cases = [c for c in cases if is_open(c)]
-    if not open_cases:  # a closed case takes new work by a new phase (the polygon, 2026-10-10: eight calls to find the door)
+    if not open_cases:  # a closed case takes new work once opened again (the polygon, 2026-10-10: eight calls to find the door;
+        # the owner's word, 2026-10-14: a new phase in a closed case is refused until the case is opened)
         tops = [c for c in cases if not any(c != o and o in c.parents for o in cases)]
-        top = tops[0].name if len(tops) == 1 else "<name>"
+        top = case_arg(tops[0], root) if len(tops) == 1 else "<name>"
         raise StoreError(f"every case here is closed ({len(cases)}) — nothing to pick up on its own; new work goes into a case "
-                         f"as a new phase", 4,
-                         recovery=f"continue one: el --case {top} phase plan N \"Name\" --goal \"…\" · the cases: el case list · "
-                                  f"a new one: el case new \"name\" --goal \"…\"")
+                         f"opened again, as a new phase", 4,
+                         recovery=f"continue one: el --case {top} case reopen \"why it goes on\", then el --case {top} phase plan N "
+                                  f"\"Name\" --goal \"…\" · the cases: el case list · a new one: el case new \"name\" --goal \"…\"")
     def freshness(c: Path):  # the journal's mtime marks the case a command was last aimed at (`mark_aimed`)
         j = file_path(c, "JOURNAL.md")
         return j.stat().st_mtime if j.exists() else 0

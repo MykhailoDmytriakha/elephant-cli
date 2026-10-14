@@ -1365,7 +1365,8 @@ def _changed_line(p: grammar.Phase, it: grammar.Item, path: str, was: str, now: 
             + f" → {_changed_moves(ref, path, case, was)}")
 
 
-def _proof_warnings(phase: grammar.Phase, items: List[grammar.Item], proofs: List[Tuple[str, str]], out: Outcome):
+def _proof_warnings(phase: grammar.Phase, items: List[grammar.Item], proofs: List[Tuple[str, str]], out: Outcome,
+                    case: Optional[Path] = None):
     """What the tool can see about a proof without judging its truth (the owner's eye, 2026-09-16: a closed
     phase whose four items all pointed at one markdown the agent had written — the link resolved, the proof was
     hollow). Shown at the moment of writing, never refused: sometimes a case document IS the deliverable, and
@@ -1375,6 +1376,13 @@ def _proof_warnings(phase: grammar.Phase, items: List[grammar.Item], proofs: Lis
         if kind != "file":
             continue
         path = _link_path(proof)
+        # said once: a file already frozen — by this item or any done item, closed phases too — is not asked again (Codex, 2026-10-14)
+        held = any((kind, proof) in it.evidence for it in items) or (case is not None and (case / path).resolve() in _frozen_proofs(case))
+        summary = order.read_summary(case / path) if case is not None and " · #" in proof and not held else None
+        if summary and grammar.visible_len(summary) > order.SUMMARY_CHARS:  # frozen from now on: the moment the edit is cheap
+            out.warn(f"file:{path} — its `summary:` is {grammar.visible_len(summary)} chars, over {order.SUMMARY_CHARS}: once "
+                     f"accepted the file is frozen (its version holds the acceptance) and nothing asks again — rephrase line "
+                     f"2 now, then the same done records that version")
         if _case_markdown(proof):
             out.warn(f"file:{path} is a markdown inside the case — your own text, not the thing it describes. The proof is "
                      f"what stands behind it: run:\"<command → outcome>\" for a call or a test, file:<source or spec in the "
@@ -1527,7 +1535,7 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
                          f"--fact = (the result's words) · --fact - (no fact came out)", 2)
     if fact is not None and fact.lower() not in ("confirmed", "same") and fact not in FACT_NONE:
         fact = _pocket_text("fact", fact, ref)
-    _proof_warnings(phase, items, proofs, out)
+    _proof_warnings(phase, items, proofs, out, case)
     already = [it for it in items if it.done]
     fresh = [it for it in items if not it.done]
     blocking = _blocking(case, todo)
@@ -1706,7 +1714,7 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
     No RESULT, `last:` untouched — the tick is not new, and the journal grows only from what changes the
     next reader's knowledge (P5; feedback 2026-09-22: kinds attached to six old ticks wrote six RESULTs,
     «the journal filled with bookkeeping»). The TODO lines carry the proofs; git keeps the edit."""
-    _proof_warnings(phase, items, proofs, out)
+    _proof_warnings(phase, items, proofs, out, case)
     renewed = []  # L8: the same file in another version — a new claim, not a proof for an old tick
     moved: list = []  # the version done against, found kept in another file — the proof moves, the claim stays
     befores = {}
@@ -4897,6 +4905,16 @@ def _closing_checks(case: Path, prev: grammar.Phase, journal: grammar.Journal) -
     return missing
 
 
+def _closed_case_refusal(case: Path, out: Outcome, verb: str) -> None:
+    """A closed case takes no new phase: «closed» over a phase that runs today is a record that lies (feedback 2026-10-14: a
+    map closed on the 8th ran phase 3 on the 14th, then `case use` and `done` said «closed»). The door is named: the case is
+    opened again with a reason, then the phase is added (the owner's word, 2026-10-14)."""
+    recorded = _closed_words(_readme_text(case, out))
+    if recorded:
+        raise StoreError(f"{case.name} is closed «{recorded}» — a new phase is new work, and a closed case takes none: open "
+                         f"it again first, saying why it goes on: el case reopen \"why it goes on\" — then el phase {verb} …", 4)
+
+
 def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     """Name the next phase now, open it later: `- [ ] N Name — <intent>` in TODO, no phase file, no
     journal event (a plan is not an event, P5). Items may be parked under it (`todo add N`); it
@@ -4907,6 +4925,7 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
         raise StoreError(f"phase name `{name}` must be English, 1–3 words, letters, digits, hyphen (F13) — it names the file "
                          f"phases/N-name.md; the words in your language go into the goal: el phase plan {n} '<English name>' "
                          f"--goal {_sh(name)}", 2)
+    _closed_case_refusal(case, out, "plan")
     todo = _todo(case, out)
     existing = todo.phase(n)
     intent = _goal_text(goal) if goal else None
@@ -5144,6 +5163,7 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
     the fifth before the third»): it stays planned — a draft whose order the boundary decides — and a DECISION says
     what made N come first. Cancelling it to get past it would call a needed phase «not needed»."""
     out = Outcome()
+    _closed_case_refusal(case, out, "open")
     todo = _todo(case, out)
     existing = todo.phase(n)
     if not name and existing is not None and not existing.done:
@@ -6153,7 +6173,9 @@ def case_use(root: Path, name: str) -> Outcome:
     out = Outcome()
     case = store.resolve_case(root, name)
     if not store.is_open(case):
-        raise StoreError(f"{case.name} is closed — the hand only holds open cases", 4)
+        arg = store.case_arg(case, root)
+        raise StoreError(f"{case.name} is closed — the hand only holds open cases; it goes on? el --case {arg} case "
+                         f"reopen \"why it goes on\", then el case use {arg}", 4)
     _os.utime(case / "JOURNAL.md")
     store.hold(root, case)  # this session's hand; the mtime still moves it for a harness without a session id
     out.say(f"current case: {' › '.join(store.chain(case, root))}")
@@ -6438,6 +6460,32 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None, by: 
         out.say(f"case promises: {len(groups)} of {len(groups)} proved — " + " · ".join(side(m) for m, _ in groups))
     if tally:
         out.say(f"acceptance: {tally} → the closed: line, drawn at the parent")
+    return out
+
+
+def case_reopen(root: Path, case: Path, why: str) -> Outcome:
+    """A closed case goes on (the owner's word, 2026-10-14: «a new phase in a closed case is refused, it says to open the
+    case; when the case is open, the phase is added»): the `closed:` line goes, a DECISION says why, and the case takes new
+    phases again; it closes later the way it closed before. The parent draws its line about it from its README — open
+    again; a closed parent is opened first, so that nothing open lies under a closed node."""
+    out = Outcome()
+    why = " ".join(why.split())
+    recorded = _closed_words(_readme_text(case, out))
+    if not recorded:
+        raise StoreError(f"{case.name} is open — nothing to reopen; new work: el phase plan N \"Name\" --goal \"…\"", 4)
+    if not why:
+        raise StoreError("reopen needs a reason: el case reopen \"why the case goes on\"", 2)
+    parent = store.parent_case(case, root)
+    if parent is not None and _closed_words(_readme_text(parent, out)):
+        raise StoreError(f"the parent {parent.name} is closed — open it first, then this one: el --case {store.case_arg(parent, root)} case "
+                         f"reopen \"why it goes on\"", 4)
+    text = _set_state_line(_readme_text(case, out), "closed: ", None)
+    _write_readme(case, text, out, anchor=True)
+    out.lines = log(case, "DECISION", f"дело открыто заново → {why} (было закрыто: «{recorded}»)").lines + out.lines
+    if parent is not None:
+        _refresh_readme(parent, out)
+    out.say(f"reopened: {case.name} — the closed line is history in the journal; new work: el phase plan N \"Name\" --goal "
+            f"\"…\" · el phase open N")
     return out
 
 
@@ -7176,10 +7224,30 @@ def _unready_lines(case: Path, root: Path, todo: grammar.Todo, readme_body: str)
             f"(ready: the owner's word closes it) · more work first: el phase plan {free} \"Name\" --goal \"…\""]
 
 
+def _frozen_proofs(case: Path) -> set:
+    """Resolved paths of case files that are versioned proofs of done items — running phases from TODO, closed ones from their
+    files: a file an acceptance stands on is frozen, and no Order line asks to edit it (feedback 2026-10-14: 14 accepted
+    reports and pre-registered protocols asked to rephrase their summary — the edit would change the version under the
+    acceptance, or erase the «written before the data» a protocol's file time proves)."""
+    try:
+        todo = store.todo_of(case)
+    except StoreError:
+        return set()
+    frozen = set()
+    for p in todo.phases:
+        base = _phase_file(case, p.n, p.name).parent if p.done else case  # a phase file links from phases/
+        for it in grammar.flat(_closed_phase_items(case, p) if p.done else p.items):  # sub-items too (Codex, 2026-10-14)
+            for kind, proof in (it.evidence if it.done else []):
+                link, was = grammar.split_fingerprint(proof)
+                if kind == "file" and was:
+                    frozen.add((base / _link_path(link)).resolve())
+    return frozen
+
+
 def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[grammar.Journal]) -> List[str]:
     parsed = grammar.parse_readme(readme_body)
     links = parsed.sections.get("Links", []) if not parsed.errors else []
-    lines = order.report(case, _is_project(case), readme_body, journal, links)
+    lines = order.report(case, _is_project(case), readme_body, journal, links, frozen=_frozen_proofs(case))
     try:
         todo_now = store.todo_of(case)
         lines.extend(_overdue_lines(todo_now, readme_body))  # a date that passed is out of order
@@ -7841,7 +7909,8 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
             jr = grammar.parse_journal(store.read(case, "JOURNAL.md"))
             links = grammar.parse_readme(rb).sections.get("Links", [])
             dead: list = []
-            for ln in order.report(case, _is_project(case), rb, jr if not jr.errors else None, links, link_violations=dead):
+            for ln in order.report(case, _is_project(case), rb, jr if not jr.errors else None, links, link_violations=dead,
+                                   frozen=_frozen_proofs(case)):
                 out.warn(f"{case.name}: order · {ln}")
             # a dead link in the files el holds is a violation, not a warning: the owner clicks and
             # nothing opens, and `violations: 0` is what gets read (feedback 2026-09-03)

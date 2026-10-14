@@ -23,7 +23,9 @@ from . import grammar, store
 
 SUMMARY_RE = re.compile(r"^summary: (.+)$")
 SUMMARY_SCAN_LINES = 5
-SUMMARY_CHARS = 120
+# measured 2026-10-14 on 533 live case files: over 120 — 14 %, over 150 — 9 %, median 101, p90 140 (the owner's word the same
+# day: «and the limit by the measure, and the freeze») — 120 asked a seventh of good one-liners to be rewritten
+SUMMARY_CHARS = 150
 FILE_WARN_BYTES = 24 * 1024
 # F15 duplicate = verbatim overlap: word 3-grams (shingles) of the smaller file found in the other.
 # Measured 2026-09-03 on a live case (8 documents in one folder): the pair the 0.10 word-set metric
@@ -757,10 +759,12 @@ def unreferenced(case: Path, folders: List[Folder], readme_body: str, todo_body:
 
 # ---- the report shown on every entry (P12) ------------------------------------------------------
 def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[grammar.Journal],
-           links_lines: List[str], link_violations: Optional[list] = None) -> List[str]:
+           links_lines: List[str], link_violations: Optional[list] = None, frozen: Optional[set] = None) -> List[str]:
     """Lines for the `## Order` block: each one names what is out of order and the command that
     puts it back. Empty list = everything in place. With `link_violations` (a list), broken links
-    in README/TODO are collected there for `check` to report as violations (F16) instead."""
+    in README/TODO are collected there for `check` to report as violations (F16) instead. `frozen`: resolved paths of
+    case files that are versioned proofs of done items — their line 2 is not asked to change (it would change the version
+    an acceptance stands on); `done` says it while the edit is still cheap."""
     out: List[str] = []
     described: Dict[str, str] = {}
     for ln in links_lines:
@@ -782,7 +786,7 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
                            f"({r} RESULT, {p} PHASE) → el readme set next \"…\" · still true as it stands: el readme touch "
                            f"· or el readme --file README.md")
     long_ = [(d.rel, grammar.visible_len(d.summary)) for f in folders for d in f.all_docs()
-             if d.summary and grammar.visible_len(d.summary) > SUMMARY_CHARS]
+             if d.summary and grammar.visible_len(d.summary) > SUMMARY_CHARS and d.path.resolve() not in (frozen or set())]
     if long_:  # the limit asks the source to be rephrased; Links shows the summary whole (feedback 2026-09-25)
         shown = ", ".join(f"{rel} ({n})" for rel, n in long_[:4]) + (f" … +{len(long_) - 4}" if len(long_) > 4 else "")
         out.append(f"{len(long_)} `summary:` line(s) over {SUMMARY_CHARS} chars — {shown} → rephrase line 2 of the file: the one line "

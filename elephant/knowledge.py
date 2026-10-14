@@ -574,6 +574,9 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   the `closed:` line and in the journal). Work resumed — a phase opened — the ready line goes by itself. A nested case
   is closed by its own `done`: its parent's acceptance is the second hand.
   `el case cancel "why"` ends it the other honest way — open phases collapse with the reason.
+  A closed case takes no new phase — «closed» over work of today is a record that lies: `phase open|plan` there is
+  refused with the door, `el --case <name> case reopen "why it goes on"` (the closed line goes, a DECISION says why, the
+  case takes phases again and closes later the same way; a closed parent opens first — the owner's word, 2026-10-14).
   At a parent that waits for it the outcome becomes an item, so it is an item's size: ≤ 100 visible chars of YOUR
   words — the case is named by the item's proof line (a link to its README), never appended to the text. A cancel reason
   lands as «снято: <reason>», so 93 of the 100 are yours. el checks either before writing anything and says the number
@@ -1029,8 +1032,10 @@ The machine (F23, F24): an open item returned 3 times → Order «stuck»; a Lat
   Order asks by name — both shown, never refused; the numbers are a first guess, moved by a live case.
 Warnings are about THIS write: a command warns only about lines it introduced; history is `check`'s business,
   and `check` says it once per rule («F2 · pointer line over 150 — lines 14, 15, 18 (3 lines)»).
-Lower layer (shown, not refused): file `summary:` ≤ 120 chars — over it, an Order line asks to rephrase line 2 of the
-  file (Links shows it whole, never cut: a limit asks the source, it never cuts the copy); a file over 24 KB → split by summary
+Lower layer (shown, not refused): file `summary:` ≤ 150 chars (measured 2026-10-14 on 533 live files: over 150 — 9 %)
+  — over it, an Order line asks to rephrase line 2 of the file (Links shows it whole, never cut: a limit asks the source,
+  it never cuts the copy); a file that is a versioned proof of a done item is frozen — its version holds an acceptance —
+  so Order does not ask, and `done` says it while the edit is still cheap; a file over 24 KB → split by summary
   or trim; two files where ≥ 50 % of the smaller one's phrasing is verbatim in the other → duplicate.
   No folder total (dropped in 0.11): a byte count cannot tell deliverables from water.
 Why limits exist: they keep the entry screen readable and squeeze water out — the detail belongs

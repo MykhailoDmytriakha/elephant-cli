@@ -42,6 +42,7 @@ EXAMPLES = """examples
   el todo move 3.6 4                    to another phase (joins its end under the next free number)
   el todo add 3 "ship it — after: 3.1, 3.2" · el todo after 3.4 "3.1, 3.2" · el todo after 3.4 none   dependencies (→ unblocked: on entry)
   el phase cancel 4 "the venue fell through" · el case cancel "merged into the other case"   the second honest end of a branch
+  el --case old-map case reopen "the owner asked for a second round"   a closed case goes on: opened with a reason, then a phase
   el readme set due "2026-09-13 · decision meeting"   the case deadline — `el` counts the days on entry
   el mv docs/old.md docs/notes/new.md   move a file; every link to it is rewritten (README/TODO/JOURNAL and the documents)
   el relink docs/old.md docs/notes/new.md   the file already moved without el: the links follow now (journal included)
@@ -273,8 +274,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("c", nargs="?")
     s.add_argument("--file", default=None, help="a whole README to validate and write (`-` = stdin)")
 
-    s = sub.add_parser("case", help="case new <name> --goal … · case list · case use <name> · case new --root", allow_abbrev=False)
-    s.add_argument("action", choices=["new", "list", "use", "cancel"])
+    s = sub.add_parser("case", help="case new <name> --goal … · case list · case use <name> · case cancel \"why\" · case reopen \"why\" · case new --root", allow_abbrev=False)
+    s.add_argument("action", choices=["new", "list", "use", "cancel", "reopen"])
     s.add_argument("name", nargs="?")
     s.add_argument("--goal")
     s.add_argument("--root", action="store_true", help="root mode: the project folder itself becomes the top case")
@@ -680,6 +681,8 @@ def _run(argv=None) -> int:
                 out = commands.case_list(root, everything=args.all)
             elif args.action == "cancel":
                 out = commands.case_cancel(root, store.hand(root, args.case), args.name or "")
+            elif args.action == "reopen":
+                out = commands.case_reopen(root, store.hand(root, args.case), args.name or "")
             else:
                 if not args.name:
                     raise StoreError("usage: el case use <name or unique suffix>", 2)
@@ -887,7 +890,7 @@ def _run(argv=None) -> int:
 
 
 CASE_COMMANDS = ("todo", "phase", "log", "readme", "done", "check", "order", "facts", "mv", "relink", "spawn", "status",
-                 "migrate", "case cancel")
+                 "migrate", "case cancel", "case reopen")
 CARRY_RE = re.compile(r"(?<![\w/.-])el (?=(?:" + "|".join(re.escape(c) for c in CASE_COMMANDS) + r")\b(?!:))")  # not `el done:` — a label
 
 
