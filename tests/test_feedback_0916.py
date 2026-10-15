@@ -108,9 +108,11 @@ class PhaseCloseInOneCommand(Base):
         self.assertIn("no `DECISION · align:", err)
         self.assertIn("--align", err, "the refusal names the one-command form")
         self.assertNotIn("reflect: r", self.read("JOURNAL.md"))
+        # 2026-10-15: the flag's own name as a prefix is taken, not refused — el writes the prefix once
         code, out, err = run("phase", "close", "1", "mapped", "--reflect", "reflect: r", "--align", "a")
-        self.assertEqual(code, 2)
-        self.assertIn("el writes the `reflect:` prefix", err)
+        self.assertEqual(code, 0, err)
+        self.assertIn("DECISION · reflect: r\n", self.read("JOURNAL.md"))
+        self.assertNotIn("reflect: reflect:", self.read("JOURNAL.md"))
 
 
 class LongOutcomeIsWholeNotRefused(Base):

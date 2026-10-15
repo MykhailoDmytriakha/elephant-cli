@@ -514,8 +514,8 @@ def mark_aimed(case: Path):
         pass
 
 
-def held(root: Path) -> Optional[Path]:
-    """The case this session holds, while it is still an open case here."""
+def held(root: Path, closed_too: bool = False) -> Optional[Path]:
+    """The case this session holds, while it is still an open case here — or, `closed_too`, the one it held last, closed."""
     f = _hand_file(root)
     if f is None or not f.is_file():
         return None
@@ -523,12 +523,14 @@ def held(root: Path) -> Optional[Path]:
         target = (root.resolve().parent / f.read_text(encoding="utf-8").strip()).resolve()
     except OSError:
         return None
-    return next((c for c in all_cases(root) if c.resolve() == target and is_open(c)), None)
+    return next((c for c in all_cases(root) if c.resolve() == target and (closed_too or is_open(c))), None)
 
 
-def hand(root: Path, explicit: Optional[str] = None) -> Path:
+def hand(root: Path, explicit: Optional[str] = None, look: bool = False) -> Path:
     """The case in hand: flag > EL_CASE > the case this session holds > the open case a write was last aimed at (its
-    JOURNAL.md mtime, `mark_aimed`), which the session then holds (P2, C9; feedback 2026-09-27)."""
+    JOURNAL.md mtime, `mark_aimed`), which the session then holds (P2, C9; feedback 2026-09-27). `look` — the entry, a
+    read: when every case is closed, the one this session held last is shown closed, not refused (feedback 2026-10-15:
+    «Конец — снова el» after `el done --by owner` met ERROR exit 4 — the session had done everything right)."""
     name = explicit or os.environ.get("EL_CASE")
     if name:
         return resolve_case(root, name)
@@ -537,6 +539,9 @@ def hand(root: Path, explicit: Optional[str] = None) -> Path:
         raise StoreError("no case here yet — nothing to pick up", 4,
                          recovery="el case new \"name\" --goal \"what done looks like, in the owner's words\"")
     open_cases = [c for c in cases if is_open(c)]
+    last = held(root, closed_too=True) if look and not open_cases else None
+    if last is not None:
+        return last  # read only: no write reaches a closed case through the hand
     if not open_cases:  # a closed case takes new work once opened again (the polygon, 2026-10-10: eight calls to find the door;
         # the owner's word, 2026-10-14: a new phase in a closed case is refused until the case is opened)
         tops = [c for c in cases if not any(c != o and o in c.parents for o in cases)]

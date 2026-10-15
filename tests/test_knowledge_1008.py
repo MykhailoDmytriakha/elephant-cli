@@ -76,6 +76,8 @@ class TheEntryOfEveryCaseNamesIt(Base):
         its head, and the knowledge line with it."""
         self.mark()
         run("--case", "research", "done", "every path written down")
+        # a fresh session: no hand of its own (2026-10-15: the session that held the case sees it closed, exit 0)
+        os.environ["EL_HANDS_DIR"] = str(Path(self.tmp.name) / "hands-fresh")
         code, out, _ = run()
         self.assertEqual(code, 4)
         lines = out.rstrip("\n").split("\n")

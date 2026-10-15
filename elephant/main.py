@@ -699,7 +699,7 @@ def _run(argv=None) -> int:
                     only = None  # nothing in hand (every case closed): the whole workspace
             out = commands.check(root, only, everything=args.all)
         else:
-            case = store.hand(root, args.case)
+            case = store.hand(root, args.case, look=args.cmd in (None, "status"))
             if args.cmd is None or args.cmd == "status":
                 out = commands.entry(root, case)
             elif args.cmd == "log":

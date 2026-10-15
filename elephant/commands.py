@@ -638,7 +638,7 @@ def _default_next_in_state(readme_body: str) -> bool:
 
 
 # ---- journal ------------------------------------------------------------------------------------
-BODY_WRAP = 160
+BODY_WRAP = grammar.BODY_WRAP
 EVENT_FIT = grammar.EVENT_WARN_CHARS + grammar.EVENT_BODY_LINES * BODY_WRAP  # about what one event holds, wrapped
 
 
@@ -654,6 +654,62 @@ def _event_too_long(what: str) -> TooLong:
                    f"put the story into the phase file (## Notes) or a file of the case, and log a short line with its path", 3)
 
 
+def _free_spaces(text: str) -> List[int]:
+    """Where a line of `text` may end: its spaces outside a markdown link — a link with spaces in its name is one word."""
+    spans = [m.span() for m in grammar.LINK_RE.finditer(text)]
+    return [i for i, c in enumerate(text) if c == " " and not any(a < i < b for a, b in spans)]
+
+
+def _units(text: str) -> List[str]:
+    """`text` split at the spaces where a line may end — a link is one unit, whatever its name holds."""
+    out, start = [], 0
+    for i in _free_spaces(text):
+        out.append(text[start:i])
+        start = i + 1
+    return out + [text[start:]]
+
+
+def _wrap(text: str) -> List[str]:
+    """Body lines of `text`: each ends at the last space before BODY_WRAP; a link longer than that stands whole on its own
+    line, never cut (feedback 2026-10-15: a hard cut at 160 chars split a link's target over two lines; the journal link
+    died and README `last:` drew it with a space inside) — body lines have no length limit (F7). Any other word that long
+    is cut, as before: it points at nothing, and the event's size stays counted in lines."""
+    lines = []
+    while text:
+        if len(text) <= BODY_WRAP:
+            lines.append(text)
+            break
+        free = _free_spaces(text)
+        cut = max((i for i in free if 0 < i < BODY_WRAP), default=None)
+        if cut is None:
+            end = min((i for i in free if i >= BODY_WRAP), default=len(text))
+            cut = end if grammar.LINK_RE.search(text[:end]) else BODY_WRAP
+        lines.append(text[:cut])
+        text = text[cut:].strip()
+    return lines
+
+
+def _split_headline(typ: str, text: str) -> Tuple[str, str]:
+    """(headline words, the rest) — split at a space outside a link, under the SOFT threshold, so a split line never
+    triggers «close to the limit» later. A first word longer than that stands alone up to the hard limit; a link longer
+    still is refused (el does not cut a link); any other word that long is cut, as before."""
+    budget = grammar.EVENT_WARN_CHARS - len(typ) - 3
+    units = _units(text)
+    head, i = "", 0
+    while i < len(units) and len(head) + len(units[i]) + 1 <= budget - 2:
+        head += (" " if head else "") + units[i]
+        i += 1
+    if head:
+        return head, " ".join(units[i:])
+    first, hard = units[0], grammar.EVENT_CHARS - len(typ) - 5
+    if len(first) <= hard:
+        return first, " ".join(units[1:])
+    if grammar.LINK_RE.search(first):
+        raise TooLong(f"the text starts with a link of {len(first)} chars — a headline holds {hard}, and el does not cut a "
+                      f"link (F7): words first, the link after them — el log {typ} \"what came out: [name](path)\"", 3)
+    return first[: budget - 2], " ".join([first[budget - 2:], *units[1:]])
+
+
 def _render_event(typ: str, text: str, room: int = 0):
     """Turn text into journal lines: `  TYPE · headline` + up to 5 wrapped body lines (F7).
 
@@ -661,6 +717,7 @@ def _render_event(typ: str, text: str, room: int = 0):
     record, it must not block the write (live feedback 2026-08-31). An author's line break is kept
     as a body line of its own: fields written one per line stay one per line (feedback 2026-09-14:
     `closed BUG-1 / root: a / fix: b` came out as one run-on sentence, and nothing said so).
+    A link is never cut (feedback 2026-10-15): it stands whole on a body line of its own.
     """
     paras = [" ".join(p.split()) for p in text.split("\n") if p.strip()]
     text, extra = (paras[0] if paras else ""), paras[1:]
@@ -670,40 +727,49 @@ def _render_event(typ: str, text: str, room: int = 0):
             lines[0] += " …"  # a headline with a body says so — the entry shows headlines only
         body = [ln[4:] for ln in lines[1:]]
         for para in extra:
-            while len(para) > BODY_WRAP:
-                cut = para.rfind(" ", 0, BODY_WRAP)
-                cut = cut if cut > 0 else BODY_WRAP
-                body.append(para[:cut])
-                para = para[cut:].strip()
-            body.append(para)
+            body += _wrap(para)
         if len(body) > grammar.EVENT_BODY_LINES:
             raise _event_too_long(f"{len(body)} body lines, {grammar.EVENT_BODY_LINES} fit")
         return [lines[0]] + [f"    {b}" for b in body], True
     if len(f"{typ} · {text}") <= grammar.EVENT_CHARS - room:
         return [f"  {typ} · {text}"], False
-    # split under the SOFT threshold, so a split line never triggers "close to the limit" later
-    head_budget = grammar.EVENT_WARN_CHARS - len(typ) - 3
-    words = text.split(" ")
-    head, i = "", 0
-    while i < len(words) and len(head) + len(words[i]) + 1 <= head_budget - 2:
-        head += (" " if head else "") + words[i]
-        i += 1
-    if not head:  # a single word longer than the whole headline — hard cut
-        head, words[0] = words[0][: head_budget - 2], words[0][head_budget - 2:]
-        i = 0
-    rest, body = " ".join(words[i:]), []
-    while rest and len(body) < grammar.EVENT_BODY_LINES:
-        if len(rest) <= BODY_WRAP:
-            body.append(rest)
-            rest = ""
-        else:
-            cut = rest.rfind(" ", 0, BODY_WRAP)
-            cut = cut if cut > 0 else BODY_WRAP
-            body.append(rest[:cut])
-            rest = rest[cut:].strip()
-    if rest:
+    head, rest = _split_headline(typ, text)
+    body = _wrap(rest)
+    if len(body) > grammar.EVENT_BODY_LINES:
         raise _event_too_long(f"{len(text)} chars, about {EVENT_FIT} fit")
     return [f"  {typ} · {head} …"] + [f"    {b}" for b in body], True
+
+
+def _rewrap_events(text: str) -> str:
+    """The journal after el's own rewrite of a link (mv, relink): an event line it pushed past the limit sends the tail of
+    its headline into the body — the words stay, only the line break moves (feedback 2026-10-15: relink of a moved file
+    was refused, «event line is 201 chars», by the path el itself wrote; the link stayed dead)."""
+    lines, out, i = text.split("\n"), [], 0
+    while i < len(lines):
+        m = grammar.EVENT_RE.match(lines[i])
+        if not m or len(lines[i].strip()) <= grammar.EVENT_CHARS:
+            out.append(lines[i])
+            i += 1
+            continue
+        typ, txt = m.groups()
+        j = i + 1
+        while j < len(lines) and grammar.BODY_RE.match(lines[j]):
+            j += 1
+        body = [ln[4:] for ln in lines[i + 1:j]]
+        words = txt[:-2].rstrip() if txt.endswith(" …") else txt
+        try:
+            head, rest = _split_headline(typ, words)
+        except TooLong:  # a link at the very start, longer than any headline: the line stays, the write says so
+            out += lines[i:j]
+            i = j
+            continue
+        if rest and len(body) < grammar.EVENT_BODY_LINES:
+            body.insert(0, rest)
+        elif rest:
+            body[0] = f"{rest} {body[0]}"
+        out += [f"  {typ} · {head} …"] + [f"    {b}" for b in body]
+        i = j
+    return "\n".join(out)
 
 
 def _resolve_phase(todo: grammar.Todo, ref: str) -> str:
@@ -809,7 +875,7 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: s
         raise _unparsable(case, "JOURNAL.md")
     body, report = store.load(case, "JOURNAL.md")
     out.absorb(report)
-    lines = body.rstrip("\n").split("\n")
+    lines = grammar.mend_cuts(body).rstrip("\n").split("\n")  # a link el once cut is sewn back at this write
     header = f"- {date} {time} · {phase}"
     first = next((i for i, ln in enumerate(lines) if grammar.ENTRY_RE.match(ln)), None)
     if first is not None and lines[first] == header:
@@ -2831,21 +2897,23 @@ def todo_expect(case: Path, ref: str, text: str) -> Outcome:
     return out
 
 
-def _no_phase_for_add(todo: grammar.Todo, n: int) -> str:
+def _no_phase_for_add(todo: grammar.Todo, n: int, case: Optional[Path] = None) -> str:
     """Why `todo add N` has nowhere to go, and the door from each state (the polygon, 2026-10-07: Haiku and Sonnet sent
     items into phases they meant to plan next, read «phase 2 is missing or closed» and retried it three times — one line
-    named two states and no way out). A missing phase is planned first; a closed one is history, the work goes on elsewhere."""
+    named two states and no way out). A missing phase is planned first; a closed one is history, the work goes on elsewhere.
+    In a closed case a phase is planned only after the case is opened again — the door says so first (2026-10-15)."""
     free = max((p.n for p in todo.phases), default=0) + 1
     flight = todo.current()
     elsewhere = (f"el todo add {flight.n} \"…\" (phase {flight.n} {flight.name} is the one in flight)" if flight else "")
     later = "not for a phase yet: el todo add later \"…\""
+    reopen = ("el case reopen \"why it goes on\", then " if case is not None and _closed_words(_readme_text(case)) else "")
     phase = todo.phase(n)
     if phase is not None:  # closed: its items are history
-        doors = " · ".join(d for d in (elsewhere, f"a new phase: el phase plan {free} \"Name\" --goal \"…\"", later) if d)
+        doors = " · ".join(d for d in (elsewhere, f"a new phase: {reopen}el phase plan {free} \"Name\" --goal \"…\"", later) if d)
         return f"phase {n} {phase.name} is closed — its items are history, nothing is added to it: {doors}"
-    plan = (f"el phase plan {n} \"Name\" --goal \"…\", then this add" if n == free
-            else f"phases are numbered in order and the next free number is {free}: el phase plan {free} \"Name\" --goal \"…\", "
-                 f"then el todo add {free} \"…\"")
+    plan = (f"{reopen}el phase plan {n} \"Name\" --goal \"…\", then this add" if n == free
+            else f"phases are numbered in order and the next free number is {free}: {reopen}el phase plan {free} \"Name\" "
+                 f"--goal \"…\", then el todo add {free} \"…\"")
     return f"phase {n} does not exist yet — plan it first: {plan} (a planned phase takes items before it opens) · {later}"
 
 
@@ -2869,7 +2937,7 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why:
     todo = _todo(case, out)
     phase = todo.phase(int(ref))
     if phase is None or phase.done:
-        raise StoreError(_no_phase_for_add(todo, int(ref)), 4)
+        raise StoreError(_no_phase_for_add(todo, int(ref), case), 4)
     text, due, after = _split_suffixes(text)
     at = len(phase.items)
     if before:
@@ -4139,12 +4207,7 @@ def _run_slot(proof: str, outcome: str = "<what came out now>") -> str:
 
 def _body_lines(para: str) -> int:
     """How many body lines one paragraph of an event takes, wrapped as _render_event wraps it."""
-    n = 1
-    while len(para) > BODY_WRAP:
-        cut = para.rfind(" ", 0, BODY_WRAP)
-        para = para[cut if cut > 0 else BODY_WRAP:].strip()
-        n += 1
-    return n
+    return max(1, len(_wrap(para)))
 
 
 def _verdict_fits(event: str, words: str, reruns: List[str]) -> None:
@@ -4442,6 +4505,15 @@ def _thread_line(case: Path, todo: grammar.Todo, readme_body: str, order_lines: 
     goal = _context_goal(readme_body)
     if goal:
         parts.append(f"goal «{order._short(goal, 70)}»")
+    closed = _closed_words(readme_body)
+    if closed:  # what came out, and the one door on — not «el done makes it ready» on a case closed already (2026-10-15)
+        try:
+            name = store.case_arg(case, store.find_root())
+        except StoreError:
+            name = case.name
+        parts.append(f"closed «{order._short(closed, 70)}» — nothing to do here; it goes on: "
+                     f"el --case {name} case reopen \"why it goes on\"")
+        return "thread: " + " → ".join(parts)
     phase = _flying(case, todo) or todo.current()
     if phase is None:
         ready = _ready_value(readme_body)
@@ -4590,8 +4662,8 @@ def _acceptance_line(todo: grammar.Todo, readme_body: str, journal: Optional[gra
                       if ev.type == "DECISION" and RETURN_RE.match(ev.text) and "(приёмка: " in ev.text
                       and " · та же сессия)" not in ev.text  # the doer's own, by the record's own words (before 1.52.0 it was tagged so)
                       and set(re.findall(grammar.ITEM_REF, RETURN_RE.match(ev.text).group(1))) & open_refs)
-    if not (_two_hands(readme_body) or acc or by_acceptor):
-        return None
+    if not (_two_hands(readme_body) or acc or by_acceptor) or (not done and _closed_words(readme_body)):
+        return None  # a closed case owes no acceptance: «0 of 0 — el todo brief N.M» was a door to nothing (2026-10-15)
     # both doors, numbered (a live report, 2026-10-02: «the owner said it in the chat — is that enough, or must a
     # subagent be briefed for form's sake?» — the line named the brief only, so the owner's word read as a shortcut)
     owed = [it for it in done if not it.accepted]
@@ -5303,11 +5375,10 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
         running = cur if cur is not None and cur.n != n else None
         alongside = (prev, state, running)
     journal = _journal(case, out)
-    reflect = " ".join((reflect or "").split())
-    align = " ".join((align or "").split())
-    for tag, val in (("reflect", reflect), ("align", align)):
-        if val.lower().startswith(f"{tag}:"):
-            raise StoreError(f"--{tag} takes the words only, el writes the `{tag}:` prefix: --{tag} \"{val[len(tag) + 1:].strip()}\"", 2)
+    # the flag's own name typed as a prefix is the event's form, not a mistake: el writes `reflect:` itself and takes the
+    # words after it (feedback 2026-10-15: the gate line teaches `el log DECISION "reflect: …"` and `--reflect "…"` side by
+    # side; `--reflect "reflect: …"` was refused, exit 2, on a long close whose meaning was plain — `--howto` took both forms)
+    reflect, align = (_own_prefix(tag, " ".join((val or "").split())) for tag, val in (("reflect", reflect), ("align", align)))
     def gates(j: grammar.Journal) -> List[str]:
         found = [m for m in _closing_checks(case, phase, j) if "result:" not in m and not (alongside and "is missing (F12)" in m)]
         # a flag stands in for the event it is about to log — everything else must already hold
@@ -5478,10 +5549,15 @@ def _unanswered_problems(evs: List[grammar.Event]) -> List[grammar.Event]:
             and not HOWTO_PATH_RE.search(" ".join([ev.text, *ev.body]))]
 
 
+def _own_prefix(tag: str, value: str) -> str:
+    """`reflect: the lesson` given to `--reflect` → `the lesson`: el writes the prefix, the flag takes the words."""
+    return value[len(tag) + 1:].strip() if value.lower().startswith(f"{tag}:") else value
+
+
 def _howto_text(case: Path, value: str) -> str:
     """`--howto` checked before anything is written: `none: why` (the reason required), or recipe paths `.howto/x.md` that
     exist in the project with `when:` as their first line — rendered as links from the case. Returns the words after `howto:`."""
-    value = " ".join(value.split())
+    value = _own_prefix("howto", " ".join(value.split()))
     if value.lower().startswith("none") or value in ("-", "—"):
         rest = value[4:].lstrip(" :—-").strip() if value.lower().startswith("none") else ""
         if not rest:
@@ -6693,24 +6769,33 @@ def _wall_head(w: dict) -> str:
 
 
 # ---- mv: a file moves, its links follow -----------------------------------------------------------
+# a link target as order.LINK_RE reads it, with the name before it when it has one — mv and relink rename a name that
+# spelled the old file (feedback 2026-10-15: `[old-long.pdf](evidence/short.pdf)` named a file that is not there)
+NAMED_TARGET_RE = re.compile(r"(?:\[((?:[^\[\]\n]|\[[^\[\]\n]*\])*))?(\]\()([^)\s]+)(\))")
+
+
 def _rewrite_links(text: str, base: Path, src: Optional[Path] = None, dst: Optional[Path] = None,
-                   new_base: Optional[Path] = None):
+                   new_base: Optional[Path] = None, names: bool = True):
     """Markdown link targets in `text` (a file living in `base`) that resolve to `src` now point at
     `dst`; when the text itself moves (`new_base`), every relative target is re-based as well —
-    with `src` omitted that is all it does (a line copied from TODO into phases/).
+    with `src` omitted that is all it does (a line copied from TODO into phases/). A link whose name
+    spells the old file — its file name, as `done` writes it, or its path as written — takes the new
+    one (`names`); a name in other words is the writer's and stays.
     Returns (text, number of links rewritten). URLs and anchors are left alone."""
     import os
     count = 0
 
     def fix(m):
         nonlocal count
-        target = m.group(2)
+        name, target = m.group(1), m.group(3)
         if re.match(r"^[a-z][a-z0-9+.-]*:", target) or target.startswith("#"):
             return m.group(0)
         path, _, anchor = target.partition("#")
         resolved = (base / path).resolve()
         if src is not None and resolved == src.resolve():
             new = os.path.relpath(dst, new_base or base)
+            if names and name in (src.name, path) and src.name != dst.name:
+                name = dst.name if name == src.name else new  # the name spelled the file: it follows the file
         elif new_base is not None and new_base.resolve() != base.resolve():
             new = os.path.relpath(resolved, new_base.resolve())
         else:
@@ -6718,9 +6803,9 @@ def _rewrite_links(text: str, base: Path, src: Optional[Path] = None, dst: Optio
         if new == path:
             return m.group(0)
         count += 1
-        return f"{m.group(1)}{new}{'#' + anchor if anchor else ''}{m.group(3)}"
+        return f"{'' if name is None else '[' + name}{m.group(2)}{new}{'#' + anchor if anchor else ''}{m.group(4)}"
 
-    text = "".join(seg if code else order.LINK_RE.sub(fix, seg) for seg, code in order.outside_code(text))
+    text = "".join(seg if code else NAMED_TARGET_RE.sub(fix, seg) for seg, code in order.outside_code(text))
     return text, count
 
 
@@ -6933,8 +7018,8 @@ def _follow_links(case: Path, src: Path, dst: Optional[Path], out: Outcome, skip
     old_rel = Path(os.path.relpath(src, case)).as_posix()  # a project file outside the case climbs: ../../.howto/x.md
     new_rel = Path(os.path.relpath(dst, case)).as_posix() if dst is not None else None
 
-    def rewrite(text: str, base: Path):
-        return _rewrite_links(text, base, src, dst) if dst is not None else _retire_links(text, base, src)
+    def rewrite(text: str, base: Path, names: bool = True):
+        return _rewrite_links(text, base, src, dst, names=names) if dst is not None else _retire_links(text, base, src)
 
     touched: List[str] = []
     for name in ("JOURNAL.md", "TODO.md", "README.md"):
@@ -6942,16 +7027,30 @@ def _follow_links(case: Path, src: Path, dst: Optional[Path], out: Outcome, skip
         if not p.exists():
             continue
         text, _ = stamp.split(store.read(case, name))
-        new_text, n = rewrite(text, case)
-        k = new_text.count(f"`{old_rel}`") if new_rel else 0
-        if new_rel:
-            new_text = new_text.replace(f"`{old_rel}`", f"`{new_rel}`")
-        if new_text != text:
-            if name == "README.md":
-                _write_readme(case, new_text, out)
-            else:
-                out.absorb(store.write(case, name, new_text))
+        if name == "JOURNAL.md":
+            text = grammar.mend_cuts(text)  # a link el once cut is found whole (feedback 2026-10-15)
+        for names in (True, False):
+            new_text, n = rewrite(text, case, names)
+            if name == "JOURNAL.md":
+                new_text = _rewrap_events(new_text)  # a headline el's rewrite pushed past F7 wraps, not refuses
+            k = new_text.count(f"`{old_rel}`") if new_rel else 0
+            if new_rel:
+                new_text = new_text.replace(f"`{old_rel}`", f"`{new_rel}`")
+            if new_text == text:
+                break
+            try:
+                if name == "README.md":
+                    _write_readme(case, new_text, out)
+                else:
+                    out.absorb(store.write(case, name, new_text))
+            except StoreError as e:  # a renamed link made a line of the agent's too long: its name stays, the path follows
+                if not names or e.code != 3:
+                    raise
+                out.warn(f"{name}: link names kept as they were — the new file name would break a limit "
+                         f"({str(e).splitlines()[-1].strip()}); the paths follow the file")
+                continue
             touched.append(f"{name} ({n + k})")
+            break
     # every other markdown file of the case (documents, phase files), never the legacy archive
     for p in sorted(case.rglob("*.md")):
         rel = p.relative_to(case)
@@ -7383,7 +7482,8 @@ def entry(root: Path, case: Path) -> Outcome:
     legacy_here = store.legacy_files(case)
     if legacy_here:  # a case el cannot read yet: named, not poured onto the screen (a live project, 2026-09-25: 27 KB)
         return _legacy_entry(root, case, names, legacy_here)
-    out.say(f"el · case in hand: {' › '.join(names)}", "")
+    out.say(f"el · case in hand: {' › '.join(names)}" if store.is_open(case)
+            else f"el · closed case: {' › '.join(names)} — the hand holds open cases only", "")
     if store.HAND_NOTE:  # a fresh session landed where another live session works (feedback 2026-10-10)
         out.say(f"note: {store.HAND_NOTE}", "")
         store.HAND_NOTE = ""

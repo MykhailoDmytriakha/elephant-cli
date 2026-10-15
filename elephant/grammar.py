@@ -29,6 +29,7 @@ POCKET_CHARS = README_POINTER_CHARS
 EVENT_CHARS = 200
 EVENT_WARN_CHARS = 180
 EVENT_BODY_LINES = 5
+BODY_WRAP = 160  # where el wraps an event's body; a link is never cut (1.68.0)
 
 README_SECTIONS = ["Context", "State", "Decisions", "Problems", "Links"]
 CLOSED_TALLY_RE = re.compile(r"(?: · acceptance: \d+ of \d+ done accepted.*| · closed by the owner: «.*»)$")  # el's tail on `closed:` (F23), not counted
@@ -253,10 +254,36 @@ class Journal(Result):
             yield from reversed(e.events)
 
 
+CUT_TARGET_RE = re.compile(r"\]\([^)\s]*$")  # ends inside a link's target
+
+
+def cut_by_el(piece: str, joined: str) -> bool:
+    """A body line el cut inside a link before 1.68.0 (feedback 2026-10-15: `done` with an 85-char file name — the journal
+    wrapped `(evidence/…_zoom` and `.pdf)` onto two lines, the link died, and mv, relink and Order could no longer see it):
+    exactly BODY_WRAP chars, no space — a hard cut — and the text so far ends inside a link's target. Its tail is the next
+    body line, sewn back without a space: el reads what it once wrote (2026-09-22), and the next write redraws it whole."""
+    return len(piece) == BODY_WRAP and " " not in piece and CUT_TARGET_RE.search(joined) is not None
+
+
+def mend_cuts(text: str) -> str:
+    """The journal's text with every link el once cut (`cut_by_el`) sewn back onto one body line."""
+    lines, out, sew = text.split("\n"), [], False
+    for ln in lines:
+        m = BODY_RE.match(ln)
+        if m and sew and out:
+            out[-1] += m.group(1)
+            sew = cut_by_el(m.group(1), out[-1][4:])
+            continue
+        out.append(ln)
+        sew = bool(m) and cut_by_el(m.group(1), m.group(1))
+    return "\n".join(out)
+
+
 def parse_journal(text: str) -> Journal:
     r = Journal()
     lines = _frame(text, r)
     entry, event, prev_key = None, None, None
+    sew = False  # the body line above is a link el cut before 1.68.0: this one is its tail
     for i, raw in enumerate(lines[1:], start=2):
         if raw.strip() == "":
             continue
@@ -271,7 +298,7 @@ def parse_journal(text: str) -> Journal:
                 r.error("F7", entry.line, "entry has no event lines under it")
             entry = Entry(date, time, phase, i)
             r.entries.append(entry)
-            event = None
+            event, sew = None, False
             continue
         m = EVENT_RE.match(raw)
         if m:
@@ -286,7 +313,7 @@ def parse_journal(text: str) -> Journal:
                 r.error("F7", i, f"event line is {n} chars, limit {EVENT_CHARS}: move details into a body line")
             # «close to the limit» (soft, EVENT_WARN_CHARS) is said once, by `el log`, for the line just written —
             # not by the parser on history: 46 of 66 check warnings were old lines nobody would touch (2026-09-17)
-            event = Event(typ, txt, i)
+            event, sew = Event(typ, txt, i), False
             entry.events.append(event)
             continue
         m = BODY_RE.match(raw)
@@ -294,9 +321,14 @@ def parse_journal(text: str) -> Journal:
             if event is None:
                 r.error("F7", i, "body line without an event above it")
                 continue
-            event.body.append(m.group(1))
-            if len(event.body) > EVENT_BODY_LINES:
-                r.error("F7", i, f"event body longer than {EVENT_BODY_LINES} lines")
+            piece = m.group(1)
+            if sew:
+                event.body[-1] += piece
+            else:
+                event.body.append(piece)
+                if len(event.body) > EVENT_BODY_LINES:
+                    r.error("F7", i, f"event body longer than {EVENT_BODY_LINES} lines")
+            sew = cut_by_el(piece, event.body[-1])
             continue
         r.error("F7", i, "unparsable line: expected `- YYYY-MM-DD HH:MM · pN`, `  TYPE · text` or `    body`")
     if entry is not None and not entry.events:

@@ -274,12 +274,15 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   phases or none → the phase in flight. A version like `1.20.0` is not an item.
 - Long text is split automatically into a headline + body lines; keep headlines meaningful.
   Your own line breaks are kept: each line after the first becomes a body line (up to 5) — fields
-  written one per line stay one per line.
+  written one per line stay one per line. A link is never cut: a long one stands whole on a body
+  line of its own (a link el cut before 1.68.0 is read whole and written whole at the next write).
 - An event is not editable afterwards — so a text with a trace of a shell substitution (`$150`
   eaten inside double quotes leaves a double space) is refused: write sums in single quotes.
 - A link in an event points at a file; the file moved without `el mv` → `el relink old new`
   rewrites the journal through the stamp door (Order names such links); gone for good, or the link
-  was an example → `el relink old none` makes it literal text. Examples: write them in backticks.""",
+  was an example → `el relink old none` makes it literal text. Examples: write them in backticks.
+  A headline the new path pushes past 200 sends its tail into the body — the words stay. A link's
+  name that spells the file (its file name, as `done` writes it, or its path) follows the file.""",
 
     "todo": """todo items — `el todo <action> N.M …` (a bare `el todo` shows the plan of the case in hand)
 - `el todo add N "text"` (`--before N.K` puts it in place, not at the end) · `el todo done N.M <kind> "what came out"` · `el todo edit N.M "text"` ·
@@ -531,6 +534,7 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   PROBLEMs no phase close answered. The close door only: a phase closed before the rule is never asked again.
 - `el phase close N "what it delivered" --reflect "the lesson" --align "what changes next"` — the two DECISIONs
   P8 asks for and the close in one command; the gates are the same, nothing is logged if another gate refuses.
+  The words only: el writes `reflect:` and `align:` itself (typed in front, they are taken once).
 - `el phase note N "…"` (`--edit k` · `--drop k`) — what the phase has to know: a permit that expires, a
   service to call, a problem seen one stage earlier. Under a planned phase it waits in TODO (`parked:` on
   entry counts items, notes and journal events logged with `--phase N`); `phase open` writes the parked
@@ -577,6 +581,8 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   A closed case takes no new phase — «closed» over work of today is a record that lies: `phase open|plan` there is
   refused with the door, `el --case <name> case reopen "why it goes on"` (the closed line goes, a DECISION says why, the
   case takes phases again and closes later the same way; a closed parent opens first — the owner's word, 2026-10-14).
+  Reading is never refused: the bare `el` of the session that held the case shows it closed — what came out and that
+  door; a fresh session where every case is closed meets the door itself.
   At a parent that waits for it the outcome becomes an item, so it is an item's size: ≤ 100 visible chars of YOUR
   words — the case is named by the item's proof line (a link to its README), never appended to the text. A cancel reason
   lands as «снято: <reason>», so 93 of the 100 are yours. el checks either before writing anything and says the number
@@ -618,7 +624,8 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
                                           deadline → `el readme set due "YYYY-MM-DD · what"`
 - an item is no longer needed           → `el todo cancel N.M "why"` (not done, not drop)
 - a file moves or gets renamed          → `el mv old new` — links in README/TODO/JOURNAL and
-                                          the documents are rewritten; Order names broken links
+                                          the documents are rewritten, a name that spells the file
+                                          too; Order names broken links
 - cause unknown or work too big         → `el spawn` — a nested case
 - el itself misbehaves                → `el feedback "title" --actual … --expected … --onboarding …`""",
 
