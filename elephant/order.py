@@ -14,6 +14,7 @@ visible from the top:
 Nothing here refuses a write: the lower layer is written by the agent directly, so the tool can
 only show what is out of order, with the command that fixes it — on every entry (P12).
 """
+import posixpath
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,7 +41,7 @@ SKIP_DIRS = {"phases", "node_modules", "scripts", "legacy"}  # legacy/ = byte-fo
 # because the project folder also holds source code, build output and whatever else.
 KNOWN_KINDS = {"docs", "research", "logs", "meetings", "jira", "data", "inbox", "notes", "forms",
                "briefing", "print", "reports", "letters", "evidence", "correspondence"}
-POINTER_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)|`([^`]+)`|(?<![\w/])((?:[\w.-]+/)+[\w.-]*)")
+POINTER_RE = re.compile(rf"\[[^\]]*\]\(({grammar.LINK_TARGET_SPACED})\)|`([^`]+)`|(?<![\w/])((?:[\w.-]+/)+[\w.-]*)")
 FOLDER_LINE_RE = re.compile(r"^- (?:`|\[)?([\w.-]+(?:/[\w.-]+)*)/(?:`|\]\([\w./-]+\))?(?:\s*[—–-]\s*(.*))?$")  # `docs/` or nested `docs/notes/`
 STATE_ANCHOR_RE = re.compile(r"^- as of: (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?: · (p\d+(?:\.\d+)?))?(?: \((\d+) events?\))?\s*$", re.M)
 # What el wrote into Links before 1.49.0 for a folder without a description and a file without `summary:` — an instruction
@@ -48,7 +49,7 @@ STATE_ANCHOR_RE = re.compile(r"^- as of: (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?: ·
 # template). Read back as «no description» so an old README re-renders clean; Order alone names the gap now.
 PLACEHOLDER_FOLDER = "(describe this folder:"
 PLACEHOLDER_FILE = "summary: missing"
-LINK_RE = re.compile(r"(\]\()([^)\s]+)(\))")  # a markdown link target
+LINK_RE = re.compile(rf"(\]\()({grammar.LINK_TARGET})(\))")  # a markdown link target
 CODE_RE = re.compile(r"```.*?```|`[^`\n]*`", re.S)  # fenced blocks and inline code: examples, not links
 
 
@@ -402,6 +403,24 @@ def render_links(case: Path, root_mode: bool, manual_lines: List[str]) -> Tuple[
     return out, {rel: desc for rel, desc in fallback.items() if rel in rendered}
 
 
+def summary_from_case(summary: str, rel: str) -> str:
+    """A file's `summary:` as README reads it: its links point from the file's folder, README sits at the case root —
+    each relative target is re-based by the folder of `rel` (feedback 2026-10-16 and 10-17: `artifacts/report.md`
+    linked [baseline](baseline.md), README copied the link as it was, and check refused F16 on a file that exists).
+    Drawn, never written back: the file and its version stay as they are."""
+    folder = posixpath.dirname(rel)
+    if not folder:
+        return summary
+
+    def fix(m):
+        target = m.group(2)
+        if re.match(r"^[a-z][a-z0-9+.-]*:", target) or target.startswith(("#", "/", "~")):
+            return m.group(0)
+        return f"{m.group(1)}{posixpath.normpath(posixpath.join(folder, target))}{m.group(3)}"
+
+    return "".join(seg if code else LINK_RE.sub(fix, seg) for seg, code in outside_code(summary))
+
+
 def _render_folder(f: Folder, depth: int, folder_desc: Dict[str, str], fallback: Dict[str, str],
                    rendered: set, out: List[str]):
     """Under a folder line: its files by their summaries, then each sub-folder one level deeper
@@ -409,7 +428,7 @@ def _render_folder(f: Folder, depth: int, folder_desc: Dict[str, str], fallback:
     ind = "  " * depth
     for d in f.docs:
         rendered.add(d.rel)
-        summary = d.summary or fallback.get(d.rel)
+        summary = summary_from_case(d.summary, d.rel) if d.summary else fallback.get(d.rel)
         if summary:
             out.append(f"{ind}- [{d.path.name}]({d.rel}) — {summary}")  # whole: a limit asks the source (Order), never cuts the copy
         else:

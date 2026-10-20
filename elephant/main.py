@@ -466,6 +466,35 @@ def _foreign_option(parser: argparse.ArgumentParser, cmd: Optional[str], extra: 
     return f"does not take {' · '.join(opts)} — nothing was written; {read}" + (f"; {door}" if door else "")
 
 
+def _late_positionals(parser: argparse.ArgumentParser, args, extra: List[str]) -> List[str]:
+    """Words after an option given to the optional positionals the call left empty — what argparse does since 3.13, and
+    what the older one does not: it fills `text` with nothing at the first stretch of positionals, and the words after
+    `--edit 1` come back unrecognized (three Codex reports, 2026-10-15…17: `el todo note 1.1 --edit 1 "…"`, the form the
+    dose prints, refused under /usr/bin/python3 3.9 and accepted on the maintainer's 3.14; 21 tests failed there). Only
+    a positional left empty is filled, in order — a call the new argparse reads whole is read the same; the rest stays."""
+    if not extra or any(e.startswith("-") for e in extra):
+        return extra
+    sub = next((a.choices.get(getattr(args, "cmd", None)) for a in parser._actions
+                if isinstance(a, argparse._SubParsersAction)), None)
+    if sub is None:
+        return extra
+    late = [a for a in sub._actions if not a.option_strings and a.nargs in ("?", "*")]
+    empty = lambda a: getattr(args, a.dest, None) in (None, "", [], a.default)
+    while late and not empty(late[0]):
+        late.pop(0)
+    rest = list(extra)
+    for a in late:
+        if not rest or not empty(a):
+            break
+        if a.nargs == "*":
+            setattr(args, a.dest, rest)
+            rest = []
+        else:
+            setattr(args, a.dest, a.type(rest[0]) if a.type else rest[0])
+            rest = rest[1:]
+    return rest
+
+
 def _unused_option(args) -> Optional[StoreError]:
     table = OPTION_ACTIONS.get(getattr(args, "cmd", None) or "", {})
     action = getattr(args, "action", None)
@@ -573,6 +602,7 @@ def _run(argv=None) -> int:
                 raise StoreError(f"--case names {args.case} and {after} — one call acts on one case: keep one "
                                  f"(el --case <name> <command> …)", 2)
             args.case = after
+        extra = _late_positionals(parser, args, extra)
         if extra:
             if (getattr(args, "cmd", None) == "todo" and getattr(args, "action", None) in ("reopen", "accept", "cancel", "done", "hold")
                     and not any(e.startswith("-") for e in extra)):  # a reason or a verdict; an item's words are never guessed
@@ -929,7 +959,7 @@ def _refusal_lines(e: StoreError, restored, seen: int = 0) -> List[str]:
     reader saw)."""
     head, *rest = f"el: ERROR [exit {e.code}] {str(e).rstrip()}".split("\n")
     put_back = ["  put back as it was: " + " · ".join(_shown(p) for p in restored)] if restored else []
-    legend = f"  exit {e.code} = {store.EXIT_MEANING.get(e.code, '?')} — `el help errors`"
+    legend = f"  exit {e.code} = {getattr(e, 'meaning', '') or store.EXIT_MEANING.get(e.code, '?')} — `el help errors`"
     wall = ([f"  the same wall {seen} times this session — did this refusal tell you how to get through? If you are "
              f"guessing, that is el's defect, not yours: el feedback --wall --expected \"what the refusal should have "
              f"said\" (el writes what it printed and the commands)"] if seen >= 2 else [])

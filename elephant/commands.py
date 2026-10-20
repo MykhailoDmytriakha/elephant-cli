@@ -445,7 +445,7 @@ def _draw_decisions(readme: str, journal: grammar.Journal) -> str:
                 continue
             # history, not pointers: a link of the journal becomes its name — README holds its links to F16, the journal
             # does not, and an old decision must not bring a dead link into the owner's page
-            words = re.sub(r"\[([^\]]+)\]\([^)\s]+\)", r"\1", _event_words(ev))
+            words = re.sub(rf"\[([^\]]+)\]\({grammar.LINK_TARGET}\)", r"\1", _event_words(ev))
             if " ".join(words.split()).lower() in own:  # the whole decision: a shared opening is not the same choice
                 continue  # the agent wrote it into Decisions already
             picked.append(f"  - {e.date} · {words}")
@@ -1068,7 +1068,7 @@ def _parse_evidence(case: Path, ref: str, token: str):
                    "run": "run:\"python3 -m unittest → 12 OK\""}[kind]
         raise StoreError(f"{kind}: needs a value — e.g. el todo done {ref} {example} \"what came out\"", 2)
     if kind == "file":
-        m = re.fullmatch(r"\[[^\]]*\]\(([^)]+)\)", value)  # a link pasted whole is accepted; the path is what counts
+        m = re.fullmatch(rf"\[[^\]]*\]\(({grammar.LINK_TARGET_SPACED})\)", value)  # a link pasted whole is accepted; the path is what counts
         if m:
             value = m.group(1)
         if value.startswith(("/", "~")) or ".." in Path(value).parts:
@@ -1150,7 +1150,7 @@ def _expect_check(phase: grammar.Phase, items: List[grammar.Item]):
 def _link_path(proof: str) -> str:
     """The path a proof points at — its link, without el's version mark (L8)."""
     proof = grammar.split_fingerprint(proof)[0]
-    m = re.fullmatch(r"\[[^\]]*\]\(([^)]+)\)", proof)
+    m = re.fullmatch(rf"\[[^\]]*\]\(({grammar.LINK_TARGET_SPACED})\)", proof)
     return m.group(1) if m else proof
 
 
@@ -1478,11 +1478,11 @@ def _case_markdown(proof: str) -> bool:
 def _note_repeats_proof(note: str, proofs: List[Tuple[str, str]]) -> bool:
     """A note that is nothing but a link to a file already standing as the item's proof (2026-09-16: «Documented
     in [x](…)» above `- file: [x](…)`)."""
-    links = re.findall(r"\]\(([^)]+)\)", note)
+    links = re.findall(rf"\]\(({grammar.LINK_TARGET_SPACED})\)", note)
     if not links:
         return False
     paths = {_link_path(pr) for k, pr in proofs if k == "file"}
-    stripped = re.sub(r"\[[^\]]*\]\([^)]+\)", "", note)
+    stripped = re.sub(rf"\[[^\]]*\]\({grammar.LINK_TARGET_SPACED}\)", "", note)
     return all(ln in paths for ln in links) and len(stripped.split()) <= 3
 
 
@@ -6771,7 +6771,7 @@ def _wall_head(w: dict) -> str:
 # ---- mv: a file moves, its links follow -----------------------------------------------------------
 # a link target as order.LINK_RE reads it, with the name before it when it has one — mv and relink rename a name that
 # spelled the old file (feedback 2026-10-15: `[old-long.pdf](evidence/short.pdf)` named a file that is not there)
-NAMED_TARGET_RE = re.compile(r"(?:\[((?:[^\[\]\n]|\[[^\[\]\n]*\])*))?(\]\()([^)\s]+)(\))")
+NAMED_TARGET_RE = re.compile(rf"(?:\[((?:[^\[\]\n]|\[[^\[\]\n]*\])*))?(\]\()({grammar.LINK_TARGET})(\))")
 
 
 def _rewrite_links(text: str, base: Path, src: Optional[Path] = None, dst: Optional[Path] = None,
@@ -6988,7 +6988,7 @@ def _case_link_targets(case: Path) -> List[Path]:
     return found
 
 
-FULL_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(([^)\s]+)\)")
+FULL_LINK_RE = re.compile(rf"\[([^\]\n]*)\]\(({grammar.LINK_TARGET})\)")
 
 
 def _retire_links(text: str, base: Path, src: Path):
@@ -7717,7 +7717,7 @@ def _knowledge_docs(root: Path) -> List[Tuple[Path, str, Path, str]]:
             m = KNOWLEDGE_LINE_RE.match(ln)
             if not m:
                 continue
-            links = list(re.finditer(r"\[([^\]]+)\]\(([^)\s]+)\)", m.group(1)))
+            links = list(re.finditer(rf"\[([^\]]+)\]\(({grammar.LINK_TARGET})\)", m.group(1)))
             for k, link in enumerate(links):
                 name, target = link.group(1), link.group(2)
                 f = (store.file_path(c, "README.md").parent / target.split("#")[0]).resolve()
@@ -7918,6 +7918,10 @@ def _grouped_warnings(findings) -> List[str]:
     return out
 
 
+CHECK_FOUND = ("the case breaks a rule, each violation on its line — check refuses nothing: what the commands before it "
+               "wrote stands")
+
+
 def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> Outcome:
     """The case in hand (`only`, with its nested cases) against the rules; `only` None = every case
     here. Feedback 2026-09-09: a workspace with legacy cases from past months made the bare `check`
@@ -8028,5 +8032,7 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
         out.say(f"cases: {len(cases)} ({scope}) · violations: {errors} · warnings: {len(out.warnings)}{_refused_note()} "
                 "— structure and form, not what the proofs prove (file: exists, a case file its version · run, ref, owner: as reported)")
     if errors:
-        raise StoreError("\n".join(out.lines + [f"warning: {w}" for w in out.warnings]), 3)
+        # check finds, it does not refuse: «nothing was written» under its exit 3 read, at the end of `done …; check`, as if
+        # the done had not written (a live wall report, 2026-10-17)
+        raise StoreError("\n".join(out.lines + [f"warning: {w}" for w in out.warnings]), 3, meaning=CHECK_FOUND)
     return out

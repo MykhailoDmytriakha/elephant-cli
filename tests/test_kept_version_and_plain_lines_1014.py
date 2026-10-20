@@ -213,7 +213,12 @@ class GoneProof(Base):
         shutil.copy(self.case() / "docs/kept.txt", self.case() / "docs/note(kept).txt")
         (self.case() / "docs/kept.txt").unlink()
         code, err = self.accept()
-        self.assertNotIn("note(kept)", err, "a copy whose link el cannot read back is no door")
+        # since 1.69.0 el reads a target with balanced parentheses back (feedback 2026-10-18: `app/(pages)/…`): the copy
+        # is a door now, and the printed command works as printed
+        self.assertIn("el todo done 1.1 'file:docs/note(kept).txt'", err)
+        code, _, err = run("todo", "done", "1.1", "file:docs/note(kept).txt", "Note written")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.accept()[0], 0)
         (self.case() / "docs/note(kept).txt").rename(self.case() / "docs/note original.txt")
         run("todo", "done", "1.1", "file:docs/note original.txt", "Note written")
         shutil.copy(self.case() / "docs/note original.txt", self.case() / "docs/kept.txt")

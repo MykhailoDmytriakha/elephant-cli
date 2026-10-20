@@ -72,6 +72,11 @@ AFTER_REF_RE = re.compile(ITEM_REF + r"|[A-Za-z0-9][\w-]*")  # F19: an item N.M,
 # one level of balanced parentheses and a title (`(docs/(prod).md "source, details")`) — CommonMark (Codex, 2026-10-05)
 LINK_PATTERN = r"\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\((?:[^()]|\([^()]*\))*\)"
 LINK_RE = re.compile(LINK_PATTERN)
+# a link's target as a path — no spaces, one level of balanced parentheses: the patterns that read or rewrite a target
+# share it (feedback 2026-10-18: `app/(pages)/(private)/…/page.tsx`, a route folder, was cut at its first `)` in the
+# brief and in check — a dozen patterns read `[^)]+` while LINK_PATTERN above knew the parentheses)
+LINK_TARGET = r"(?:[^()\s]|\([^()\s]*\))+"
+LINK_TARGET_SPACED = r"(?:[^()]|\([^()]*\))+"  # the same, where el reads its own links back: a file name may hold a space
 EVIDENCE_RE = re.compile(r"^(.*) — (file|ref|run|owner)(?:: (.+))?$")  # the evidence suffix of a done item
 # the 1.5.0–1.9.0 order: evidence after the date or dependency suffix → (line up to the suffix, the evidence tail)
 OLD_TAIL_RE = re.compile(r"^(.* — (?:due: \d{4}-\d{2}-\d{2}|after: [^—]+?))( — (?:file|ref|run|owner)(?:: .+)?)$")

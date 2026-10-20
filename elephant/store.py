@@ -52,10 +52,11 @@ EXIT_MEANING = {1: "internal error", 2: "wrong usage", 3: "rule violation, nothi
 class StoreError(Exception):
     """A refusal: message, exit code naming the failure class (C5), and a safe recovery command."""
 
-    def __init__(self, message: str, code: int = 1, recovery: str = ""):
+    def __init__(self, message: str, code: int = 1, recovery: str = "", meaning: str = ""):
         super().__init__(message)
         self.code = code
         self.recovery = recovery
+        self.meaning = meaning  # the legend's words where the class's own would mislead (check: «nothing was written»)
 
 
 @dataclass
