@@ -926,7 +926,8 @@ records the verdict.
   itself) · same model (another hand of the same mind) · another model · another engine (another provider — the
   strongest check, other blind spots). The hand is the session, the mind is the model. Provider, tool and session come
   from the harness (Claude Code and Codex give them; VS Code Copilot names itself — COPILOT_AGENT — and gives no session);
-  no harness names the model — say it once per session: `el sign "Opus 5.5"` (`--as "Provider Tool"` for a harness el
+  no harness names the model — say it once per session: `el sign "Opus 5.5"` (el asks for what it does not know of the hand —
+  harness, model, session — three times a case, then writes `?` without asking; it never refuses) (`--as "Provider Tool"` for a harness el
   does not know; bare `el sign` shows the signature); said after the first done, it fills this session's `model ?`
   lines too (a subagent's acceptance keeps its own: its model is what it said on the call). No session id from the harness: name one first, in the terminal
   you keep — `export EL_SESSION=<8 letters or digits> && el sign "Gemini 3.8 Flash"` (el prints the line with a fresh

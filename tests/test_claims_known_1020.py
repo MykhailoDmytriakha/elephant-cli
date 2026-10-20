@@ -567,5 +567,74 @@ class CodexRound3(Base):
                 self.ok("sign", name)
 
 
+class SoftSign(Base):
+    """The owner's word, 2026-10-20, on the report that asked done to refuse an unknown hand: «just ask two, three times
+    and show what is left; it signs — good, it does not — no. Soft power.» el names what it does not know of the hand, with
+    the command, while this hand has at most three such lines in the case; then it writes `?` without asking."""
+
+    def setUp(self):
+        super().setUp()
+        os.environ.pop("CLAUDECODE")
+        os.environ["EL_HINTS"] = "1"
+
+    def test_three_asks_then_quiet_and_never_a_refusal(self):
+        asks = []
+        for k in range(1, 6):
+            self.ok("todo", "add", "1", f"step {k}", "--expect", "[run: x]")
+            out, _ = self.ok("todo", "done", f"1.{k + 1}", "run:x → ok", f"did {k}")
+            asks.append([ln for ln in out.split("\n") if "does not know this hand" in ln])
+        self.assertTrue(all(len(a) == 1 for a in asks[:3]), asks)
+        self.assertIn("this hand's harness · model — the line says `?` for it", asks[0][0])
+        self.assertIn("el asks 2 more times in this case", asks[0][0])
+        self.assertIn("el asks 1 more time in this case", asks[1][0])
+        self.assertIn("the last ask in this case", asks[2][0])
+        self.assertEqual(asks[3:], [[], []], "after three asks el writes `?` without asking")
+
+    def asked(self, out: str) -> bool:
+        return "does not know this hand" in out
+
+    def test_renewed_versions_stop_after_three(self):  # Codex, 2026-10-20: a renewed line never grew the count
+        docs = self.case() / "docs"
+        docs.mkdir()
+        seen = []
+        for k in range(5):
+            (docs / "x.md").write_text(f"# X\nsummary: version {k}\n", encoding="utf-8")
+            out, _ = self.ok("todo", "done", "1.1", "file:docs/x.md", "the x")
+            seen.append(self.asked(out))
+        self.assertEqual(seen, [True, True, True, False, False])
+
+    def test_a_closed_phase_does_not_reset_the_asks(self):  # Codex: the closed phase's lines left TODO, the count restarted
+        for k in range(1, 4):
+            self.ok("todo", "add", "1", f"step {k}", "--expect", "[run: x]")
+            self.ok("todo", "done", f"1.{k + 1}", "run:x → ok", f"did {k}")
+        self.ok("todo", "done", "1.1", "run:jest → green", "ref:https://canvas.example/abc", "shipped")
+        self.ok("phase", "close", "1", "first done", "--reflect", "r", "--align", "a")
+        self.ok("phase", "open", "2", "Two", "--goal", "two [run: x]")
+        self.ok("todo", "add", "2", "next", "--expect", "[run: x]")
+        out, _ = self.ok("todo", "done", "2.1", "run:x → ok", "next done")
+        self.assertFalse(self.asked(out))
+
+    def test_a_range_asks_once(self):  # Codex: four lines written at once, and no ask at all
+        for k in range(1, 4):
+            self.ok("todo", "add", "1", f"step {k}", "--expect", "[run: x]")
+        out, _ = self.ok("todo", "done", "1.1-1.4", "ref:https://example.org/r", "all four")
+        self.assertEqual(out.count("does not know this hand"), 1)
+
+    def test_a_like_session_is_another_hand(self):  # Codex: session `abc` matched inside `abcdefgh`
+        os.environ["EL_SESSION"] = "abcdefgh"
+        for k in range(1, 4):
+            self.ok("todo", "add", "1", f"step {k}", "--expect", "[run: x]")
+            self.ok("todo", "done", f"1.{k + 1}", "run:x → ok", f"did {k}")
+        os.environ["EL_SESSION"] = "abc"
+        out, _ = self.ok("todo", "done", "1.1", "run:jest → green", "ref:https://canvas.example/abc", "shipped")
+        self.assertTrue(self.asked(out))
+
+    def test_a_signed_hand_is_not_asked(self):
+        os.environ["CLAUDECODE"] = "1"
+        self.ok("sign", "Opus 5.5")
+        out, _ = self.ok("todo", "done", "1.1", "run:jest → green", "ref:https://canvas.example/abc", "shipped")
+        self.assertNotIn("does not know this hand", out)
+
+
 if __name__ == "__main__":
     unittest.main()

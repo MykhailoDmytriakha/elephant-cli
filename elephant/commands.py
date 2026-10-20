@@ -1733,8 +1733,7 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     sid = session_id()
     out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome}" + (f" ({short})" if short else "") + fact_note, f"p{phase.n}",
                      trailer=f"session: {sid}" if sid else "").lines
-    if not _sign_fields(case)[1] and hints.enabled():
-        out.say(_sign_hint())
+    out.say(*_sign_ask(case))
     for it in fresh:
         left = [f"{r} ({st})" for r, st in blocking.get(f"{it.ref}", []) if r not in done_now]  # each by its state: gone is not open
         if left:
@@ -1925,8 +1924,7 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
         taken = _hand_taken(case, [it for it, *_ in renewed])
         for it, *_ in renewed:
             it.done_by = signed  # L8: a new version is a new claim, signed by the hand that made it
-        if not _sign_fields(case)[1] and hints.enabled():
-            out.say(_sign_hint())
+        out.say(*_sign_ask(case))
         out.absorb(_write_todo(case, todo))
         refs = ", ".join(sorted({it.ref for it, *_ in renewed}, key=lambda r: [int(x) for x in r.split(".")]))
         shown = " · ".join(f"{k} {pr}".strip() for k, pr in proofs)
@@ -3938,6 +3936,30 @@ NO_SESSION = ("this harness gives el no session id: the export names one, and it
               "before every el command — EL_SESSION=<the same name> el todo done … — or done says `session ?` as it is")
 
 
+SIGN_ASKS = 3  # the owner's word, 2026-10-20: «ask two, three times, show what is left; it signs — good, it does not — no»
+
+
+def _sign_ask(case: Path) -> List[str]:
+    """Soft power, not a wall (the owner's word, 2026-10-20, on a report that asked done to refuse an unknown hand): el
+    names what it does not know of the hand writing now — the harness, the model, the session — with the command that
+    says it, SIGN_ASKS times a case for this exact signature, once per command; then it writes `?` without asking. The
+    asks are counted where el keeps a session's memory (store.take_ask), not read back from the record."""
+    sign = _sign_fields(case)
+    who, model, sid = sign
+    gaps = [part for part, have in (("harness", who), ("model", model), ("session", sid)) if not have]
+    if not gaps or not hints.enabled():
+        return []
+    n = store.take_ask(case, sign, SIGN_ASKS)
+    if not n:
+        return []
+    left = SIGN_ASKS - n
+    how = _sign_command("<your model>" if not model else model, "<Provider Tool>" if not who else "")
+    tail = (f"el asks {left} more time{'s' if left != 1 else ''} in this case, then writes `?` without asking" if left
+            else "the last ask in this case: from now on el writes `?` without asking")
+    return [f"el does not know this hand's {' · '.join(gaps)} — the line says `?` for it; say it once per session: {how}"
+            + ("" if sid else f" · {NO_SESSION}") + f" · {tail}"]
+
+
 def _sign_hint() -> str:
     return (f"el does not know your model — say it once per session: {_sign_command()} (provider, tool and session el takes "
             f"from the harness; the model goes into the done: and accepted: lines, this session's earlier ones too)" + ("" if store.session_id() else f" · {NO_SESSION}"))
@@ -4241,8 +4263,8 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
         said = store.clean_part(os.environ.get("EL_MODEL", ""))
         out.say(f"  model not given: {SUBAGENT_MODEL}" + (f" — EL_MODEL «{said}» does not read as a model's name: recorded as "
                                                           f"`model ?`, compared with no one" if said else ""))
-    elif who != "owner" and not mine_sign[1] and hints.enabled():
-        out.say(_sign_hint())
+    elif who != "owner":
+        out.say(*_sign_ask(case))
     if "same" in statuses:
         out.warn(f"same session as the doer, and not said to be a subagent — recorded as the doer checking itself. A clean hand: "
                  f"a subagent with a clean context (hand it el todo brief {ref}; it accepts --by subagent), the next session, "

@@ -489,6 +489,26 @@ def signature() -> Tuple[str, str, str]:
     return (who or harness()), model, session_id()
 
 
+def take_ask(case: Path, sign: Tuple[str, str, str], limit: int) -> int:
+    """One ask of a hand el does not fully know: counted per case and exact signature (provider tool · model · session) in
+    the hands folder, beside the session's other memory — never in the case's files (Codex, 2026-10-20: counting the
+    record's own lines never stopped on a renewed line, restarted when a phase closed, never started on a range, and let
+    session `abc` spend the asks of `abcdefgh`). Returns the number of this ask, 1…limit, or 0 once the limit is spent;
+    a folder el cannot write asks once more rather than never."""
+    try:
+        base = Path(os.environ.get("EL_HANDS_DIR") or os.path.join(tempfile.gettempdir(), "elephant-hands"))
+        key = hashlib.sha256(json.dumps([str(case.resolve()), *sign]).encode("utf-8")).hexdigest()[:24]
+        f = base / f"{key}-asks"
+        n = int(f.read_text(encoding="utf-8") or 0) if f.is_file() else 0
+        if n >= limit:
+            return 0
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(str(n + 1), encoding="utf-8")
+        return n + 1
+    except (OSError, ValueError):
+        return 1
+
+
 def _hand_file(root: Path) -> Optional[Path]:
     sid = session_id()
     if not sid:
