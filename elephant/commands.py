@@ -12,6 +12,7 @@ import os
 import random
 import re
 import secrets
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -719,7 +720,8 @@ def _render_event(typ: str, text: str, room: int = 0):
     `closed BUG-1 / root: a / fix: b` came out as one run-on sentence, and nothing said so).
     A link is never cut (feedback 2026-10-15): it stands whole on a body line of its own.
     """
-    paras = [" ".join(p.split()) for p in text.split("\n") if p.strip()]
+    typed = [(i, " ".join(p.split())) for i, p in enumerate(text.split("\n"), 1) if p.strip()]  # numbered as the writer typed
+    paras = [p for _, p in typed]
     text, extra = (paras[0] if paras else ""), paras[1:]
     if extra:
         lines, _ = _render_event(typ, text, room=0 if text.endswith(" …") else 2)  # room for the « …» it will get
@@ -729,7 +731,12 @@ def _render_event(typ: str, text: str, room: int = 0):
         for para in extra:
             body += _wrap(para)
         if len(body) > grammar.EVENT_BODY_LINES:
-            raise _event_too_long(f"{len(body)} body lines, {grammar.EVENT_BODY_LINES} fit")
+            # which of the writer's lines grew into more body lines, and where el wraps (two live reports, 2026-10-15 and
+            # 10-17: four lines refused as «6 body lines», the writer guessed twice which line and why)
+            grew = ([f"the first line ({len(text)} chars) spills {len(lines) - 1} past the headline"] if len(lines) > 1 else [])
+            grew += [f"line {i} ({len(para)} chars) takes {len(_wrap(para))}" for i, para in typed[1:] if len(_wrap(para)) > 1]
+            raise _event_too_long(f"{len(body)} body lines, {grammar.EVENT_BODY_LINES} fit — el wraps a line at {BODY_WRAP} "
+                                  f"chars" + (f": {' · '.join(grew)}" if grew else ""))
         return [lines[0]] + [f"    {b}" for b in body], True
     if len(f"{typ} · {text}") <= grammar.EVENT_CHARS - room:
         return [f"  {typ} · {text}"], False
@@ -845,6 +852,16 @@ TYPE_DOORS = (
      "a note lives where it is needed: under an item → el todo note N.M \"…\" · on a phase → el phase note N \"…\""),
     ({"FACT", "FACTS", "ФАКТ"},
      "a fact is knowledge under the item it came from: el todo fact N.M \"…\" (el facts draws the chain)"),
+    # a live Codex session, 2026-10-15…19: FINDING, OBSERVATION, PROGRESS ×3, REFLECT, PLAN — nine refusals of the list alone
+    ({"FINDING", "FINDINGS", "OBSERVATION", "PROGRESS", "STATUS", "UPDATE", "OUTCOME", "НАХОДКА"},
+     "what the work found or reached is a RESULT: el log RESULT \"N.M: …\" — an item that ended: el todo done N.M <kind> \"…\"; "
+     "a step still in work: el todo note N.M \"…\""),
+    ({"REFLECT", "REFLECTION", "LESSON", "RETRO", "ALIGN"},
+     "a lesson of the phase is a DECISION with its word: el log DECISION \"reflect: …\" (\"align: …\") — or at the close: "
+     "el phase close N \"…\" --reflect \"…\" --align \"…\""),
+    ({"PLAN", "TODO", "NEXT", "TASK", "ПЛАН"},
+     "a plan is not an event: an item → el todo add N \"…\" · a phase → el phase plan N \"Name\" --goal \"…\" · the next step → "
+     "el readme set next \"…\""),
 )
 
 
@@ -1001,6 +1018,15 @@ def _too_long(what: str, text: str, limit: int, rule: str) -> str:
         path = max(bare, key=len)
         share += (f" — «{order._short(path, 60)}» is a bare path, {len(path)} of them: written as a markdown link, only "
                   f"its name counts")  # no link template: a path can carry what breaks one (Codex, round 3)
+    # a promise names a file that is not there yet: the scan above, which goes by the file, does not see it (a live wall
+    # report, 2026-10-17: a phase goal of 129 chars, 50 of them `[file: artifacts/…-verification.json]`, sixteen such
+    # refusals in one session). A link inside a slot would end the slot at its `]` — the door is a short name
+    slots = [m for m in grammar.EXPECT_SLOT_RE.finditer(text) if m.group(1) in ("file", "ref") and m.group(2)
+             and len(m.group(2).split()) == 1 and "/" in m.group(2) and m.group(2).strip() not in bare]
+    if slots:
+        m = max(slots, key=lambda s: len(s.group(0)))
+        share += (f" — «{m.group(0)}» promises a path, {len(m.group(0))} of them: the promise names the thing, its path comes "
+                  f"with done — [{m.group(1)}: <a short name>]")
     return f"{what} is {grammar.visible_len(text)} visible chars, limit {limit} ({rule}); markdown links count as their name{share}"
 
 
@@ -1118,6 +1144,15 @@ def _pair_slots(slots: List[Tuple[str, str]], evidence: List[Tuple[str, str]]):
     return [(k, w, left[k].pop(0) if left.get(k) else None) for k, w in slots]
 
 
+def _gate_pairs(slots: List[Tuple[str, str]], evidence: List[Tuple[str, str]]):
+    """_pair_slots as a gate may trust it: a kind whose promises are only partly filled proves none of them in particular —
+    which one the proof answers, the order does not say (Codex, round 2, 2026-10-20: a goal's `[run: alpha]` was proved by
+    the item's `run:beta`, the second of its two run promises, and the phase closed; in HEAD as well). Filled whole, every
+    promise of the kind holds."""
+    n_slots, n_proofs = Counter(k for k, _ in slots), Counter(k for k, _ in evidence)
+    return [(k, w, None if 0 < n_proofs[k] < n_slots[k] else pr) for k, w, pr in _pair_slots(slots, evidence)]
+
+
 def _expect_check(phase: grammar.Phase, items: List[grammar.Item]):
     """Hold `done` to the item's own `expect:` (F22): which promised proofs arrived, which did not. Shown, never
     refused — the expectation may have been wrong, and the honest move is to say so, not to forge a proof.
@@ -1132,8 +1167,19 @@ def _expect_check(phase: grammar.Phase, items: List[grammar.Item]):
         filled = [(k, w, pr) for k, w, pr in paired if pr is not None]
         missing = [(k, w) for k, w, pr in paired if pr is None]
         ref = f"{it.ref}"
+        # a pair el knows is one promise and one proof of a kind; more of either side and the order is a guess (feedback
+        # 2026-10-20: `[ref: the design on the canvas]` was shown against the commit, the first ref of two)
+        n_slots, n_proofs = Counter(k for k, _ in slots), Counter(k for k, _ in it.evidence)
+        known = lambda k: n_slots[k] == 1 and n_proofs[k] == 1
         if missing:
-            gap = " ".join(f"[{k}: {w}]" if w else f"[{k}]" for k, w in missing)
+            gap, said = [], set()
+            for k, w in missing:
+                if n_proofs[k] and k not in said:  # some of the kind came: which promise is still owed, el cannot tell
+                    said.add(k)
+                    gap.append(f"{n_slots[k] - n_proofs[k]} of " + " · ".join(_slot(k, ww) for kk, ww in slots if kk == k))
+                elif not n_proofs[k]:
+                    gap.append(f"[{k}: {w}]" if w else f"[{k}]")
+            gap = " ".join(gap)
             out.say(f"expect {ref}: {len(filled)} of {len(slots)} filled — missing {gap}: the proof is short, or the expectation "
                     f"was wrong — say which: el todo done {ref} <kind> \"…\" adds a proof · el todo expect {ref} \"…\" corrects the promise")
             notes.append(f"{ref} expected {' · '.join(k for k, _ in slots)}, got {' · '.join(k for k, _ in it.evidence) or 'nothing'}")
@@ -1141,9 +1187,18 @@ def _expect_check(phase: grammar.Phase, items: List[grammar.Item]):
             out.say(f"expect {ref}: {len(slots)} of {len(slots)} filled — {' · '.join(k for k, _ in slots)}")
         # the promise next to what arrived, in words — the tool matches kinds, the reader matches meaning
         # (feedback 2026-09-16: «HTTP 200 with benefits» filled a run slot that meant «discount applied»)
+        grouped = set()
         for k, w, brought in filled:
-            if w:
-                out.say(f"  {_slot(k, w)} ← {k} {brought}".rstrip() + "  — does it show that?")
+            if known(k):
+                if w:
+                    out.say(f"  {_slot(k, w)} ← {k} {brought}".rstrip() + "  — does it show that?")
+            elif k not in grouped:  # the promises of the kind beside its proofs: the reader pairs them, el does not
+                grouped.add(k)
+                said = [_slot(k, ww) for kk, ww in slots if kk == k]  # a bare `[run]` is a promise of the kind too (Codex)
+                if any(ww for kk, ww in slots if kk == k):
+                    brought_all = " · ".join(f"{k} {pr}".rstrip() for kk, pr in it.evidence if kk == k)
+                    out.say(f"  {' · '.join(said)} ← {brought_all}  — which proof shows which? el pairs only one promise "
+                            f"with one proof of a kind")
     return "; ".join(notes), out.lines
 
 
@@ -1431,8 +1486,23 @@ def _changed_line(p: grammar.Phase, it: grammar.Item, path: str, was: str, now: 
             + f" → {_changed_moves(ref, path, case, was)}")
 
 
+def _same_words(items: List[grammar.Item], path: str, case: Optional[Path], outcome: str) -> str:
+    """The re-record of a file's new version with the words that stand — given now, else each item's own result: one command
+    per set of words, `--` before words that start with a dash (Codex, round 3, 2026-10-20: a result `--help` printed a
+    command that showed the help, `--case=x` one that wrote into another case; a done without words printed «the same done»)."""
+    def words(w: str) -> str:
+        return ("-- " if w.startswith("-") else "") + _q(w)
+    if outcome:
+        return f"el todo done {', '.join(it.ref for it in items)} {_file_arg(path, case)} {words(outcome)}"
+    by_words: Dict[str, List[str]] = {}
+    for it in items:
+        if it.result:
+            by_words.setdefault(it.result, []).append(it.ref)
+    return " · ".join(f"el todo done {', '.join(refs)} {_file_arg(path, case)} {words(w)}" for w, refs in by_words.items())
+
+
 def _proof_warnings(phase: grammar.Phase, items: List[grammar.Item], proofs: List[Tuple[str, str]], out: Outcome,
-                    case: Optional[Path] = None):
+                    case: Optional[Path] = None, outcome: str = ""):
     """What the tool can see about a proof without judging its truth (the owner's eye, 2026-09-16: a closed
     phase whose four items all pointed at one markdown the agent had written — the link resolved, the proof was
     hollow). Shown at the moment of writing, never refused: sometimes a case document IS the deliverable, and
@@ -1446,9 +1516,12 @@ def _proof_warnings(phase: grammar.Phase, items: List[grammar.Item], proofs: Lis
         held = any((kind, proof) in it.evidence for it in items) or (case is not None and (case / path).resolve() in _frozen_proofs(case))
         summary = order.read_summary(case / path) if case is not None and " · #" in proof and not held else None
         if summary and grammar.visible_len(summary) > order.SUMMARY_CHARS:  # frozen from now on: the moment the edit is cheap
+            # the command whole, with the same words: a version re-recorded for its summary is not a new outcome (a live
+            # report, 2026-10-20: «the same done» asked for words, and the note «summary shortened» became the item's result)
+            same = _same_words(items, path, case, outcome)
             out.warn(f"file:{path} — its `summary:` is {grammar.visible_len(summary)} chars, over {order.SUMMARY_CHARS}: once "
                      f"accepted the file is frozen (its version holds the acceptance) and nothing asks again — rephrase line "
-                     f"2 now, then the same done records that version")
+                     f"2 now, then record that version with the same words: " + (same or "the same done with its words"))
         if _case_markdown(proof):
             out.warn(f"file:{path} is a markdown inside the case — your own text, not the thing it describes. The proof is "
                      f"what stands behind it: run:\"<command → outcome>\" for a call or a test, file:<source or spec in the "
@@ -1538,6 +1611,24 @@ def _is_kind_token(token: str) -> bool:
     return bool(re.fullmatch(r"(file|ref|run):.+", token, re.S)) or token.strip() == "owner"
 
 
+RERUN_NOTE = "to re-run:"  # the note that tells the second hand what a run proof needs beyond its command
+
+
+def _rerun_question(proofs: List[Tuple[str, str]], items: List[grammar.Item]) -> List[str]:
+    """The second hand re-runs from the brief alone; what the command does not say is lost on the way (the owner's word,
+    2026-10-20: «add the context — how to run it, what details the second hand needs»; a live report the same day: a fresh
+    checker timed out until it was told the doer's proxy and TLS settings, which no record carried). Asked of each item
+    of the call that has no `to re-run:` note yet, whether the run came with the tick or after it (Codex, 2026-10-20)."""
+    if not any(k == "run" for k, _ in proofs):
+        return []
+    bare = [it.ref for it in items if not any(n.lower().startswith(RERUN_NOTE) for n in it.notes)]
+    if not bare:
+        return []
+    return [f"a fresh hand re-runs it from the brief alone — does it need what the command does not say (the folder, a "
+            f"setting, the input, a login)? el todo note {', '.join(bare)} '{RERUN_NOTE} …' — the brief carries it; secrets "
+            f"stay out"]
+
+
 def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: Optional[str] = None) -> Outcome:
     """Done with evidence (F20): `el todo done N.M <kind> [<kind> …] "what came out"` — the kinds come
     first (file:<path> · ref:<trace> · run:"<command → outcome>" · owner), several when the proof is several
@@ -1578,7 +1669,9 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
                          f"(its file holds the goal and the digest), then el todo done {ref} … · adding items to the plan stays "
                          f"open; work that ends out of turn — beside a phase still running — closes from the plan", 4)
     if all(it.done for it in items):  # a proof for an old tick: an edit of the record, not a new event
-        return _attach_evidence(case, todo, phase, items, proofs, outcome, out)
+        attached = _attach_evidence(case, todo, phase, items, proofs, outcome, out)
+        attached.say(*_rerun_question(proofs, items))
+        return attached
     if not outcome:
         # the proof came, the words did not — said as such, and the command printed whole, each proof quoted (an agent's
         # report through `el feedback --wall`, pm-haiku-7, 2026-10-07: the refusal echoed a proof with spaces unquoted,
@@ -1601,13 +1694,14 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
                          f"--fact = (the result's words) · --fact - (no fact came out)", 2)
     if fact is not None and fact.lower() not in ("confirmed", "same") and fact not in FACT_NONE:
         fact = _pocket_text("fact", fact, ref)
-    _proof_warnings(phase, items, proofs, out, case)
+    _proof_warnings(phase, items, proofs, out, case, outcome)
     already = [it for it in items if it.done]
     fresh = [it for it in items if not it.done]
     blocking = _blocking(case, todo)
     done_now = {f"{it.ref}" for it in fresh}
     was = {f"{it.ref}": (list(it.evidence), it.result) for it in already}
     signed = f"{_sign_text(case)} · {_now()[0]}"
+    phase_had_done = any(it.done for it in grammar.flat(phase.items))  # before this call marks its own (Codex, 2026-10-20)
     for it in fresh:
         it.done, it.held, it.hold_reason = True, False, ""
         it.evidence = list(proofs)
@@ -1650,6 +1744,25 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     elif fresh:
         out.say(f"done: {_refs(phase, fresh)} ({len(fresh)} items) → TODO.md · one RESULT in the journal · evidence: {shown}")
     out.say(*expect_lines)  # after `done:` — the promise, then what arrived
+    out.say(*_rerun_question(proofs, items))
+    if fresh and not phase_had_done and _real_phase(todo, phase) and not phase.done and not _phase_file(case, phase.n, phase.name).exists():
+        # work in a planned phase beside one in flight is lawful, and it closes from the plan — said at the first done of the
+        # phase, with what its close will ask (a live report, 2026-10-20: four dones passed in silence, then the close
+        # refused twice — the phase was only planned, and its promise [owner] nothing had proved)
+        running = [p for p in _running_phases(case, todo) if p.n != phase.n]
+        flight = f"phase {running[0].n} {running[0].name} is in flight" if running else "the phase before it has not ended"
+        asks, bare = [], []
+        for slots, status, _, _ in _goal_promises(phase, phase.summary or ""):  # a fork decided by one side asks no more
+            if status == "proved":
+                continue
+            asks.append(_fork_text(slots))
+            if status == "uncovered" and any(w for _, w in slots):  # a bare kind is proved by any proof of it: no carrier asked
+                bare.append(next((k, w) for k, w in slots if w))
+        door = _add_door(phase.n, _slot(*bare[0])) if bare else ""
+        gap = (f"; its close asks for {' · '.join(asks)}, none proved yet" if asks else "") + (
+            f"; no item carries {' · '.join(_slot(*s) for s in bare)}" + (f": {door}" if door else "") if bare else "")
+        out.say(f"note: phase {phase.n} {phase.name} is planned, not open — {flight}: this work closes from the plan, el phase "
+                f"close {phase.n} \"what came out\" once every item ended{gap}")
     if _real_phase(todo, phase):  # the moment a fork is decided — the other side named while the point is fresh (2026-10-09)
         promises = _goal_promises(phase, _phase_goal(case, phase))
         for promise in promises:
@@ -1780,7 +1893,7 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
     No RESULT, `last:` untouched — the tick is not new, and the journal grows only from what changes the
     next reader's knowledge (P5; feedback 2026-09-22: kinds attached to six old ticks wrote six RESULTs,
     «the journal filled with bookkeeping»). The TODO lines carry the proofs; git keeps the edit."""
-    _proof_warnings(phase, items, proofs, out, case)
+    _proof_warnings(phase, items, proofs, out, case, outcome)
     renewed = []  # L8: the same file in another version — a new claim, not a proof for an old tick
     moved: list = []  # the version done against, found kept in another file — the proof moves, the claim stays
     befores = {}
@@ -1791,8 +1904,10 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
             renewed.append((it, *r))
     if renewed and not outcome:
         it, path, was, now = renewed[0]
+        same = _same_words([it], path, case, "")
+        same = f" · it shows what it showed, only edited (a summary, a typo): the same words — {same}" if same else ""
         raise StoreError(f"{it.ref}: a new version of {path} (#{was} → now #{now}) is a new claim — say what this version is: "
-                         f"el todo done {it.ref} file:{path} \"what this version is\"", 2)
+                         f"el todo done {it.ref} {_file_arg(path, case)} \"what this version is\"{same}", 2)
     for it in items:
         before = befores[it.ref]
         words = ""
@@ -1817,8 +1932,12 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
         shown = " · ".join(f"{k} {pr}".strip() for k, pr in proofs)
         changes = "; ".join(f"{path} #{was} → #{now}" for _, path, was, now in renewed)
         sid = session_id()
-        out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome} (new version: {changes})", f"p{phase.n}",
-                         trailer=f"session: {sid}" if sid else "").lines
+        text = f"{refs}: {shown} — {outcome} (new version: {changes})"
+        try:  # the proof shown carries its version mark; the tail says the change — dropped when it is what overflows
+            _render_event("RESULT", text)  # (Codex, round 3: an 870-char result could not be re-recorded at all; in HEAD too)
+        except TooLong:
+            text = f"{refs}: {shown} — {outcome}"
+        out.lines += log(case, "RESULT", text, f"p{phase.n}", trailer=f"session: {sid}" if sid else "").lines
         out.say(f"new version recorded: {refs} ({changes}) → TODO.md · RESULT in the journal"
                 + (f" · acceptance starts over: el todo brief {owed[0].ref} — the old verdict stays in the journal" if owed else ""),
                 *taken)
@@ -2122,7 +2241,7 @@ def _goal_coverage(phase: grammar.Phase, goal: str) -> List[Tuple[Tuple[str, str
     in_fork = {i for g in forks for i in g}
     status: Dict[int, Tuple[str, str]] = {}
     nodes = grammar.flat(phase.items)  # F25: a sub-item carries a criterion like an item — the beacon may sit one level down
-    pairs = {it.ref: _pair_slots(grammar.expected_kinds(it.expect), it.evidence if it.done else []) for it in nodes}
+    pairs = {it.ref: _gate_pairs(grammar.expected_kinds(it.expect), it.evidence if it.done else []) for it in nodes}
     # a proof is a thing — (item, kind, its n-th proof of that kind) — so a bare promise and a named one never count one twice
     proofs: Dict[str, List[Tuple[str, str, int]]] = {}
     for it in nodes:
@@ -3626,9 +3745,9 @@ def todo_reopen(case: Path, ref: str, why: str, by: Optional[str] = None, runs: 
     if not why:
         raise StoreError(f"reopen needs the reason: el todo reopen {ref} \"why the result no longer holds\"", 2)
     who = _acceptor(by, ref, "reopen") if by is not None else ""
-    reruns = _rerun_forms(runs or [])
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)  # a closed phase refuses: its items live in the phase file
+    reruns = _rerun_forms(runs or [], [pr for it in items for k, pr in it.evidence if k == "run"])
     for it in items:  # F25: a sub-item comes back only under an item that is open — the answer above rested on it
         if it.k and it.ended:
             _done_parent_refusal(phase, it, "reopen")
@@ -3713,7 +3832,7 @@ def _subagent_sign(case: Path) -> Tuple[str, str]:
     subagent's acceptance read «same model: … Opus 5.5»). Its own mind only as said on the call — EL_MODEL='…' el todo
     accept … — else `model ?`, never the parent's. (sign, text) like _sign_fields and _sign_text."""
     who, _, sid = _sign_fields(case)
-    model = store.clean_part(os.environ.get("EL_MODEL", ""))
+    model = _known_model(store.clean_part(os.environ.get("EL_MODEL", "")))  # «not exposed» is no model: `model ?`
     return (who, model, sid), f"{who or 'harness ?'} · {model or 'model ?'} · session {sid or '?'}"
 
 
@@ -3730,7 +3849,51 @@ def _sign_parse(line: str) -> Tuple[str, str, str]:
     return clean(m.group("who"), "harness ?"), clean(m.group("model"), "model ?"), clean(m.group("sid"), "?")
 
 
-ENGINE_WORDS = ("another engine", "another model", "same model", "model not given", "doer not signed", "harness not given")
+ENGINE_WORDS = ("another engine", "another model", "same model", "model not given", "doer's model not given",
+                "acceptor's model not given", "doer not signed", "harness not given")  # every word el ever wrote stays readable
+# words that say «I do not know my model» — a placeholder is no model: two of them differ as strings, not as minds (three
+# reports, 2026-10-18…19: EL_MODEL='model not exposed by harness' and 'inherited-default' were recorded «another model»)
+UNKNOWN_WORDS = {"unknown", "unspecified", "inherited", "inherit", "default", "none", "na", "given", "exposed", "known",
+                 "available", "named", "stated", "said", "provided", "specified", "set", "unset", "unnamed", "hidden", "same",
+                 "неизвестно", "неизвестна", "неизвестная", "неизвестный", "неизвестен", "знаю", "указана", "указан",
+                 "названа", "назван", "известна", "известно", "задана", "задан", "та", "же", "что", "disclosed", "revealed",
+                 "reported", "visible", "shown", "accessible", "sure", "certain", "unclear", "unavailable", "undisclosed",
+                 "pending", "identity", "tbd", "unspecified"}
+UNKNOWN_FILLER = {"model", "models", "the", "a", "an", "is", "not", "no", "by", "of", "my", "own", "from", "via", "harness",
+                  "agent", "subagent", "parent", "parents", "session", "env", "environment", "as", "at", "to", "in", "name",
+                  "this", "that", "me", "i", "it", "s", "its", "we", "us", "here", "for", "with", "which", "what", "am", "was",
+                  "модель", "не", "в", "у", "среда", "среды", "сессии", "родителя", "по", "умолчанию", "мне", "моя", "эта"}
+
+
+UNKNOWN_CORE_RE = re.compile(r"\bunknown\b|(?:\bnot|n['’]t|\bnever) (?:yet |currently |really |been )?(?:given|exposed|known|"
+                             r"disclosed|specified|provided|available|named|stated|set|revealed|reported|visible|shown|"
+                             r"accessible|know|tell|say|sure|determined)\b|\bcannot (?:know|tell|say)\b|неизвестн|"
+                             r"\bне (?:указан|назван|раскрыт|известн|знаю|задан|сообщ|определ)")
+# a model's name: a word of its own and its version beside it — «Opus 5.5», «gpt-6.1-sol», «o4-mini», «Llama 3.3 70B»
+# (Codex, round 6: a bare number, a date, a session id, «v2» passed as names once «has a digit» was the rule)
+MODEL_SHAPE_RE = re.compile(r"(?:^|[\s(\-])([^\W\d_]+)[\s-]?\d", re.I)  # the family word and the first digit of its version
+
+
+MODEL_NAME_WORDS = 6  # «Meta Llama 3.3 70B Instruct», «Sonnet 5.5 (default thinking)»: a name is short; a sentence is not
+
+
+def _known_model(model: str) -> str:
+    """The model as said, or "" when the text does not read as a model's name — by its form, not by guessing its meaning
+    (Codex, rounds 1–4, 2026-10-20: each word list lost to the next sentence — «not exposed by this runtime (Python 3.9)»,
+    «I do not know which model is running»; a digit in the sentence is no name). A name: up to MODEL_NAME_WORDS words, none
+    of them saying it is not known, not all filler, with its version number. A name without a version or longer than that reads
+    as not given — el says less, never more."""
+    text = (model or "").lower().replace("n/a", "na")
+    words = re.findall(r"[^\W_]+", text)
+    if not words or all(w in UNKNOWN_WORDS or w in UNKNOWN_FILLER for w in words):
+        return ""
+    # a name carries its version — Opus 5.5, gpt-6.1-sol, o4-mini, Llama 3.3: recognized by what it has, not by what a
+    # sentence about not knowing might say (Codex, round 5: «I don't know», «not yet disclosed» passed every word list)
+    if len(text.split()) > MODEL_NAME_WORDS or UNKNOWN_CORE_RE.search(text):
+        return ""
+    # `v2` is a version of nothing; the family word may be one letter (o3, o4-mini)
+    family = [m.group(1) for m in MODEL_SHAPE_RE.finditer(text) if m.group(1) not in UNKNOWN_WORDS | UNKNOWN_FILLER | {"v"}]
+    return model if family else ""
 
 
 def _engine_word(doer: str, acceptor: Tuple[str, str, str], lang: str = "en") -> str:
@@ -3738,12 +3901,17 @@ def _engine_word(doer: str, acceptor: Tuple[str, str, str], lang: str = "en") ->
     another model · the same model — or why el cannot tell. The hand is the session; the mind is the model."""
     d_who, d_model, _ = _sign_parse(doer)
     a_who, a_model, _ = acceptor
+    d_model, a_model = _known_model(d_model), _known_model(a_model)
     if not doer:
         word = ("doer not signed", "автор без подписи")
     elif not d_who or not a_who:  # independence el cannot see is not independence (Codex, 2026-10-05)
         word = ("harness not given", "среда не названа")
-    elif not d_model or not a_model:
+    elif not d_model and not a_model:
         word = ("model not given", "модель не названа")
+    elif not d_model:  # whose, said (feedback 2026-10-19: «model not given» beside the acceptor's named model read as a lie)
+        word = ("doer's model not given", "модель автора не названа")
+    elif not a_model:
+        word = ("acceptor's model not given", "модель приёмщика не названа")
     elif d_who.split()[0].casefold() != a_who.split()[0].casefold():
         word = ("another engine", "другой движок")
     elif d_model.casefold() != a_model.casefold():
@@ -3758,15 +3926,16 @@ def _sign_command(model: str = "<your model>", who: str = "") -> str:
     Copilot, a terminal by hand), the same with a session named first. The signature is kept by the session, and a variable
     set for one command (`EL_SESSION=x el sign …`, the advice el printed until 1.40.1) is gone by the next `done` — the
     agent in Copilot followed el's advice into a refusal (the owner's word, 2026-10-06)."""
-    as_ = f" --as '{who}'" if who else ""
+    as_ = f" --as {_sh(who)}" if who else ""  # a `'` or `$` in a name breaks a hand-quoted word (Codex, 2026-10-20)
+    said = _sh(model) if model != "<your model>" else f"'{model}'"
     if store.session_id():
-        return f"el sign '{model}'{as_}"
-    return f"export EL_SESSION={secrets.token_hex(4)} && el sign '{model}'{as_}"
+        return f"el sign {said}{as_}"
+    return f"export EL_SESSION={secrets.token_hex(4)} && el sign {said}{as_}"
 
 
 NO_SESSION = ("this harness gives el no session id: the export names one, and it holds while this terminal does — VS Code "
-              "Copilot keeps its terminal between commands; a harness that opens a new shell for each one cannot, and done says "
-              "`session ?` as it is")
+              "Copilot keeps its terminal between commands; where each command opens a new shell, choose one name and put it "
+              "before every el command — EL_SESSION=<the same name> el todo done … — or done says `session ?` as it is")
 
 
 def _sign_hint() -> str:
@@ -3785,11 +3954,19 @@ def sign(model: Optional[str], who: Optional[str] = None) -> Outcome:
         if not model or "·" in model or "·" in who:  # the parts are el's to join: a `·` inside one would split it on reading
             raise StoreError("el sign \"<your model>\" — the model's name as your instructions give it, e.g. el sign \"Opus 5.5\"; "
                              "provider, tool and session el takes from the harness; no `·` inside a part", 2)
+        if not _known_model(model):  # a placeholder signed would sit on every line as if it were a model
+            had = store.signature()[1]  # what this session said before stays — said as such (Codex, 2026-10-20)
+            stays = (f"this session's signature stays «{had}»" if had else "done: and accepted: lines say `model ?` as it is")
+            raise StoreError(f"«{model}» does not read as a model's name (with its version, up to {MODEL_NAME_WORDS} words, none "
+                             f"saying it is not known: el sign 'Opus 5.5') — nothing signed: {stays}, and el compares only named "
+                             f"models; your instructions name it? el sign '<that name with its version>'", 2)
         if not store.session_id():  # the refusal carries the one command that works here, whole (2026-10-06)
             raise StoreError(f"{store.harness() or 'this harness'} gives el no session id, and el keeps the signature by the session — "
                              f"name this session once, in the terminal you keep working in: {_sign_command(model, who)} — the commands "
                              f"after it in that terminal carry the name; a variable set for one command (EL_SESSION=x el sign …) is "
-                             f"gone by the next done", 4)
+                             f"gone by the next done — where each command opens a new shell, the same name goes before every el "
+                             f"command: EL_SESSION=<the same name> el sign {_sh(model)}" + (f" --as {_sh(who)}" if who else "")
+                             + ", then EL_SESSION=<the same name> el todo done …", 4)
         store.sign(model, who)
     w, m, sid = store.signature()
     line = f"{w or 'harness ?'} · {m or 'model ?'} · session {sid or '?'}"
@@ -4061,7 +4238,9 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
     engine = "" if who == "owner" else " · " + (next(iter(engines)) if len(engines) == 1 else "differs by item — see accepted: lines")
     out.say(f"accepted: {refs} by {who} ({_session_word(status)}{engine}) → TODO.md (accepted: line) · DECISION in the journal")
     if "subagent" in statuses and not sub_sign[1]:
-        out.say(f"  model not given: {SUBAGENT_MODEL}")
+        said = store.clean_part(os.environ.get("EL_MODEL", ""))
+        out.say(f"  model not given: {SUBAGENT_MODEL}" + (f" — EL_MODEL «{said}» does not read as a model's name: recorded as "
+                                                          f"`model ?`, compared with no one" if said else ""))
     elif who != "owner" and not mine_sign[1] and hints.enabled():
         out.say(_sign_hint())
     if "same" in statuses:
@@ -4138,13 +4317,27 @@ def _words(run: str) -> str:
     return " ".join(run.replace("->", "→").split()).casefold()
 
 
-def _rerun_forms(runs: List[str]) -> List[str]:
-    """`--run "command → what came out now"`, as accept and reopen both take it."""
+def _rerun_forms(runs: List[str], proofs: List[str] = ()) -> List[str]:
+    """`--run "command → what came out now"`, as accept and reopen both take it. Words without an arrow are either the
+    command or what came out — el does not know which, but it knows the doer's commands (two live reports, 2026-10-17 and
+    10-19, 24 such refusals in two sessions: acceptors wrote what came out — «25 suites/399 tests; compile 0» — and the
+    refusal glued «→ <outcome now>» to it as if it were the command). Both readings are printed, the doer's command in
+    the first; with several commands, one --run each."""
     runs = [" ".join(r.replace("->", "→").split()) for r in runs]
+    cmds = list(dict.fromkeys(p.split("→")[0].strip() for p in proofs if _one_run(p)))
     for r in runs:
-        if "→" not in r:
-            raise StoreError(f"--run takes the command and what came out now, joined by → or ->: --run "
-                             f"{_quoted(r + ' → <outcome now>')} (could not run it: --run {_quoted(r + ' → not run: why')})", 2)
+        if "→" in r:
+            continue
+        if len(cmds) == 1:
+            reading = (f"«{r}» has no → — what came out? the doer's command goes before it: --run {_quoted(cmds[0] + ' → ' + r)} "
+                       f"· the command? what came out goes after it: --run {_quoted(r + ' → <what came out now>')}")
+        elif cmds:
+            reading = (f"«{r}» has no → — the doer's run proofs hold {len(cmds)} commands, one --run each with what came out "
+                       f"now: " + " ".join(f"--run {_quoted(c + ' → <what came out now>')}" for c in cmds))
+        else:
+            reading = f"--run {_quoted(r + ' → <what came out now>')}"
+        raise StoreError(f"--run takes the command and what came out now, joined by → or ->: {reading} (could not run one: "
+                         f"--run \"<command> → not run: why\")", 2)
     return runs
 
 
@@ -4210,6 +4403,23 @@ def _body_lines(para: str) -> int:
     return max(1, len(_wrap(para)))
 
 
+VERDICT_WORD = 24  # the longest word the budget holds for: a longer path or hash wraps sooner
+
+
+def _verdict_budget(ref: str, n_runs: int) -> int:
+    """How many chars of words a verdict on `ref` is sure to hold beside `n_runs` re-runs, each a body line of its own; -1
+    when the re-runs alone take every body line. A lower bound, not a sample (Codex, rounds 1–2, 2026-10-20: a rendered
+    sample plus a margin promised 196 where words of other widths fit 160): the longest head a verdict can carry, and each
+    line counted as 160 less one long word — a line breaks at a space, so it holds at least that much of words no longer."""
+    free = grammar.EVENT_BODY_LINES - n_runs
+    if free < 0:
+        return -1
+    longest = lambda words: max((w[1] for w in words), key=len)
+    head = f"принято {ref}: {'x' * 24} · {longest(SESSION_WORDS.values())} · модель приёмщика не названа — "
+    headline = grammar.EVENT_WARN_CHARS - len("DECISION") - 5 - len(head) - VERDICT_WORD
+    return max(0, headline) + free * (BODY_WRAP - VERDICT_WORD)
+
+
 def _verdict_fits(event: str, words: str, reruns: List[str]) -> None:
     """A verdict too long for one event is refused with its budget in numbers, in the acceptor's own terms (feedback
     2026-10-11: «put the story into the phase file» sent a second hand, whose brief allows one verdict, to edit the doer's
@@ -4246,7 +4456,7 @@ def _reruns(ref: str, who: str, proofs: List[str], runs: List[str]) -> List[str]
     """The second hand re-runs every `run:` proof and says what came out now (the owner's word, 2026-09-25: «the agent is
     the second hand — it runs the commands and says it worked»). el runs nothing itself (2026-09-22): it asks, one `--run`
     per proof, and records what was said — `→ not run: why` is an honest answer, counted as not re-run."""
-    runs = _rerun_forms(runs)
+    runs = _rerun_forms(runs, proofs)
     if who == "owner" or len(runs) >= len(proofs):
         return runs
     missing = proofs[len(runs):]  # the re-runs given stay in the command: printed without them, it met this refusal again
@@ -4407,9 +4617,19 @@ def todo_brief(case: Path, ref: str, sample: Optional[int] = None) -> Outcome:
                 "  3. Something missing, wrong or unproved → return it, naming what exactly. It does what `why` asks and the "
                 "proofs show it → accept, saying what you checked.")
     out.say("Verdict — run ONE per item from the project folder:")
-    VERDICT_SIZE = (f"  (one verdict is one journal event — a headline and {grammar.EVENT_BODY_LINES} body lines, about "
-                    f"{EVENT_FIT} chars for the words and every --run together; a --run takes a body line of "
-                    f"{BODY_WRAP - len('re-run: ')} chars, short ones share one: the command and what came out in a few words)")
+    # the words' budget of each item's verdict, counted beside its own re-runs (five live reports, 2026-10-16…19, fifteen
+    # refusals in one session: the brief said «about 950 chars for the words and every --run together», and beside four
+    # re-runs 236 fit — each re-run takes a body line of its own)
+    def budget(it) -> str:
+        n = sum(1 for k, _ in it.evidence if k == "run")
+        b = _verdict_budget(it.ref, n)
+        return (f"{it.ref} up to {b} chars" if b >= 0 else
+                f"{it.ref}: its {n} run proofs take more lines than one event has — short re-runs share a line")
+    budgets = " · ".join(budget(it) for it in items)
+    VERDICT_SIZE = (f"  (one verdict is one journal event — a headline and {grammar.EVENT_BODY_LINES} body lines; each --run "
+                    f"takes a body line of {BODY_WRAP - len('re-run: ')} chars, short ones share one. The words of the verdict, "
+                    f"beside the item's re-runs each on one line, words up to {VERDICT_WORD} chars (a link is one word): {budgets} — a --run longer than "
+                    f"a line takes {BODY_WRAP} of them; longer words — keep them in a file and name the file in the words)")
     for it in items:
         reruns = "".join(_run_slot(pr) for k, pr in it.evidence if k == "run")
         out.say(f"  el {_case_opt(case)} todo accept {it.ref} --by <you: codex|claude|gemini|subagent>{reruns} \"what you checked and how\"",
@@ -4422,7 +4642,9 @@ def todo_brief(case: Path, ref: str, sample: Optional[int] = None) -> Outcome:
         several = any(k == "run" and not _one_run(pr) for it in items for k, pr in it.evidence)
         out.say("Every run proof is re-run by you: one --run per proof with what came out now"
                 + ("; a proof holding several runs in one line — one --run per command it holds" if several else "")
-                + "; could not run one — --run \"<command> → not run: why\". A result that differs is a return, not an acceptance.")
+                + "; could not run one — --run \"<command> → not run: why\". A result that differs is a return, not an acceptance. "
+                "A run that does not repeat from what is written here (a folder, a setting, an input the doer did not name — "
+                "the notes say `to re-run:`) is a finding too: return it naming what was missing.")
     out.say("No `el` where you run? Give the owner the verdict and the reason — the owner records it.")
     return out
 
@@ -4987,6 +5209,20 @@ def _closed_case_refusal(case: Path, out: Outcome, verb: str) -> None:
                          f"it again first, saying why it goes on: el case reopen \"why it goes on\" — then el phase {verb} …", 4)
 
 
+def _phase_name_refusal(verb: str, n: int, name: str, goal: Optional[str]) -> StoreError:
+    """F13: the name names the file. A goal given stays in the printed command — the maintainer's own wall, 2026-10-20: the
+    refusal of `Old Python and links --goal '…'` printed `--goal 'Old Python and links'`, and taken as printed it would
+    have dropped the goal for the name. Only where no goal was given do the name's own words become it."""
+    words = len(name.split())
+    english = bool(re.fullmatch(r"[A-Za-z0-9 -]+", name))
+    why = (f"{words} words, 1–3 fit" if english and words > 3 else "English, 1–3 words, letters, digits, hyphen")
+    keep = f"--goal {_sh(goal)}" if goal else f"--goal {_sh(name)}"
+    where = ("the goal you gave stays" if goal else "the words in your language go into the goal") if not english or goal else \
+        "a shorter name, the rest into the goal"
+    return StoreError(f"phase name `{name}`: {why} (F13) — it names the file phases/N-name.md; {where}: el phase {verb} {n} "
+                      f"'<English name>' {keep}", 2)
+
+
 def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     """Name the next phase now, open it later: `- [ ] N Name — <intent>` in TODO, no phase file, no
     journal event (a plan is not an event, P5). Items may be parked under it (`todo add N`); it
@@ -4994,9 +5230,7 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     Feedback 2026-09-03: a dated deadline outside the current phase had nowhere to live in TODO."""
     out = Outcome()
     if not grammar.PHASE_NAME_RE.match(name):
-        raise StoreError(f"phase name `{name}` must be English, 1–3 words, letters, digits, hyphen (F13) — it names the file "
-                         f"phases/N-name.md; the words in your language go into the goal: el phase plan {n} '<English name>' "
-                         f"--goal {_sh(name)}", 2)
+        raise _phase_name_refusal("plan", n, name, goal)
     _closed_case_refusal(case, out, "plan")
     todo = _todo(case, out)
     existing = todo.phase(n)
@@ -5243,9 +5477,7 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
     if not name:
         raise StoreError(f"phase open needs a name: `el phase open {n} \"CLI core\" --goal …` — no planned phase {n} to take it from", 2)
     if not grammar.PHASE_NAME_RE.match(name):
-        raise StoreError(f"phase name `{name}` must be English, 1–3 words, letters, digits, hyphen (F13) — it names the file "
-                         f"phases/N-name.md; the words in your language go into the goal: el phase open {n} '<English name>' "
-                         f"--goal {_sh(name)}", 2)
+        raise _phase_name_refusal("open", n, name, goal)
     if existing and existing.done:
         raise StoreError(f"phase {n} is already closed", 4)
     pf = _phase_file(case, n, existing.name if existing else name)

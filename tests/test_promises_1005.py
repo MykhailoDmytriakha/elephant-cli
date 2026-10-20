@@ -77,8 +77,12 @@ class EachPromiseHasItsOwnProof(Base):
     def test_one_run_fills_one_of_two(self):
         code, out, err = run("todo", "done", "1.1", "run:make test → 40 OK", "fast")
         self.assertEqual(code, 0, err)
-        self.assertIn("expect 1.1: 1 of 2 filled — missing [run: load test → p95 under 300ms]", out, "one task handed in, two marked")
-        self.assertEqual(out.count("— does it show that?"), 1, "the one run is shown against its own promise only")
+        # which of two run promises one run answers, el does not know (feedback 2026-10-20: a pair by order showed the
+        # design promise against a commit) — it counts by kind and names the promises it cannot tell apart
+        self.assertIn("expect 1.1: 1 of 2 filled — missing 1 of [run: tests → OK] · [run: load test → p95 under 300ms]", out,
+                      "one task handed in, two marked")
+        self.assertNotIn("— does it show that?", out, "no pair claimed where the order is a guess")
+        self.assertIn("which proof shows which?", out)
 
     def test_two_runs_fill_both_and_each_stands_by_its_promise(self):
         run("todo", "done", "1.1", "run:make test → 40 OK", "fast")
@@ -86,8 +90,8 @@ class EachPromiseHasItsOwnProof(Base):
         run("todo", "add", "1", "write the report", "--expect", "[run: tests → OK] [run: load test → p95 under 300ms]")
         code, out, err = run("todo", "done", "1.2", "run:make test → 40 OK", "run:k6 run load.js → p95 210ms", "both")
         self.assertIn("expect 1.2: 2 of 2 filled", out)
-        self.assertIn("[run: tests → OK] ← run make test → 40 OK", out)
-        self.assertIn("[run: load test → p95 under 300ms] ← run k6 run load.js → p95 210ms", out)
+        self.assertIn("[run: tests → OK] · [run: load test → p95 under 300ms] ← run make test → 40 OK · run k6 run load.js "
+                      "→ p95 210ms  — which proof shows which?", out)
 
     def test_the_digest_counts_a_short_promise(self):
         run("todo", "done", "1.1", "run:make test → 40 OK", "fast")

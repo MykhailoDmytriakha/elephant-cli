@@ -6,6 +6,7 @@ most recently (and the session holds it from then on). The one thing kept betwee
 holds — outside the project, keyed by the session id the harness gives (see `hold`).
 """
 import datetime
+import difflib
 import hashlib
 import json
 import math
@@ -226,7 +227,12 @@ def resolve_case(root: Path, name: Optional[str]) -> Path:
     if len(partial) > 1:
         raise StoreError(f"`{name}` names several cases: {', '.join(_rel(c, root) for c in partial)} — "
                          f"name one by its path: el --case <path> …", 2)
-    raise StoreError(f"no case named `{name}` under {root}", 4, recovery="el case list")
+    # a name typed by hand from a transliterated one drifts by a letter (a live Codex session, 2026-10-19: `vsekh` for the
+    # `vseh` el wrote — eight such refusals): the nearest name is said, never taken — a wrong case is a write elsewhere
+    near = difflib.get_close_matches(name or "", [_rel(c, root) for c in cases], n=1, cutoff=0.85)
+    word = ("." if project is not None and near and near[0] == _rel(project, root) else shlex.quote(near[0])) if near else ""
+    raise StoreError(f"no case named `{name}` under {root}" + (f" — the nearest: `{near[0]}`" if near else ""), 4,
+                     recovery=(f"el --case {word} … · every case: el case list" if near else "el case list"))
 
 
 # ---- the hand of a session --------------------------------------------------------------------------
@@ -239,7 +245,9 @@ def resolve_case(root: Path, name: Optional[str]) -> Path:
 # the harness's own id first, the innermost harness first (Codex run from Claude Code); EL_SESSION only where the harness
 # names no session (VS Code Copilot, a terminal by hand) — an agent that sets it inside a harness that names one is the
 # same hand still (the polygon, 2026-10-10: Codex set EL_SESSION, and its own acceptance read «another session»)
-SESSION_ENVS = ("CODEX_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "EL_SESSION")
+# GitHub Copilot CLI runs each command in a fresh shell with COPILOT_CLI=1 and COPILOT_AGENT_SESSION_ID=<uuid> (a live
+# report 2026-10-20, and @github/copilot 1.0.73: its runtime builds the shell env with both — the docs name neither)
+SESSION_ENVS = ("CODEX_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "COPILOT_AGENT_SESSION_ID", "EL_SESSION")
 # who is writing, as the harness says it (measured 2026-10-05: Claude Code sets CLAUDECODE and CLAUDE_CODE_SESSION_ID,
 # Codex sets CODEX_VERSION and CODEX_SESSION_ID; neither names the model — the agent says it once: `el sign "<model>"`)
 # VS Code sets COPILOT_AGENT=1 in the terminals its Copilot agent runs commands in (microsoft/vscode PR #316267, VS Code
@@ -247,7 +255,7 @@ SESSION_ENVS = ("CODEX_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "EL_SESSION")
 # `harness ? · model ? · session ?`); last in the list — the outer harness, should a Claude Code or Codex run inside it
 HARNESSES = (("CODEX_SESSION_ID", "OpenAI Codex"), ("CODEX_VERSION", "OpenAI Codex"),
              ("CLAUDE_CODE_SESSION_ID", "Anthropic Claude Code"), ("CLAUDECODE", "Anthropic Claude Code"),
-             ("COPILOT_AGENT", "GitHub Copilot"))
+             ("COPILOT_CLI", "GitHub Copilot CLI"), ("COPILOT_AGENT", "GitHub Copilot"))
 
 
 def _session_raw() -> str:

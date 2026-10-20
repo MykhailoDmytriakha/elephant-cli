@@ -181,7 +181,7 @@ class KeptArguments(unittest.TestCase):
     def test_the_arrow_refusal_prints_quoting_that_works(self):
         code, _, err = self.as_acceptor("todo", "reopen", "1.1", "--by", "codex", "--run", 'python3 -c "print(1)"', "why")
         self.assertEqual(code, 2)
-        self.assertIn("""--run 'python3 -c "print(1)" → <outcome now>'""", err)
+        self.assertIn("""--run 'python3 -c "print(1)" → <what came out now>'""", err)
 
     # the third round — the ready command works as printed
 

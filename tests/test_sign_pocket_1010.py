@@ -163,7 +163,7 @@ class TheReview(Base):
         pf.write_text(pf.read_text(encoding="utf-8") + "\n## Example\n  - done: harness ? · model ? · session aaaa1010 · 2026-10-10\n",
                       encoding="utf-8")
         before = pf.read_text(encoding="utf-8")
-        run("sign", "X", *HARNESS)
+        run("sign", "X1", *HARNESS)
         self.assertEqual(pf.read_text(encoding="utf-8"), before)
 
     def test_3_a_todo_with_nothing_to_fill_is_not_opened_through_the_door(self):
@@ -174,7 +174,7 @@ class TheReview(Base):
         todo.write_text(todo.read_text(encoding="utf-8").replace("\nstamp:", "\nKEEP THIS NOTE\nstamp:"), encoding="utf-8")
         before = todo.read_text(encoding="utf-8")
         self.as_session("aaaa1010")
-        run("sign", "X", *HARNESS)
+        run("sign", "X1", *HARNESS)
         self.assertEqual(todo.read_text(encoding="utf-8"), before)
         self.assertFalse((self.case / "TODO.md.recover.md").exists())
 
@@ -194,9 +194,9 @@ class TheReview(Base):
     def test_5_the_model_is_put_in_literally(self):
         run("todo", "add", "1", "read")
         run("todo", "done", "1.1", "owner", "found")
-        code, _, err = run("sign", "X\\Y", *HARNESS)
+        code, _, err = run("sign", "X1\\Y", *HARNESS)
         self.assertEqual(code, 0, err)
-        self.assertIn("X\\Y · session aaaa1010", self.line("1.1", "done"))
+        self.assertIn("X1\\Y · session aaaa1010", self.line("1.1", "done"))
 
 
 class TheSecondReview(Base):
@@ -211,7 +211,7 @@ class TheSecondReview(Base):
         run("todo", "note", "1.1", "model ? · session aaaa1010")
         self.hand_edit("1.1 original", "1.1 hand edited")
         before = (self.case / "TODO.md").read_text(encoding="utf-8")
-        run("sign", "X", *HARNESS)
+        run("sign", "X1", *HARNESS)
         self.assertEqual((self.case / "TODO.md").read_text(encoding="utf-8"), before)
 
     def test_2_a_note_that_starts_with_a_dash_gets_no_command_that_drops_one(self):
@@ -233,11 +233,11 @@ class TheSecondReview(Base):
         run("todo", "add", "1", "original")
         run("todo", "done", "1.1", "owner", "found")
         self.hand_edit("\nstamp:", "\nKEEP THIS NOTE\nstamp:")
-        code, out, err = run("sign", "X", *HARNESS)
+        code, out, err = run("sign", "X1", *HARNESS)
         self.assertEqual(code, 0, err)
         self.assertIn("filled: 1 line(s)", out)
         self.assertIn("warning:", err)
-        self.assertIn("X · session aaaa1010", self.line("1.1", "done"))
+        self.assertIn("X1 · session aaaa1010", self.line("1.1", "done"))
 
     def test_6_a_doer_filled_now_is_the_same_model_as_one_said_on_the_call(self):
         saved = os.environ.get("CLAUDECODE")
@@ -245,12 +245,12 @@ class TheSecondReview(Base):
         try:
             run("todo", "add", "1", "original")
             run("todo", "done", "1.1", "owner", "found")
-            os.environ["EL_MODEL"] = "X"
+            os.environ["EL_MODEL"] = "X1"
             run("todo", "accept", "1.1", "--by", "claude", "opened it")
             os.environ.pop("EL_MODEL")
-            self.assertIn("model not given: Anthropic Claude Code · X · session aaaa1010", self.line("1.1", "accepted"))
-            run("sign", "X")
-            self.assertIn("same model: Anthropic Claude Code · X · session aaaa1010", self.line("1.1", "accepted"))
+            self.assertIn("model not given: Anthropic Claude Code · X1 · session aaaa1010", self.line("1.1", "accepted"))
+            run("sign", "X1")
+            self.assertIn("same model: Anthropic Claude Code · X1 · session aaaa1010", self.line("1.1", "accepted"))
         finally:
             if saved is None:
                 os.environ.pop("CLAUDECODE", None)
@@ -277,14 +277,14 @@ class TheThirdReview(Base):
         self.assertIn("1.1 original", self.todo())
 
     def test_3_a_subagents_hole_alone_does_not_open_the_door(self):
-        run("sign", "X", *HARNESS)
+        run("sign", "X1", *HARNESS)
         run("todo", "add", "1", "original")
         run("todo", "done", "1.1", "owner", "found")
         run("todo", "accept", "1.1", "--by", "subagent", "opened it")
         todo = self.case / "TODO.md"
         todo.write_text(todo.read_text(encoding="utf-8").replace("\nstamp:", "\nKEEP THIS NOTE\nstamp:"), encoding="utf-8")
         before = todo.read_text(encoding="utf-8")
-        run("sign", "X", *HARNESS)
+        run("sign", "X1", *HARNESS)
         self.assertEqual(todo.read_text(encoding="utf-8"), before)
 
     def test_4_an_unreadable_todo_elsewhere_does_not_stop_the_sign(self):
@@ -295,7 +295,7 @@ class TheThirdReview(Base):
         try:
             run("todo", "add", "1", "original")
             run("todo", "done", "1.1", "owner", "found")
-            code, out, err = run("sign", "X", *HARNESS)
+            code, out, err = run("sign", "X1", *HARNESS)
         finally:
             os.environ.pop("EL_CASE", None)
         self.assertEqual(code, 0, err)
@@ -331,18 +331,18 @@ class TheFourthReview(Base):
         todo = self.case / "TODO.md"
         todo.write_text(todo.read_text(encoding="utf-8").replace("\nstamp:", "\nKEEP THIS NOTE\nstamp:"), encoding="utf-8")
         before = todo.read_text(encoding="utf-8")
-        _, out, _ = run("sign", "X", *HARNESS)
+        _, out, _ = run("sign", "X1", *HARNESS)
         pf = next((self.case / "phases").glob("1-*.md"))
-        self.assertIn("Anthropic Claude Code · X · session aaaa1010", pf.read_text(encoding="utf-8"))
+        self.assertIn("Anthropic Claude Code · X1 · session aaaa1010", pf.read_text(encoding="utf-8"))
         self.assertEqual(todo.read_text(encoding="utf-8"), before)
 
     def test_3_the_harness_named_after_the_model_reaches_the_earlier_lines(self):
         run("todo", "add", "1", "first")
         run("todo", "done", "1.1", "owner", "found")
-        run("sign", "X")
-        self.assertIn("harness ? · X · session aaaa1010", self.line("1.1", "done"))
-        _, out, _ = run("sign", "X", *HARNESS)
-        self.assertIn("Anthropic Claude Code · X · session aaaa1010", self.line("1.1", "done"))
+        run("sign", "X1")
+        self.assertIn("harness ? · X1 · session aaaa1010", self.line("1.1", "done"))
+        _, out, _ = run("sign", "X1", *HARNESS)
+        self.assertIn("Anthropic Claude Code · X1 · session aaaa1010", self.line("1.1", "done"))
         self.assertIn("filled: 1 line(s)", out)
 
     def test_4_a_range_gets_the_note_command_that_takes_it(self):

@@ -291,7 +291,8 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
 - done needs the KIND of its evidence and what came out (F20): `el todo done 2.4 file:evidence/receipt.pdf "fee paid"`
   — kinds: file:<path> · ref:<trace> · run:"<command → outcome>" · owner, several at once when the proof is several
   things; the journal gets `RESULT · N.M: file [receipt.pdf](…) — fee paid` and under the TODO line el writes
-  `result: fee paid` with one proof line per kind. A second done on a done item ADDS a proof. Who checks each kind: `el help evidence`.
+  `result: fee paid` with one proof line per kind. A second done on a done item ADDS a proof; a file of the case in a new
+  version is a new claim and writes a RESULT — the same outcome? the same words. Who checks each kind: `el help evidence`.
   The words are for the owner who was not in the session — what came out for the item, in plain terms, answering
   its `why:`; a commit hash, a function name, an operator is a trace, and a trace is proof (ref:<hash> · file:<source>),
   not the words (el warns when the words read like a code trace).
@@ -401,6 +402,9 @@ then the words; the tick, the kind and the RESULT are one write. Four kinds, and
 - run:"<command → outcome>"  a machine check — tests, a build, a measurement; the tool checks the
                              arrow (`->` is fine, el writes →), a repeat is the proof. QUOTE the value:
                              unquoted, the shell reads `>` as a redirection and the outcome lands in a file.
+                             The command as it ran — flags and all; what it needs beyond its line (the
+                             folder, a setting, the input, a login) goes into a note the brief carries:
+                             el todo note N.M 'to re-run: …' — the second hand re-runs from the brief alone.
                                                           → tail `— run: python3 -m unittest → 219 OK`
 - owner                      the owner's word — talked and agreed, a meeting without a recording,
                              a rule the owner confirmed. Nothing to check, and it says so honestly.
@@ -412,7 +416,9 @@ Where it shows (F22, since 1.10.0): under the TODO line of a done item el writes
 and one proof line per kind (`- file: [receipt.pdf](evidence/receipt.pdf)` · `- ref: …` · `- run: …` ·
 `- owner`) — the tick, the words and the proofs are separate lines, a click away for the owner and outside
 the 100-char count; several kinds in one `done` when the proof is several things; a second `done` on a done
-item adds a proof (the words stay unless given) and writes no RESULT — the tick is not new. At `phase close` the block travels into the phase file, links
+item adds a proof (the words stay unless given) and writes no RESULT — the tick is not new; a file of the case in a new
+version is a new claim: it asks for words and writes a RESULT — edited only (a summary, a typo)? give the result's own
+words again, a note about the edit would stand as the item's outcome. At `phase close` the block travels into the phase file, links
 re-based. On entry `evidence: 11 done · file 3 · owner 8 — el checked: file exists, a case file its version · run, ref, owner:
 as reported` counts the done items of the open phases and says what el itself verified: a file exists, and a file of the
 case is still the version it was done against; a run is as the agent
@@ -932,11 +938,15 @@ records the verdict.
   mark is rendered, not written: `done` makes `[/]`, `accept` makes `[x]`, `reopen` makes `[ ]`. A case without the
   rule keeps `[x]` for done.
 - the session: `done` writes the doer's session under its RESULT (`session: 1a2b3c4d` — the harness's own id: Codex
-  CODEX_SESSION_ID, Claude Code CLAUDE_CODE_SESSION_ID; EL_SESSION only where the harness names none — set inside one
+  CODEX_SESSION_ID, Claude Code CLAUDE_CODE_SESSION_ID, Copilot CLI COPILOT_AGENT_SESSION_ID; EL_SESSION only where the
+  harness names none — set inside one
   that does, it changes nothing: one thread playing two hands is one hand, 2026-10-10); `accept` compares: another session · clean-context subagent
   (`--by subagent` in the doer's session) · same session · session not given · the owner's word. Provenance, not proof:
   a subagent shares its parent's session id — and its signature: the model `el sign` gave the session is the parent's, so a
-  subagent names its own on the verdict, `EL_MODEL='<its model>' el todo accept …` (else the line says `model not given`).
+  subagent names its own on the verdict, `EL_MODEL='<its model>' el todo accept …` (else the line says `acceptor's model
+  not given`). Not known? Leave it unsaid: a name is a family word with its version (Opus 5.5, gpt-6.1-sol, o3) in up to six
+  words; a sentence about not knowing, a bare number or a date read as no model — el compares only named models, and
+  «another model» stands only between two of them.
   A reopen `--by` from the doer's own session is the doer's correction, not an acceptor's return, and is not counted as one.
 - a subagent with a clean context is a clean hand (the owner's word, 2026-10-07: «a subagent from the same session with a
   clean context, that knows nothing — that is a clean hand»): hand it `el todo brief N.M` as its prompt, it answers

@@ -5,7 +5,7 @@ import re
 import shlex
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from . import __version__, commands, hints, knowledge, onboarding, store
 from .store import StoreError
@@ -13,7 +13,7 @@ from .store import StoreError
 EXAMPLES = """examples
   el  ·  el status                   where the case in hand stands + next step (read this first)
   el log DECISION "chose X over Y because Z"
-  el log RESULT "p95 dropped 120 → 48 ms"
+  el log RESULT "p95 dropped 120 → 48 ms"  ·  el log RESULT 'what came out' 'root: …' 'fix: …'   a quoted phrase per line
   el todo add 3 "write the parser"      el todo done 3.1 run:"python3 -m unittest → 12 OK" "parser passes"   done = KIND of evidence + what came out (→ RESULT)
   el todo done 2.4 file:evidence/receipt.pdf "fee paid" · el todo done 2.5 ref:R000123-000001 "request filed" · el todo done 2.6 owner "agreed with the clerk"
   el todo done 3.1-3.5 run:"make check → OK" "pre-flight verified" · el todo reopen 3.1-3.6 "drift" · el todo cancel 3.2, 3.4 "why"   a range or list: one journal line
@@ -148,7 +148,12 @@ def _command_usage(parser: argparse.ArgumentParser, name: str) -> Optional[str]:
             + (f"; the dose it lives in: el help {topic}" if topic else "") + f"; every dose: el help <{knowledge.topic_list()}>")
 
 
-def _action_usage(parser: argparse.ArgumentParser, name: str) -> Optional[str]:
+def _commands(parser: argparse.ArgumentParser) -> Dict[str, argparse.ArgumentParser]:
+    subs = next((a for a in parser._actions if isinstance(a, argparse._SubParsersAction)), None)
+    return dict(subs.choices) if subs is not None else {}
+
+
+def _action_usage(parser: argparse.ArgumentParser, name: str, only: Optional[str] = None) -> Optional[str]:
     """`el help cancel` — an action of a command (`el todo cancel`, `el phase cancel`) answers with where it lives, its
     example lines from `el --help` and the dose (the maintainer's own wall report, 2026-10-12: «no topic `cancel`» and a
     grep through `el help todo` by hand — `el help mv` answered a command, an action was a dead end). None: not an action."""
@@ -160,11 +165,14 @@ def _action_usage(parser: argparse.ArgumentParser, name: str) -> Optional[str]:
              if any(a.dest == "action" and a.choices and word in a.choices for a in sp._actions)]
     if not homes:
         return None
+    elsewhere = bool(only) and only not in homes  # `el help todo plan`: plan is phase's — said, not shown as todo's (Codex)
+    homes = [only] if only in homes else homes  # `el help todo done`: the action of the command named
     shown = []
     for c in homes:
         rx = re.compile(rf"(^|\s)el {re.escape(c)} {re.escape(word)}(\s|$)")
         shown += [f"  {ln.strip()}" for ln in EXAMPLES.splitlines() if ln.startswith("  ") and rx.search(ln.strip())]
-    lines = [f"`{word}` is an action, not a knowledge dose — " + " · ".join(f"el {c} {word}" for c in homes) + ":"]
+    lines = [(f"`{word}` is not an action of el {only} — it is " if elsewhere else f"`{word}` is an action, not a knowledge dose — ")
+             + " · ".join(f"el {c} {word}" for c in homes) + ":"]
     lines += list(dict.fromkeys(shown))  # one example line may show two homes
     doses = list(dict.fromkeys(f"el help {HELP_TOPIC[c]}" for c in homes if c in HELP_TOPIC))
     lines.append((f"the dose{'s' if len(doses) > 1 else ''} it lives in: {' · '.join(doses)}; " if doses else "")
@@ -325,7 +333,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("model", nargs="?")
     s.add_argument("--as", dest="who", help="«Provider Tool» for a harness el does not know")
     s = sub.add_parser("help", help="examples; `el help <topic>` opens a knowledge dose", allow_abbrev=False)
-    s.add_argument("topic", nargs="?")
+    s.add_argument("topic", nargs="*")  # `el help todo done` — a command and its action, as the agent says it
     # `--case` typed after the command is the same option (a live report, 2026-10-11: `el log DECISION "…" --case <name>`
     # met «unrecognized arguments» three times in one session) — argparse reads it there, so a value, `--` and a missing
     # value are read as everywhere else; _run joins it with the one before the command
@@ -586,6 +594,53 @@ def run(argv=None) -> int:
         store.unlock_space()  # after the last write and any rollback: the next command reads what this one left
 
 
+# forms an agent types from other tools, read as el's own (three live agents, 2026-10-15…20: `el todo list` nine times,
+# `el todo status`, `el readme show`; a Codex session typed `el todo brief15.1` seven times) — said once, unambiguous
+TODO_SHOW = ("list", "ls", "status")
+HELP_ALIASES = {**{("todo", w): f"`el todo {w}` is the bare `el todo` — it shows the plan (`el todo {w} 3` — one phase: el todo show 3); "
+                                 f"its actions: el help todo" for w in TODO_SHOW},
+                ("readme", "show"): "`el readme show` is the bare `el readme` — it shows the README, never writes; its edits: "
+                                    "el help readme"}
+
+
+def _readme_show(argv: List[str]) -> bool:
+    """`el readme show [--case X]` — a look, never a write: the bare `el readme` it becomes reads piped text and writes it
+    (Codex, 2026-10-20: the alias reached the write path with a README on stdin)."""
+    i = 0
+    while i < len(argv) and argv[i].startswith("-") and argv[i] != "--":
+        i += 2 if argv[i] == "--case" else 1
+    rest = argv[i + 2:]
+    tail = [w for j, w in enumerate(rest) if not (w == "--case" or w.startswith("--case=") or (j and rest[j - 1] == "--case"))]
+    return argv[i:i + 2] == ["readme", "show"] and not tail
+
+
+def _habit_forms(parser: argparse.ArgumentParser, argv: List[str]) -> List[str]:
+    """`el todo list` — the bare `el todo` (`list 3` — `show 3`); `el readme show` — the bare `el readme`; an action of
+    `todo` or `phase` glued to its number (`brief15.1`, `close2`) — split. Only a read is ever made of an alias, and only
+    `--case` may follow it (Codex, 2026-10-20: `todo list done 1.1 owner …` wrote a done; `case cancel2` cancelled a case
+    with the reason «2»). Anything else comes back as given; past `--` nothing is touched."""
+    i = 0
+    while i < len(argv) and argv[i].startswith("-") and argv[i] != "--":  # the global options before the command
+        i += 2 if argv[i] == "--case" else 1
+    if i + 1 >= len(argv) or argv[i] == "--":
+        return argv
+    cmd, nxt, rest = argv[i], argv[i + 1], argv[i + 2:]
+    tail = [w for j, w in enumerate(rest) if not (w == "--case" or w.startswith("--case=") or (j and rest[j - 1] == "--case"))]
+    if cmd == "todo" and nxt in TODO_SHOW:
+        if not tail:
+            return argv[:i + 1] + rest
+        if len(tail) == 1 and re.fullmatch(r"\d+", tail[0]):
+            return argv[:i + 1] + ["show"] + rest
+        return argv  # `todo list done …` is not a read: argparse refuses it as typed
+    if cmd == "readme" and nxt == "show" and not tail:
+        return argv[:i + 1] + rest
+    m = re.fullmatch(r"([a-z]+)(\d+(?:\.\d+){0,2}(?:-\d+(?:\.\d+){0,2})?)", nxt)
+    sp = _commands(parser).get(cmd) if cmd in ("todo", "phase") else None  # the commands whose action takes a number
+    if sp is not None and m and any(a.dest == "action" and a.choices and m.group(1) in a.choices for a in sp._actions):
+        return argv[:i + 1] + [m.group(1), m.group(2)] + rest
+    return argv
+
+
 def _run(argv=None) -> int:
     parser = build_parser()
     args = None
@@ -595,6 +650,9 @@ def _run(argv=None) -> int:
         glued = _glued_option(list(argv) if argv is not None else sys.argv[1:])
         if glued:
             raise StoreError(glued, 2)
+        argv = list(argv) if argv is not None else sys.argv[1:]
+        show_only = _readme_show(argv)
+        argv = _habit_forms(parser, argv)
         args, extra = parser.parse_known_args(argv)  # a wrong call raises StoreError(2) in el's voice — see Parser.error
         after = getattr(args, "case_after", None)
         if after is not None:  # --case after the command: the call's own case, as before it
@@ -610,6 +668,12 @@ def _run(argv=None) -> int:
                 # with a space let argparse take «1.4» as the text before --by, and the reason after it was «unrecognized»
                 # (the polygon, 2026-10-10: three Codex reports — the printed example's own order refused)
                 args.text = list(getattr(args, "text", None) or []) + extra
+            elif (getattr(args, "cmd", None) == "log" and all(len(e.split()) > 1 for e in extra)
+                  and (not any(e.startswith("-") for e in extra) or "--" in argv)):  # past `--` a phrase may start with `-`
+                # phrases given one per argument are the event's lines (the owner's «yes», 2026-10-20; a live Codex session:
+                # `el log RESULT 'headline' 'body'` eight times, refused «words after an option» with no option given) —
+                # a lone word stays refused: an unquoted sentence must not become a line per word in a journal never edited
+                args.text = "\n".join([args.text] + extra)
             else:  # in the voice of the command called, with its examples, as argparse said it before
                 sub = next((a.choices.get(getattr(args, "cmd", None)) for a in parser._actions
                             if isinstance(a, argparse._SubParsersAction)), None)
@@ -617,9 +681,13 @@ def _run(argv=None) -> int:
                                           list(argv) if argv is not None else sys.argv[1:])
                 if foreign is not None:
                     (sub or parser).error(foreign)
+                called = list(argv) if argv is not None else sys.argv[1:]
+                after_option = any(tok.startswith("--") for tok in called[called.index(args.cmd) + 1:]) if args.cmd in called else True
                 words = "" if any(e.startswith("-") for e in extra) else (
                     " — words after an option are not joined to the text: put the text in one pair of quotes, before or "
-                    "after the options")  # an item's words are never guessed (Codex review, 2026-10-11: `add 1 a --case x b`)
+                    "after the options" if after_option else " — the text is one argument: put it in one pair of quotes"
+                    + ("; lines of an event — one quoted phrase each: el log RESULT 'what came out' 'the next line'"
+                       if args.cmd == "log" else ""))  # an item's words are never guessed (Codex review, 2026-10-11: `add 1 a --case x b`)
                 (sub or parser).error(f"unrecognized arguments: {' '.join(extra)}{words}")
         unused = _unused_option(args)
         if unused is not None:
@@ -629,6 +697,23 @@ def _run(argv=None) -> int:
         if trace:
             raise StoreError(trace, 2)
         if args.cmd == "help":
+            words = [w for w in args.topic or [] if w.strip()]
+            args.topic = " ".join(words)
+            alias = HELP_ALIASES.get(tuple(w.lower() for w in words[:2]))
+            if len(words) == 2 and alias:  # the forms el accepts are told as such (Codex, 2026-10-20: `help todo list` said
+                print(alias)               # «not an action» of a form `todo list` runs)
+                return 0
+            if len(words) > 1:  # a command and its action (a live Codex session, 2026-10-15…19: `el help todo done` seven
+                # times, «unrecognized arguments: done»): the action within the command; else the first word that answers
+                usage = _action_usage(parser, words[1], only=words[0].lower()) if words[0].lower() in _commands(parser) else None
+                pick = next((w for w in words if knowledge.resolve(w) is not None or _command_usage(parser, w)
+                             or _action_usage(parser, w)), None)
+                if usage is None and pick is None:
+                    raise StoreError(f"no topic `{args.topic}` — topics: {knowledge.topic_list()}", 2, recovery="el help <topic>")
+                if usage is not None:
+                    print(usage)
+                    return 0
+                args.topic = pick
             if args.topic:
                 dose = knowledge.resolve(args.topic)
                 usage = (_command_usage(parser, args.topic) or _action_usage(parser, args.topic)) if dose is None else None
@@ -845,7 +930,7 @@ def _run(argv=None) -> int:
                     out = commands.readme_drop(case, args.a, args.b)
                 else:
                     if args.file is None:  # bare `el readme`: piped text is a write, nothing piped is a question
-                        text = _piped_text()
+                        text = "" if show_only else _piped_text()  # `readme show` only shows
                     else:
                         text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
                     # nothing to write is not a broken README (feedback 2026-09-22: «F1 · sections … got none» read
