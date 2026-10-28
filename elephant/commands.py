@@ -3500,8 +3500,11 @@ def _find_item(todo: grammar.Todo, ref: str):
         return _later_phase(todo), item
     m = re.fullmatch(r"(\d+)\.(\d+)(?:\.(\d+))?", ref.strip())
     if not m:
+        later_range = re.fullmatch(r"\s*[Ll](\d+)\s*[-–]\s*[Ll]?(\d+)\s*", ref)
+        several = (f"; several Later lines are a list: '{', '.join(f'L{k}' for k in range(int(later_range.group(1)), int(later_range.group(2)) + 1))}'"
+                   if later_range and 0 < int(later_range.group(2)) - int(later_range.group(1)) < 20 else "")
         raise StoreError(f"`{ref}` — use N.M, e.g. 2.3 (a sub-item: N.M.K; a line of the general list: Lk; "
-                         f"a whole phase: el todo show N)", 2)
+                         f"a whole phase: el todo show N){several}", 2)
     phase = todo.phase(int(m.group(1)))
     if phase is not None and phase.done:  # before «no item»: a closed phase folds to one line, its items are in its file
         raise StoreError(_closed_item_refusal(todo, phase, ref.strip()), 4)

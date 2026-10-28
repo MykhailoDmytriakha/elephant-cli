@@ -1015,7 +1015,7 @@ every boundary is a moment of return, and a counter names what the boundaries ke
 - `el todo add later "cache warm-up on deploy" --why "…"` → the last section of TODO, `## Later`:
   `  - [ ] L3 cache warm-up on deploy — since: 2026-09-25`, pockets under it like an item; the number is for life.
 - at the boundary `el phase close N "…"` prints the list; each line gets a decision — into a phase: `el todo move L3 5`
-  (it becomes 5.k; the phase may be planned or open) · not needed: `el todo cancel L3 "why"` · kept: nothing to do,
+  (it becomes 5.k; the phase may be planned or open) · not needed: `el todo cancel L3 "why"` (several: `el todo cancel L3, L5 "why"` — a list, not a range) · kept: nothing to do,
   it counts the boundaries. A line three closes passed by → an Order line asking by name.
 - the other way: an open item not for this phase → `el todo move 4.7 later` (with its pockets; a date or a dependency
   stays behind — they belong to an item of a phase); a done item stays where it was done.

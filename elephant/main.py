@@ -290,7 +290,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("todo", help="add · done · edit · move · drop · hold · resume items — N.M is an item's number for life: drop and move never renumber", allow_abbrev=False)
     s.add_argument("action", nargs="?", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note", "expect", "fact", "show",
                                       "accept", "brief"])
-    s.add_argument("ref", nargs="?", help="phase number for add (N) — or an item (N.M) to add a sub-item N.M.K under it (F25); item for the rest (N.M or N.M.K); done/reopen/cancel also take a range N.A-N.B (N.M.A-N.M.B) or a list \"N.A, N.B\"")
+    s.add_argument("ref", nargs="?", help="phase number for add (N) — or an item (N.M) to add a sub-item N.M.K under it (F25); item for the rest (N.M or N.M.K); done/reopen/cancel also take a range N.A-N.B (N.M.A-N.M.B) or a list \"N.A, N.B\"; Later lines a list \"L1, L2\" (cancel)")
     s.add_argument("text", nargs="*", default=[], help="text for add/edit (may end with `— due: YYYY-MM-DD`); for move: N.K (before K), `last`, or a phase number K; for done: the KIND of evidence, then what came out — file:<path> · ref:<trace> · run:\"<command → outcome>\" · owner (el help evidence); for cancel/reopen: why; for due: YYYY-MM-DD or none; for after: \"N.M, N.K, case\" or none")
     s.add_argument("--before", help="add only: put the new item before N.K (a sub-item: before N.M.J) instead of at the end (numbers never change, positions do)")
     s.add_argument("--why", help="add only: what the item is for, one line (F22) — later: el todo why N.M \"…\"")
@@ -870,8 +870,10 @@ def _run(argv=None) -> int:
                 parts = list(args.text or [])
                 ref = args.ref
                 # a list typed with spaces — `el todo done 3.2, 3.4 "why"` — reaches argparse as ref `3.2,` plus
-                # text `3.4`: the numbers are gathered back into the ref (done · reopen · cancel · note take lists)
-                while ref.endswith(",") and parts and re.fullmatch(r"\d+\.\d+(?:\.\d+)?,?", parts[0]):
+                # text `3.4`: the numbers are gathered back into the ref (done · reopen · cancel · note take lists) — every
+                # form of a number, a Later line too (a report, 2026-10-28: `cancel L7, L8, … "why"` gathered nothing, L8
+                # became the reason's first word, and only L7 was cancelled, exit 0)
+                while ref.endswith(",") and parts and re.fullmatch(r"(?:\d+\.\d+(?:\.\d+)?|[Ll]\d+),?", parts[0]):
                     ref += " " + parts.pop(0)
                 args.ref = ref
                 text = " ".join(parts)

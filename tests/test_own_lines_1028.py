@@ -285,5 +285,27 @@ class Doors(Base):
         self.assertIn("`Codex fresh acceptance` names codex: el todo accept 1.1 --by codex", err)
 
 
+class LaterList(Base):
+    """A report, 2026-10-28: `el todo cancel L7, L8, L9, L10, L11, L12 "why"` — exit 0, «cancelled: L7», L8–L12 still open: the
+    list typed with spaces reached el as `L7,` plus words, the gathering knew only N.M, and «L8» became the reason's first word."""
+
+    def test_a_list_of_later_lines_typed_with_spaces_ends_every_line(self):
+        for t in ("a", "b", "c", "d"):
+            self.ok("todo", "add", "later", t)
+        out, _ = self.ok("todo", "cancel", "L1,", "L2,", "L3", "not needed now")
+        self.assertIn("cancelled: L1 «a», L2 «b», L3 «c»", out)
+        todo = self.read("TODO.md")
+        self.assertNotIn("L2 b", todo)
+        self.assertIn("L4 d", todo)
+        self.assertIn("снято L1 «a», L2 «b», L3 «c» — not needed now", self.read("JOURNAL.md"), "the reason is the reason")
+
+    def test_a_range_of_later_lines_is_refused_with_the_list_form(self):
+        for t in ("a", "b"):
+            self.ok("todo", "add", "later", t)
+        code, _, err = run("todo", "cancel", "L1-L2", "why")
+        self.assertEqual(code, 2)
+        self.assertIn("several Later lines are a list: 'L1, L2'", err)
+
+
 if __name__ == "__main__":
     unittest.main()
