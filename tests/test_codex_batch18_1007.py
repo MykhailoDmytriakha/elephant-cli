@@ -148,13 +148,15 @@ class RootModeFoldsToo(Base):
         self.assertNotIn("three", line)
 
 
-class ARefusalWithoutADoorEndsWithTheLegend(unittest.TestCase):
-    def test_no_command_at_the_end_puts_the_legend_last(self):
+class ARefusalWithoutADoorEndsWithItsOwnLine(unittest.TestCase):
+    def test_no_command_at_the_end_keeps_the_message_last_and_the_legend_second(self):
+        # a live wall report, 2026-10-27: a `tail -1` reader met only «exit 3 = rule violation, nothing was written» under a
+        # refusal that named its limit above — the legend no longer ends a refusal (it was the door here since 2026-10-07)
         from elephant.main import _refusal_lines
         from elephant.store import StoreError
         lines = _refusal_lines(StoreError("README.md: refused:\n  F1 · sections missing\n", 3), [])
-        self.assertTrue(lines[-1].startswith("  exit 3 = "), lines)
-        self.assertNotEqual(lines[-1].strip(), "")
+        self.assertEqual(lines[-1], "  F1 · sections missing", lines)
+        self.assertTrue(lines[1].startswith("  exit 3 = "), lines)
         self.assertTrue(lines[0].startswith("el: ERROR [exit 3] README.md: refused:"))
 
     def test_a_command_at_the_end_stays_the_door(self):

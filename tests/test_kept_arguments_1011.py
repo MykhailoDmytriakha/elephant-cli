@@ -95,7 +95,8 @@ class KeptArguments(unittest.TestCase):
     def test_a_long_event_names_its_size(self):
         code, _, err = run("log", "DECISION", " ".join(["word"] * 300))
         self.assertEqual(code, 3)
-        self.assertIn("1499 chars, about", err)
+        self.assertIn("1499 chars wrap into a headline and", err)  # measured on these words since 2026-10-26, not «about»
+        self.assertRegex(err, r"the first \d+ chars of these words fit, \d+ do not")
 
     def test_the_brief_offers_the_re_run_to_a_return_too(self):
         _, out, _ = run("todo", "brief", "1.1")

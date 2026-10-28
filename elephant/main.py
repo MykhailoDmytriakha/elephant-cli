@@ -5,7 +5,7 @@ import re
 import shlex
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from . import __version__, commands, hints, knowledge, onboarding, store
 from .store import StoreError
@@ -63,6 +63,7 @@ EXAMPLES = """examples
   el phase close 3 "parsers, stamp and commands work, 55 tests" --reflect "ask why before going" --align "phase 4 loses the 2024 items"   one command: the two DECISIONs and the close
   el phase close 4 "…"                 a planned phase out of turn whose every item ended closes from the plan; own clock next time: el spawn
   el phase close 3 "…" --reflect "…" --align "…" --howto .howto/restart-redis.md   a PROBLEM in the phase → its recipe (first line `when:`) or --howto "none: why"
+  el phase close 3 "what it truly delivered"   a closed phase said again in other words: TODO line and phase file restated, the old words in a DECISION
   el readme add decisions "2026-09-05 · X over Y — why" · el readme drop decisions 2 · el readme drop state пауза
   el readme edit decisions 3 "2026-09-05 · X over Y — why"   line 3 in place, order kept (context · decisions · problems · links)
   el readme edit context goal "… [run: e2e → OK]"    the case goal line by name — its promise holds el done
@@ -209,6 +210,12 @@ class Parser(argparse.ArgumentParser):
 
     def error(self, message: str):
         prog = self.prog
+        unknown = re.match(r"argument cmd: invalid choice: '([^']*)'", message) if prog == "el" else None
+        door = _unknown_command_door(self, unknown.group(1)) if unknown else None
+        if door:  # the word names what the agent meant: the door to it, last — not the start of the day (a live wall
+            # report, 2026-10-21: `el next` twice, `el goal` twice, `el list`, `el phaseclose -h` in one Codex session)
+            line, recovery = door
+            raise StoreError(f"{prog}: {message}\n  {line}", 2, recovery=recovery)
         if prog == "el" and message.startswith("unrecognized arguments"):
             # extras are caught by the top parser, which knows no command — name the one that was called (the live map,
             # 2026-10-08: `el done … --reflect x --align x` answered with the generic start, not with what done takes)
@@ -219,6 +226,41 @@ class Parser(argparse.ArgumentParser):
             if cmd:
                 prog = f"el {cmd}"
         raise StoreError(usage_error(prog, message), 2, recovery=usage_recovery(prog))
+
+
+# words agents type as a command of their own, each with the door to what they meant — el's commands in the agent's word
+HABIT_DOORS = {
+    "next": ("`next` is a line of State, not a command — where the case stands and what is next: the bare el (its thread "
+             "ends in next:) · set it: el readme set next \"…\"", "el · el readme set next \"…\""),
+    "goal": ("`goal` is not a command — the case's goal: the bare el (thread: goal …) · a phase's: el phase show N · a planned "
+             "one sharpened: el phase plan N \"Name\" --goal \"…\"", "el · el phase show N"),
+    "read": ("`{w}` is the bare el — where the case stands, then README, TODO and the journal's headlines · one file: el "
+             "readme · el todo · el phase show N", "el · el readme · el todo"),
+    "reflect": ("a lesson is said at the close of its phase: el phase close N \"…\" --reflect \"the lesson\" --align \"what "
+                "changes next\" · before it: el log DECISION \"reflect: …\"", "el phase close N \"…\" --reflect \"…\" --align \"…\""),
+    "list": ("`{w}` is no command — the cases: el case list · the plan: el todo", "el case list · el todo"),
+}
+HABIT_DOORS.update({"view": HABIT_DOORS["read"], "state": HABIT_DOORS["read"], "align": HABIT_DOORS["reflect"],
+                    "ls": HABIT_DOORS["list"], "cases": HABIT_DOORS["list"]})  # `show` is an action of todo and phase
+
+
+def _unknown_command_door(parser: argparse.ArgumentParser, word: str) -> Optional[Tuple[str, str]]:
+    """(the line, the recovery) for a word that is no command of el but names one: a habit (`next`, `goal`, `list`), an
+    action without its command (`close` — el phase close), a command glued to its action (`phaseclose`). None otherwise."""
+    w = word.strip().lower()
+    if w in HABIT_DOORS:
+        line, recovery = HABIT_DOORS[w]
+        return line.replace("{w}", w), recovery
+    cmds = _commands(parser)
+    homes = [c for c, sp in cmds.items() if any(a.dest == "action" and a.choices and w in a.choices for a in sp._actions)]
+    if homes:
+        forms = " · ".join(f"el {c} {w}" for c in homes)
+        return (f"`{w}` is an action, not a command — {forms}; the form: {' · '.join(f'el {c} -h' for c in homes)}", forms)
+    for c, sp in cmds.items():
+        action = w[len(c):].lstrip("-_") if w.startswith(c) else ""
+        if action and any(a.dest == "action" and a.choices and action in a.choices for a in sp._actions):
+            return f"one command, two words: el {c} {action} (the form: el {c} -h)", f"el {c} {action}"
+    return None
 
 
 class _OneCase(argparse.Action):
@@ -1037,7 +1079,8 @@ def _refusal_lines(e: StoreError, restored, seen: int = 0) -> List[str]:
     """A refusal reads from both ends (the polygon, 2026-10-07: of 1587 el calls agents piped 22 % through `tail -1` and
     22 % through `head -N`; 84 of 190 refusals reached them as the legend line alone — `exit 2 = wrong usage` — the
     reason and the door cut off). The first line says what is wrong, the last line is the door: `recovery:` when the
-    refusal has one, else the message's own last line, which names the command in four refusals of five. What el adds
+    refusal has one, else the message's own last line, which names the command in four refusals of five and the limit or
+    the violation in the fifth — never the legend (2026-10-27). What el adds
     (the legend, the same-wall question, the files put back) goes between them. A one-line refusal is the reason and the
     door at once, so it comes first and has no legend; a `tail -1` reader met that door on the first hit, and on the
     same wall again it reads the question instead (pm-haiku-9: the question set above the line was all a `head -1`
@@ -1052,9 +1095,10 @@ def _refusal_lines(e: StoreError, restored, seen: int = 0) -> List[str]:
         return [head, legend, *wall, *rest, *put_back, f"  recovery: {e.recovery}"]
     if not rest:
         return [head, *put_back, *wall] + ([] if NAMES_A_COMMAND.search(head) else [legend])
-    if NAMES_A_COMMAND.search(rest[-1]):
-        return [head, legend, *wall, *rest[:-1], *put_back, rest[-1]]
-    return [head, *wall, *rest, *put_back, legend]  # no command at the end (Codex, 2026-10-07): the legend is the door
+    # the message's own last line ends the refusal, a command or not: the legend under it was all a `tail -1` reader met
+    # (a live wall report, 2026-10-27: «phase plan answered only `exit 3 = rule violation, nothing was written`» — the limit
+    # and the way through stood above it); the legend, a code's meaning, sits after the reason as everywhere else
+    return [head, legend, *wall, *rest[:-1], *put_back, rest[-1]]
 
 
 def _shown(path: Path) -> str:

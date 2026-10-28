@@ -42,7 +42,23 @@ SKIP_DIRS = {"phases", "node_modules", "scripts", "legacy"}  # legacy/ = byte-fo
 KNOWN_KINDS = {"docs", "research", "logs", "meetings", "jira", "data", "inbox", "notes", "forms",
                "briefing", "print", "reports", "letters", "evidence", "correspondence"}
 POINTER_RE = re.compile(rf"\[[^\]]*\]\(({grammar.LINK_TARGET_SPACED})\)|`([^`]+)`|(?<![\w/])((?:[\w.-]+/)+[\w.-]*)")
-FOLDER_LINE_RE = re.compile(r"^- (?:`|\[)?([\w.-]+(?:/[\w.-]+)*)/(?:`|\]\([\w./-]+\))?(?:\s*[—–-]\s*(.*))?$")  # `docs/` or nested `docs/notes/`
+# A folder line as el draws it — `- docs/`, `- docs/notes/ — what is here` — with any name a folder may have. The word
+# class above knows no `(`, `[` or space, so `- artifacts/app/(pages)/` was read as the agent's line, kept, and drawn again
+# under it: every README write added the tree once more (found measuring a live case, 2026-10-28: 985 copies, a 7 MB README).
+_FOLDER_REST = r"(?:\s*[—–]\s*(?P<desc>.*)|\s+-\s+(?P<desc2>.*))?$"
+_FOLDER_PATH = r"(?:(?! [—–] )[^`])*?"
+FOLDER_FORMS = (re.compile(r"^- `(?P<path>[^`]+?)/`" + _FOLDER_REST),
+                re.compile(r"^- \[(?P<path>[^\]]+?)/\]\([^)]*\)" + _FOLDER_REST),
+                re.compile(r"^- (?P<path>[^\s`\[]" + _FOLDER_PATH + r")/" + _FOLDER_REST))
+
+
+def folder_line(line: str) -> Optional[Tuple[str, str]]:
+    """(the folder's path from the case, its description) for a top-level folder line of Links, or None."""
+    for rx in FOLDER_FORMS:
+        m = rx.match(line)
+        if m:
+            return m.group("path"), (m.group("desc") or m.group("desc2") or "").strip()
+    return None
 STATE_ANCHOR_RE = re.compile(r"^- as of: (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?: · (p\d+(?:\.\d+)?))?(?: \((\d+) events?\))?\s*$", re.M)
 # What el wrote into Links before 1.49.0 for a folder without a description and a file without `summary:` — an instruction
 # to the agent inside the owner's page (the cold reader, 2026-10-08: six of sixteen readers took it for an unfinished
@@ -290,9 +306,9 @@ def _classify(line: str, case: Path):
     """('folder', name, description) | ('file', rel, description) | ('manual', line, None)."""
     if not line.startswith("- "):
         return ("manual", line, None)
-    m = FOLDER_LINE_RE.match(line)
-    if m and (case / m.group(1)).is_dir():
-        return ("folder", m.group(1), (m.group(2) or "").strip())
+    folder = folder_line(line)
+    if folder and (case / folder[0]).is_dir():
+        return ("folder", *folder)
     target = _pointer_target(line[2:])
     if target:
         t = target.split("#")[0].rstrip("/")
@@ -375,6 +391,9 @@ def render_links(case: Path, root_mode: bool, manual_lines: List[str]) -> Tuple[
             continue  # rendered by us
         else:
             if raw != stripped and stripped.startswith("- "):
+                gone = folder_line(stripped)  # el's drawing starts at a folder of the case; a line of prose does not
+                if gone and "/" in gone[0] and (case / gone[0].split("/")[0]).is_dir() and not (case / gone[0]).exists():
+                    continue  # a nested folder line el drew for a folder that is gone — the same as a gone file below
                 t = (_pointer_target(stripped[2:]) or "").split("#")[0].rstrip("/")
                 if t and "/" in t and t.lower().endswith(".md") and not t.startswith("..") and not (case / t).exists():
                     continue  # a nested line el drew for a file that is gone (moved without el, deleted, a phase
@@ -787,9 +806,9 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
     out: List[str] = []
     described: Dict[str, str] = {}
     for ln in links_lines:
-        m = FOLDER_LINE_RE.match(ln)
-        if m:
-            described[m.group(1)] = (m.group(2) or "").strip()
+        folder = folder_line(ln)
+        if folder:
+            described[folder[0]] = folder[1]
     listed = set(described)
     folders = content_folders(case, root_mode, listed)
     closed = grammar.is_closed(readme_body)

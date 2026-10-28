@@ -136,18 +136,25 @@ class ShownNeverNagged(Base):
 
 class SameDoor(Base):
     def test_a_second_done_adds_evidence_to_a_done_item(self):
-        # 1.10.0 (the owner's word 2026-09-15): several proofs per item — a second done ADDS, the words are renewed
-        # when given; since 1.21.0 (feedback 2026-09-22) it writes no RESULT: the tick is not new, only its proof
+        # 1.10.0 (the owner's word 2026-09-15): several proofs per item — a second done ADDS, it does not replace; a proof
+        # alone writes no RESULT (1.21.0, feedback 2026-09-22: the tick is not new, only its proof). Since 1.72.0 (a live
+        # report, 2026-10-23) a NEW proof with words keeps the result: the words say what that proof shows — a RESULT of it
         run("todo", "done", "1.1", "owner", "paid, the owner says")
         code, out, err = run("todo", "done", "1.1", "file:evidence/receipt.pdf", "receipt saved")
         self.assertEqual(code, 0, err)
         self.assertIn("1.1 was already done — evidence now: owner · file [receipt.pdf](evidence/receipt.pdf) (was: owner) · "
-                      "result renewed (was: «paid, the owner says»)", nofp(out))
-        self.assertIn("no journal event", out)
-        self.assertIn("    - result: receipt saved\n      - owner\n      - file: [receipt.pdf](evidence/receipt.pdf)\n", nofp(self.read("TODO.md")))
-        j = self.read("JOURNAL.md")
+                      "result kept «paid, the owner says»", nofp(out))
+        self.assertIn("    - result: paid, the owner says\n      - owner\n      - file: [receipt.pdf](evidence/receipt.pdf)\n",
+                      nofp(self.read("TODO.md")))
+        j = nofp(self.read("JOURNAL.md"))
         self.assertIn("RESULT · 1.1: owner — paid", j, "history stays")
-        self.assertNotIn("receipt saved", j)
+        self.assertIn("RESULT · 1.1: file [receipt.pdf](evidence/receipt.pdf) — receipt saved", j, "the words go with their proof")
+        code, out, err = run("todo", "done", "1.1", "file:evidence/receipt.pdf", "paid; the receipt is saved")
+        self.assertEqual(code, 0, err)  # no new proof: the words restate the result, as before
+        self.assertIn("result renewed (was: «paid, the owner says»)", out)
+        self.assertIn("no journal event", out)
+        code, out, err = run("todo", "done", "1.1", "owner")
+        self.assertIn("no journal event", out)  # a proof alone: no event, as since 1.21.0
 
     def test_reopen_clears_the_tail_the_result_stays(self):
         run("todo", "done", "1.1", "file:evidence/receipt.pdf", "paid")

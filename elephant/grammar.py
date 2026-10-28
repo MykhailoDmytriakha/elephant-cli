@@ -446,18 +446,42 @@ class Todo(Result):
 
 
 RENDERED_LINE_RE = re.compile(r"^(?: {4}| {6}| {8})- (?:(?:result|done|accepted):|(?:file|ref|run|owner)\b)")
+CLOSED_PHASE_LINE_RE = re.compile(r"^- \[x\] \d+ ")  # el's line: written by `phase close` / `cancel`, no door shortens it
+
+
+def todo_lines(text_lines: List[str]) -> Tuple[int, int, List[Tuple[str, int]]]:
+    """F4's count of TODO: (lines of the agent's text, lines el renders, [(block, its lines of the agent's text)]). The agent
+    writes phase and item lines, notes, why, waits. el renders what `done` and `close` write — `result:` and the proofs under
+    it, the signatures, the line of a closed phase (its result, acceptance, date and link, one line, no items under it) —
+    named, not counted: the agent cannot shorten them (two live reports, 2026-10-27 and 10-28: 194 closed phases took the
+    200 lines, and a done of the open phase was refused over history)."""
+    own, rendered, blocks, key = 0, 0, {}, ""
+    for ln in text_lines:
+        if RENDERED_LINE_RE.match(ln) or ln == LEGEND or CLOSED_PHASE_LINE_RE.match(ln):
+            rendered += 1
+            continue
+        own += 1
+        m = PHASE_LINE_RE.match(ln)
+        if m:
+            key = f"phase {m.group(2)} {m.group(3).strip()}"
+        elif ln.strip() == LATER_HEAD:
+            key = "Later"
+        if key and ln.strip():
+            blocks[key] = blocks.get(key, 0) + 1
+    return own, rendered, sorted(blocks.items(), key=lambda kv: -kv[1])
 
 
 def parse_todo(text: str) -> Todo:
     r = Todo()
     lines = _frame(text, r)
-    # F4 counts what the agent writes — phase and item lines, notes, why, waits. Lines el renders from
-    # `done` (`result:` and the evidence under it, the signatures) are named, not counted: the agent cannot shorten them.
-    rendered = sum(1 for ln in lines if RENDERED_LINE_RE.match(ln) or ln == LEGEND)
-    own = len(lines) - rendered
+    own, rendered, blocks = todo_lines(lines)
     if own > TODO_MAX_LINES:
-        aside = f" (plus {rendered} result lines el renders, not counted)" if rendered else ""
-        r.error("F4", 0, f"TODO is {own} lines of your text, limit {TODO_MAX_LINES}{aside}")
+        aside = f" (plus {rendered} lines el renders — results, proofs, signatures, closed phases — not counted)" if rendered else ""
+        held = " · ".join(f"{k}: {v}" for k, v in blocks[:4])
+        r.error("F4", 0, f"TODO is {own} lines of your text, limit {TODO_MAX_LINES}{aside}" + (f"; they are {held}" if held else "")
+                + " — make room where they are: a pocket that holds a story points at a file of the case instead "
+                  "(el todo note N.M --edit K \"[name](docs/x.md)\") · an ended phase folds its items into its file "
+                  "(el phase close N) · an item nobody needs: el todo cancel N.M \"why\"")
     phase, item, seen = None, None, set()
     sub: Optional[Item] = None  # F25: the sub-item whose lines are being read — they sit two spaces deeper than an item's
     in_result = False  # after `    - result:` the evidence nests one level deeper

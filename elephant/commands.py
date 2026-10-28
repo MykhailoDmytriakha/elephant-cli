@@ -9,6 +9,7 @@ import copy
 import datetime as dt
 import hashlib
 import os
+import posixpath
 import random
 import re
 import secrets
@@ -640,7 +641,6 @@ def _default_next_in_state(readme_body: str) -> bool:
 
 # ---- journal ------------------------------------------------------------------------------------
 BODY_WRAP = grammar.BODY_WRAP
-EVENT_FIT = grammar.EVENT_WARN_CHARS + grammar.EVENT_BODY_LINES * BODY_WRAP  # about what one event holds, wrapped
 
 
 class TooLong(StoreError):
@@ -743,8 +743,30 @@ def _render_event(typ: str, text: str, room: int = 0):
     head, rest = _split_headline(typ, text)
     body = _wrap(rest)
     if len(body) > grammar.EVENT_BODY_LINES:
-        raise _event_too_long(f"{len(text)} chars, about {EVENT_FIT} fit")
+        # the count measured on these words, not a nominal size: lines end at a space, so a text under the nominal size can
+        # still need a sixth line (a live wall report, 2026-10-26: «972 chars, about 980 fit» — the refusal and its numbers
+        # contradicted each other)
+        fit = _plain_fit(typ, text)
+        raise _event_too_long(f"{len(text)} chars wrap into a headline and {len(body)} body lines, {grammar.EVENT_BODY_LINES} "
+                              f"fit (a line ends at the last space before {BODY_WRAP} chars) — the first {fit} chars of these "
+                              f"words fit, {len(text) - fit} do not")
     return [f"  {typ} · {head} …"] + [f"    {b}" for b in body], True
+
+
+def _plain_fit(typ: str, text: str) -> int:
+    """How many chars of a one-paragraph `text` one event holds, wrapped as el wraps it — the longest prefix that renders."""
+    def fits(t: str) -> bool:
+        if len(f"{typ} · {t}") <= grammar.EVENT_CHARS:
+            return True
+        try:
+            return len(_wrap(_split_headline(typ, t)[1])) <= grammar.EVENT_BODY_LINES
+        except TooLong:
+            return False
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        lo, hi = (mid, hi) if fits(text[:mid].rstrip()) else (lo, mid - 1)
+    return lo
 
 
 def _rewrap_events(text: str) -> str:
@@ -1252,7 +1274,7 @@ def _versioned(case: Path, target: Path) -> bool:
         links = grammar.parse_readme(store.read(case, "README.md")).sections.get("Links", [])
     except (StoreError, OSError):
         links = []
-    listed = {m.group(1).split("/")[0] for ln in links for m in [order.FOLDER_LINE_RE.match(ln)] if m}
+    listed = {f[0].split("/")[0] for ln in links for f in [order.folder_line(ln)] if f}
     return len(rel.parts) > 1 and (rel.parts[0] in order.KNOWN_KINDS or rel.parts[0] in listed)
 
 
@@ -1614,7 +1636,7 @@ def _is_kind_token(token: str) -> bool:
 RERUN_NOTE = "to re-run:"  # the note that tells the second hand what a run proof needs beyond its command
 
 
-def _rerun_question(proofs: List[Tuple[str, str]], items: List[grammar.Item]) -> List[str]:
+def _rerun_question(proofs: List[Tuple[str, str]], items: List[grammar.Item], case: Optional[Path] = None) -> List[str]:
     """The second hand re-runs from the brief alone; what the command does not say is lost on the way (the owner's word,
     2026-10-20: «add the context — how to run it, what details the second hand needs»; a live report the same day: a fresh
     checker timed out until it was told the doer's proxy and TLS settings, which no record carried). Asked of each item
@@ -1624,9 +1646,26 @@ def _rerun_question(proofs: List[Tuple[str, str]], items: List[grammar.Item]) ->
     bare = [it.ref for it in items if not any(n.lower().startswith(RERUN_NOTE) for n in it.notes)]
     if not bare:
         return []
+    own = _todo_own_lines(case) if case is not None else 0
+    if own + len(bare) > grammar.TODO_MAX_LINES:  # the note would be refused (F4): said with the room it needs, not as a
+        # ready command (a live wall report, 2026-10-21: the question printed `el todo note 2.2 'to re-run: …'` six times
+        # over a TODO at 200 lines of the agent's text, and six notes were refused)
+        return [f"a fresh hand re-runs it from the brief alone — what the command does not say (the folder, a setting, the "
+                f"input, a login) belongs in a `{RERUN_NOTE}` note the brief carries, and TODO holds {own} of "
+                f"{grammar.TODO_MAX_LINES} lines of your text: make room first — a pocket that holds a story points at a file "
+                f"of the case, an ended phase folds into its file (el phase close N) — then el todo note {bare[0]} "
+                f"'{RERUN_NOTE} …'"]
     return [f"a fresh hand re-runs it from the brief alone — does it need what the command does not say (the folder, a "
             f"setting, the input, a login)? el todo note {', '.join(bare)} '{RERUN_NOTE} …' — the brief carries it; secrets "
             f"stay out"]
+
+
+def _todo_own_lines(case: Path) -> int:
+    """F4's count of the agent's lines in TODO as it stands — read, never written."""
+    try:
+        return grammar.todo_lines(stamp.split(store.read(case, "TODO.md"))[0].rstrip("\n").split("\n"))[0]
+    except (StoreError, OSError):
+        return 0
 
 
 def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: Optional[str] = None) -> Outcome:
@@ -1670,7 +1709,7 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
                          f"open; work that ends out of turn — beside a phase still running — closes from the plan", 4)
     if all(it.done for it in items):  # a proof for an old tick: an edit of the record, not a new event
         attached = _attach_evidence(case, todo, phase, items, proofs, outcome, out)
-        attached.say(*_rerun_question(proofs, items))
+        attached.say(*_rerun_question(proofs, items, case))
         return attached
     if not outcome:
         # the proof came, the words did not — said as such, and the command printed whole, each proof quoted (an agent's
@@ -1716,6 +1755,8 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
         it.accepted = ""
     fact_note = ""
     for it in items:
+        if it in already and it.result and it not in renewed:
+            continue  # a done item in the call keeps its result: the RESULT of this call carries the words (2026-10-23)
         it.result = shown_outcome
         if fact is not None:
             if fact.lower() in ("confirmed", "same"):
@@ -1743,7 +1784,7 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     elif fresh:
         out.say(f"done: {_refs(phase, fresh)} ({len(fresh)} items) → TODO.md · one RESULT in the journal · evidence: {shown}")
     out.say(*expect_lines)  # after `done:` — the promise, then what arrived
-    out.say(*_rerun_question(proofs, items))
+    out.say(*_rerun_question(proofs, items, case))
     if fresh and not phase_had_done and _real_phase(todo, phase) and not phase.done and not _phase_file(case, phase.n, phase.name).exists():
         # work in a planned phase beside one in flight is lawful, and it closes from the plan — said at the first done of the
         # phase, with what its close will ask (a live report, 2026-10-20: four dones passed in silence, then the close
@@ -1760,8 +1801,10 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
         door = _add_door(phase.n, _slot(*bare[0])) if bare else ""
         gap = (f"; its close asks for {' · '.join(asks)}, none proved yet" if asks else "") + (
             f"; no item carries {' · '.join(_slot(*s) for s in bare)}" + (f": {door}" if door else "") if bare else "")
-        out.say(f"note: phase {phase.n} {phase.name} is planned, not open — {flight}: this work closes from the plan, el phase "
-                f"close {phase.n} \"what came out\" once every item ended{gap}")
+        # the close printed whole, with the two lessons it asks of every phase (a live wall report, 2026-10-20: the note sent
+        # the agent to `el phase close 2 "…"`, and that close was refused twice for reflect and align)
+        out.say(f"note: phase {phase.n} {phase.name} is planned, not open — {flight}: this work closes from the plan once every "
+                f"item ended — el phase close {phase.n} \"what came out\" --reflect \"the lesson\" --align \"what changes next\"{gap}")
     if _real_phase(todo, phase):  # the moment a fork is decided — the other side named while the point is fresh (2026-10-09)
         promises = _goal_promises(phase, _phase_goal(case, phase))
         for promise in promises:
@@ -1779,7 +1822,8 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     for it in already:
         ev0, words0 = was[f"{it.ref}"]
         before = " · ".join(f"{k} {pr}".strip() for k, pr in ev0) or "untyped"
-        renewed = f"result renewed (was: «{words0}»)" if words0 and words0 != outcome else "result kept"
+        renewed = (f"result renewed (was: «{words0}»)" if words0 and words0 != outcome and it.result == outcome
+                   else "result kept")
         out.say(f"{it.ref} was already done — evidence now: "
                 f"{' · '.join(f'{k} {pr}'.strip() for k, pr in it.evidence)} (was: {before}) · {renewed} · RESULT in the journal")
     out.say(*_moved_lines(moved))
@@ -1887,6 +1931,13 @@ def _merge_proofs(case: Path, it: grammar.Item, proofs, moved: Optional[list] = 
     return renewed
 
 
+def _new_proofs(it: grammar.Item, proofs) -> List[Tuple[str, str]]:
+    """The proofs of a call the done item does not carry yet — a file by its path (the same path in other bytes is a new
+    version, not a new proof), any other kind by its words."""
+    paths = {_link_path(pr) for k, pr in it.evidence if k == "file"}
+    return [(k, pr) for k, pr in proofs if (k == "file" and _link_path(pr) not in paths) or (k != "file" and (k, pr) not in it.evidence)]
+
+
 def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items, proofs, outcome: str, out: Outcome) -> Outcome:
     """`done` on items that are already done: the proofs join theirs, the words are renewed only when given.
     No RESULT, `last:` untouched — the tick is not new, and the journal grows only from what changes the
@@ -1896,6 +1947,12 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
     renewed = []  # L8: the same file in another version — a new claim, not a proof for an old tick
     moved: list = []  # the version done against, found kept in another file — the proof moves, the claim stays
     befores = {}
+    # a new proof with other words beside a result the item has: the proof joins and the result stays — the words say what
+    # this proof shows, so they go to the journal with it (the DECISION of 2026-09-15: a second done ADDS, it does not
+    # replace; a live report, 2026-10-23: `done 9.2 file:B 'local proof before deploy'` replaced the result, and the brief
+    # read «the doer says came out: local proof before deploy»). The words with no new proof restate the result, as before.
+    captions = {it.ref: _new_proofs(it, proofs) for it in items
+                if outcome and it.result and outcome != it.result and _new_proofs(it, proofs)}
     for it in items:
         befores[it.ref] = " · ".join(f"{k} {pr}".strip() for k, pr in it.evidence) or "untyped"
         r = _merge_proofs(case, it, proofs, moved)
@@ -1910,7 +1967,9 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
     for it in items:
         before = befores[it.ref]
         words = ""
-        if outcome and outcome != it.result:
+        if it.ref in captions and not any(r[0] is it for r in renewed):
+            words = f" · result kept «{order._short(it.result, 60)}» — your words go to the journal with the new proof"
+        elif outcome and outcome != it.result:
             words = f" · result renewed (was: «{it.result or '—'}»)"
             it.result = outcome
         out.say(f"{it.ref} was already done — evidence now: "
@@ -1941,7 +2000,17 @@ def _attach_evidence(case: Path, todo: grammar.Todo, phase: grammar.Phase, items
                 *taken)
         return out
     out.absorb(_write_todo(case, todo))
-    out.say("→ TODO.md · no journal event: the tick is not new, only its proof (the words stay unless you give new ones)")
+    said = {r: cs for r, cs in captions.items() if not any(x[0].ref == r for x in renewed)}
+    if said:  # what the new proof shows, in the doer's words — history, beside the tick's own RESULT
+        sid = session_id()
+        for ref_, cs in said.items():
+            shown = " · ".join(f"{k} {pr}".strip() for k, pr in cs)
+            out.lines += log(case, "RESULT", f"{ref_}: {shown} — {outcome}", f"p{phase.n}",
+                             trailer=f"session: {sid}" if sid else "").lines
+        out.say(f"→ TODO.md · RESULT in the journal: the new proof with your words; the result stays — words with no new "
+                f"proof restate it: el todo done {next(iter(said))} <a proof it has> \"…\"")
+    else:
+        out.say("→ TODO.md · no journal event: the tick is not new, only its proof (the words stay unless you give new ones)")
     out.say(*_expect_check(phase, items)[1])  # the promise, then what is attached now
     return out
 
@@ -2192,13 +2261,15 @@ def _pocket_text(label: str, text: str, ref: str) -> str:
     return text
 
 
-REPHRASE_HINT = ("  rephrase, do not truncate: verb first, the path or flag stays, the filler goes — "
+# each hint is the last line of its refusal — the door a `tail -1` reader meets — so it carries the limit it asks for (a live
+# wall report, 2026-10-27: «the refusal did not name the rule»; it did, on the first line, and the agent read the last one)
+REPHRASE_HINT = (f"  {grammar.TODO_ITEM_CHARS} visible chars or fewer — rephrase, do not truncate: verb first, the path or flag stays, the filler goes — "
                  "«Trigger /v3/x, confirm FLAG=false in pod logs» is one action with its checkable outcome; "
                  "an opaque id (a hash, a generated entity id) is a trace, not words — name the thing, the id goes to a note")
-POCKET_HINT = ("  rephrase, do not truncate: a pocket is one line that points at the context — the context itself goes to a "
+POCKET_HINT = (f"  {grammar.POCKET_CHARS} visible chars or fewer — rephrase, do not truncate: a pocket is one line that points at the context — the context itself goes to a "
                "file in the case, linked by a short name [trace](docs/trace.json); an opaque id (a hash, a generated entity "
                "id) is a trace, not words — it lives in that file, or in a ref: proof at done")
-INTENT_HINT = ("  rephrase, do not truncate: the outcome first, the filler goes; the story goes into a phase note and the "
+INTENT_HINT = (f"  {grammar.TODO_ITEM_CHARS} visible chars or fewer — rephrase, do not truncate: the outcome first, the filler goes; the story goes into a phase note and the "
                "phase file once it opens")
 
 
@@ -2332,7 +2403,7 @@ def _near_words(phase: grammar.Phase, goal: str, kind: str, what: str, goal_door
     words» (a live wall report, 2026-10-11: the close named no item, the agent found the goal line by itself)."""
     near = _near_item_slots(phase, goal, kind, what)
     if not near:
-        return ""
+        return _file_carrier(phase, kind, what, goal_door)
     it, slot, fixed = near[0]
     goal_slot = _slot(kind, what)
     loose = f"… {goal_slot} …"  # a door is printed only when it passes the expect door as printed (Codex, 2026-10-12)
@@ -2343,6 +2414,33 @@ def _near_words(phase: grammar.Phase, goal: str, kind: str, what: str, goal_door
         return f" — {it.ref} expects {slot}: one promise in other words? {goal}"
     return (f" — {it.ref} expects {slot}: one promise in other words? the same words make it count: "
             f"el todo expect {it.ref} {_sh(words) if fixed else _q(words)} · or {goal}")
+
+
+PROOF_TARGET_RE = re.compile(r"\]\((" + grammar.LINK_TARGET_SPACED + r")\)")
+
+
+def _file_carrier(phase: grammar.Phase, kind: str, what: str, goal_door: str = "") -> str:
+    """` — 1.5 proves report.md by its file proof and does not promise it: …`, or "". A promise of a file is matched to a
+    done item's file proof by its path — structure, not meaning (a live wall report, 2026-10-21: the close said «name the
+    criterion as an item» over 1.5, done with file:report.md; the new item 1.7 was then named a duplicate of 1.5 — two
+    voices, and the door printed led to the second). The path or its file name, as the promise words it."""
+    want = what.strip().strip("`").removeprefix("./")
+    if kind != "file" or not want:
+        return ""
+    for it in grammar.flat(phase.items):
+        if not it.done or it.cancelled or (kind, what) in grammar.expected_kinds(it.expect):
+            continue
+        for k, pr in it.evidence:
+            m = PROOF_TARGET_RE.search(grammar.split_fingerprint(pr)[0]) if k == "file" else None
+            target = (m.group(1) if m else grammar.split_fingerprint(pr)[0].split(" ")[0]).strip() if k == "file" else ""
+            if target and (target == want or target.endswith("/" + want) or posixpath.basename(target) == want):
+                words = f"{it.expect} {_slot(kind, what)}".strip()
+                goal = "the goal in the item's words" + (f": {goal_door}" if goal_door else "")
+                head = f" — {it.ref} proves {target} by its file proof and does not promise it"
+                if grammar.visible_len(words) > grammar.POCKET_CHARS:  # a door is printed only when it passes as printed
+                    return f"{head}, and its expect has no room for the promise: {goal}"
+                return f"{head}: the promise in its expect makes it count: el todo expect {it.ref} {_sh(words)} · or {goal}"
+    return ""
 
 
 def _add_door(n: int, slot: str, tail: str = "") -> str:
@@ -4125,7 +4223,10 @@ def _session_word(status: str, lang: str = "en") -> str:
     return SESSION_WORDS[status][0 if lang == "en" else 1]
 
 
-def _acceptor(by: Optional[str], ref: str, verb: str) -> str:
+ROLE_WORDS = ("subagent", "codex", "claude", "gemini", "owner")
+
+
+def _acceptor(by: Optional[str], ref: str, verb: str, runs: Optional[List[str]] = None, text: str = "") -> str:
     """The one word naming who checked — codex · claude · gemini · subagent · owner. `self` is refused at accept."""
     by = (by or "").strip()
     if not by:
@@ -4136,7 +4237,19 @@ def _acceptor(by: Optional[str], ref: str, verb: str) -> str:
                          f"prompt (a new chat, another agent, a subagent with a clean context) — or the owner's word: "
                          f"el todo accept {ref} --by owner \"the owner's words, as said\"", 2)
     if not ACCEPTOR_RE.fullmatch(by):
-        raise StoreError(f"--by takes one word naming who checked (codex · claude · gemini · subagent · owner), not `{by}`", 2)
+        # a hand that names itself by its task (six times in one live Codex session, 2026-10-15…21: `--by
+        # cart_retry_42_final_acceptance`, `--by 'Codex fresh acceptance'`): the kind of hand is the role, the name belongs
+        # to the verdict — printed whole, with the role the words carry or the subagent's (Codex subagents name themselves)
+        found = [w for w in ROLE_WORDS if re.search(rf"(?<![a-z]){w}(?![a-z])", by.lower())]
+        role = found[0] if len(found) == 1 else "subagent"
+        name = " ".join(re.sub(rf"(?i)(?<![a-z]){role}(?![a-z])", " ", by).split()).strip(" :-") or by
+        words = " ".join(text.split())
+        call = (f"el todo {verb} {ref} --by {role}" + "".join(f" --run {_sh(r)}" for r in runs or [])
+                + (f" {_sh(f'{name}: {words}')}" if words else ""))
+        said = f"`{by}` names {role}" if found else (f"`{by}` reads as a name — a subagent, say (another agent's main session: "
+                                                      f"--by codex · claude · gemini)")
+        raise StoreError(f"--by names the kind of hand in one word — subagent (a clean context, from any session) · codex · "
+                         f"claude · gemini · owner; a name of its own goes into the verdict's words. {said}: {call}", 2)
     return by.lower()
 
 
@@ -4178,7 +4291,7 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
     word> · <date>` (el's line) and into the journal as `DECISION · принято N.M: …`. The return is `el todo reopen N.M
     --by <who> "…"`. A range or a list takes one verdict for all."""
     out = Outcome()
-    who = _acceptor(by, ref, "accept")
+    who = _acceptor(by, ref, "accept", runs, text)
     text = " ".join(text.split())
     if who == "owner":  # the owner's word is recorded as the owner's words, quoted — not the agent's account of them
         text = _unwrap_quote(text)
@@ -5584,10 +5697,9 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     if phase is None:
         raise StoreError(f"no phase {n} in TODO.md", 4)
     if phase.done:
-        out.say(f"phase {n} {phase.name} is already closed — nothing changed")
-        return out
+        return _restate_closed(case, todo, phase, summary, reflect, align, rest, howto_text, out)
     pf = _phase_file(case, n, phase.name)
-    rest_items = [it for it in phase.items if not it.done] if rest is not None else []
+    rest_items =[it for it in phase.items if not it.done] if rest is not None else []
     carrying = [it for it in rest_items if it.subs]
     if carrying:  # F25: the general list holds single thoughts — an item with its sub-items is a branch, not a thought
         raise StoreError(f"--rest later: {', '.join(it.ref for it in carrying)} carries sub-items — the general list holds single "
@@ -5780,6 +5892,76 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     if alongside:
         out.say(f"closed from the plan, out of turn — phase {alongside[0].n} {alongside[0].name} is still {alongside[1]}, "
                 f"the pipeline stays in order. {ALONGSIDE_HINT}")
+    return out
+
+
+def _restate_closed(case: Path, todo: grammar.Todo, phase: grammar.Phase, summary: str, reflect: Optional[str],
+                    align: Optional[str], rest: Optional[str], howto_text: Optional[str], out: Outcome) -> Outcome:
+    """`el phase close N "…"` on a closed phase restates its words — the same door, as a repeated `phase plan` sharpens a
+    plan (a live report, 2026-10-27: a close sent with «x» to see whether the gates passed closed the phase, and TODO and
+    the phase file said «result: x» for good — no command could say it again). The words change in the phase file and its
+    TODO line, the acceptance count and the date stay; a DECISION keeps the old words and the new; `--reflect`/`--align`
+    log their events again and take their lines in the Digest. A cancelled phase keeps its reason: el phase cancel is its door."""
+    n, pf = phase.n, _phase_file(case, phase.n, phase.name)
+    recorded = _closed_words(_readme_text(case, out))
+    if recorded and summary.strip():  # a closed case is history whole: its words change when it is open again (2026-10-14)
+        raise StoreError(f"{case.name} is closed «{recorded}» — its phases are said as they closed; to restate phase {n}, open "
+                         f"the case first, saying why: el case reopen \"why\" — then el phase close {n} \"…\"", 4)
+    if _cancelled(phase) or not pf.exists():
+        out.say(f"phase {n} {phase.name} is " + ("cancelled — its reason stays as written" if _cancelled(phase)
+                                                  else f"closed without its file ({pf.name}) — its line stays as written")
+                + " — nothing changed")
+        return out
+    if rest is not None:
+        raise StoreError(f"phase {n} {phase.name} is closed — it has no rest to move; new work goes to an open phase: "
+                         f"el todo add N \"…\"", 4)
+    words = " ".join(summary.split())
+    reflect, align = (_own_prefix(tag, " ".join((val or "").split())) for tag, val in (("reflect", reflect), ("align", align)))
+    lines = pf.read_text(encoding="utf-8").split("\n")
+    at = next((i for i, ln in enumerate(lines) if ln.startswith("result:")), None)
+    said = lines[at][len("result:"):].strip() if at is not None else ""
+    tally = said[said.index(" · acceptance: "):] if " · acceptance: " in said else ""
+    old = said[:len(said) - len(tally)] if tally else said
+    if (not words or words == old) and not reflect and not align and not howto_text:
+        out.say(f"phase {n} {phase.name} is already closed with these words — nothing changed; other words restate them: "
+                f"el phase close {n} \"…\"")
+        return out
+    restated = bool(words) and words != old and at is not None
+    if restated:
+        lines[at] = f"result: {words}{tally}"
+        new_said = f"{words}{tally}"
+        if phase.summary and phase.summary.startswith(said):
+            phase.summary = new_said + phase.summary[len(said):]
+        else:
+            date = re.search(r"\d{4}-\d{2}-\d{2}", phase.summary or "")
+            phase.summary = f"{new_said} · {date.group(0) if date else _now()[0]} · {_phase_link(pf.name)}"
+    for tag, val in (("reflect", reflect), ("align", align)):
+        if not val:
+            continue
+        line = f"- {tag}: {_rewrite_links(val, case, new_base=pf.parent)[0]}"
+        mine = [i for i, ln in enumerate(lines) if ln.startswith(f"- {tag}: ")]
+        if mine:
+            lines[mine[-1]] = line
+        else:  # the Digest's end: before the next section after it
+            d = next((i for i, ln in enumerate(lines) if ln == "## Digest"), None)
+            end = next((i for i in range(d + 1, len(lines)) if lines[i].startswith("## ")), len(lines)) if d is not None else len(lines)
+            while end > 0 and not lines[end - 1].strip():
+                end -= 1
+            lines.insert(end, line)
+    store.write_file(pf, "\n".join(lines).rstrip("\n") + "\n")
+    if restated:
+        out.absorb(_write_todo(case, todo))
+        _sync_progress(case, todo, out)
+        out.lines += log(case, "DECISION", f"итог фазы {n} переписан: «{old}» → «{words}»", f"p{n}").lines
+    for tag, val in (("reflect", reflect), ("align", align)):
+        if val:
+            out.lines += log(case, "DECISION", f"{tag}: {val}", f"p{n}").lines
+    if howto_text:
+        out.lines += log(case, "DECISION", f"howto: {howto_text}", f"p{n}").lines
+    what = ([f"result «{order._short(words, 60)}» (was «{order._short(old, 60)}»)"] if restated else []) + \
+        [tag for tag, val in (("reflect", reflect), ("align", align), ("howto", howto_text)) if val]
+    out.say(f"restated: phase {n} {phase.name} — {' · '.join(what)} → phases/{pf.name}" + (", TODO.md" if restated else "")
+            + " · the old words stay in the journal; the acceptance and the date stand")
     return out
 
 

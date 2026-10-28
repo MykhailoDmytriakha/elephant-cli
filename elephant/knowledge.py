@@ -291,8 +291,10 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
 - done needs the KIND of its evidence and what came out (F20): `el todo done 2.4 file:evidence/receipt.pdf "fee paid"`
   — kinds: file:<path> · ref:<trace> · run:"<command → outcome>" · owner, several at once when the proof is several
   things; the journal gets `RESULT · N.M: file [receipt.pdf](…) — fee paid` and under the TODO line el writes
-  `result: fee paid` with one proof line per kind. A second done on a done item ADDS a proof; a file of the case in a new
-  version is a new claim and writes a RESULT — the same outcome? the same words. Who checks each kind: `el help evidence`.
+  `result: fee paid` with one proof line per kind. A second done on a done item ADDS a proof and keeps the result: words
+  with a NEW proof say what that proof shows — a RESULT of it in the journal; words with no new proof restate the result;
+  a file of the case in a new version is a new claim and writes a RESULT — the same outcome? the same words. Who checks
+  each kind: `el help evidence`.
   The words are for the owner who was not in the session — what came out for the item, in plain terms, answering
   its `why:`; a commit hash, a function name, an operator is a trace, and a trace is proof (ref:<hash> · file:<source>),
   not the words (el warns when the words read like a code trace).
@@ -445,8 +447,9 @@ already sees case content there — a folder of a known kind (docs, evidence, le
 Old records: an item ticked before 1.5.0 has no kind and counts as `untyped` — read, never nagged: the
 rule lives at the write door, not at the read. The exception is the phase in flight — it IS the write door,
 so there `check` counts a tick without a kind (el help phases). Attach evidence later through the same door —
-`el todo done 2.9 file:evidence/abstract.pdf` on a done item attaches it, keeps the words (new words renew
-them) and writes no journal event: the journal grows from new knowledge, not from bookkeeping. `reopen N.M "why"` clears the result and its proofs (why and notes stay): the result no longer holds.
+`el todo done 2.9 file:evidence/abstract.pdf` on a done item attaches it, keeps the result and writes no journal
+event: the journal grows from new knowledge, not from bookkeeping. Words beside the new proof are new knowledge — they
+go to the journal as its RESULT, the result stays; words with the proofs it has restate the result. `reopen N.M "why"` clears the result and its proofs (why and notes stay): the result no longer holds.
 Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "why"` (refuted).""",
 
     "phases": """phases — `el phase plan|open|close N "Name"`
@@ -468,7 +471,10 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   open). Then `el phase close 2 "what it delivered"` fills result:, collapses TODO to one line
   `- [x] 2 Name — result · date · [phases/2-name.md](phases/2-name.md)` (the path is a link — it opens
   from the editor), lists the items under `## Items at close` in the phase file with their links
-  re-based (`docs/x.md` → `../docs/x.md`, the same files as from TODO), updates State.
+  re-based (`docs/x.md` → `../docs/x.md`, the same files as from TODO), updates State. Said wrong? The same close
+  again with other words restates them — the phase file, its TODO line, a DECISION with the old words and the new;
+  `--reflect`/`--align` given again take their Digest lines. The acceptance and the date stand. A close is no check:
+  what it would ask is in Order and in the thread.
 - cancel: `el phase cancel 2 "why"` — the branch is not needed: its items are cancelled with it,
   the file says `result: снято: …`, TODO keeps one line marked «снято», progress shows ✗.
 - back from cancel: a phase cancelled while still PLANNED comes back with `el phase plan 2 "Name"
@@ -1039,13 +1045,15 @@ TODO: ≤ 200 lines (100 before 0.20: a rollout through five environments × 17 
   for a rest, so its refusal never offers a cut: it says what counts (link names, with their share), what a cut
   would lose, and that the context goes to a file linked by a short name (feedback 2026-10-05: one voice at every
   door — item, pocket, phase note, a plan's intent, whose rest becomes a phase note); `result:` and the
-  proof lines under it are el's — reported, not counted, and written whole: el cuts nothing in README, TODO or a phase
+  proof lines under it are el's — reported, not counted, and so is the line of a closed phase (close writes it, no door
+  shortens it: a case of 194 closed phases kept its 200 lines for the open one, 2026-10-28); a refusal names which phase
+  holds the lines and the way out — written whole: el cuts nothing in README, TODO or a phase
   file (the owner's word, 2026-09-25 — a cut part is lost to the reader; `result:`, `closed:`, `last:`, Links, the TODO
   phase line and the Digest carry the whole text);
   phase name — English, 1–3 words; items go one level down at most — sub-items N.M.K (F25); deeper is a nested case.
 JOURNAL: event headline ≤ 200 chars (soft 180 — said once, by `el log`, for the line you just wrote); long text
-  splits automatically into headline + up to 5 body lines of ≤ 160 chars; body beyond that → put the story in
-  the phase file.
+  splits automatically into headline + up to 5 body lines of ≤ 160 chars, each ending at a space; body beyond that →
+  put the story in the phase file — the refusal says how many chars of these very words fit.
 The machine (F23, F24): an open item returned 3 times → Order «stuck»; a Later line three phase closes passed by →
   Order asks by name — both shown, never refused; the numbers are a first guess, moved by a live case.
 Warnings are about THIS write: a command warns only about lines it introduced; history is `check`'s business,
@@ -1082,8 +1090,10 @@ counts it with the legacy ones and `--all` names it — BROKEN is only a case el
 
     "errors": """exit codes and what to do
 A refusal reads from both ends: its first line is what is wrong (`el: ERROR [exit N] …`), its last line is the door — the
-    command that gets you through (`recovery: …`, or the message's own last line); `| tail -1` and `| head -1` each
-    keep half. What el adds (this legend, the same-wall question, the files put back) sits between them.
+    command that gets you through (`recovery: …`, or the message's own last line — a command, else the limit or the
+    violation, never this legend); `| tail -1` and `| head -1` each keep half. What el adds (this legend, the same-wall
+    question, the files put back) sits between them. A word that is no command (`el next`, `el list`, `el phaseclose`)
+    is answered with the command it names.
 0 — done. 1 — internal error. 2 — wrong usage: the message names what is missing, prints the command's
     examples (for `feedback` its whole dose) and `el help <topic>`; the library's bare `usage:` line is never the answer.
 3 — rule violation: the write was REFUSED, no file was touched — a command is one change: what it wrote before the

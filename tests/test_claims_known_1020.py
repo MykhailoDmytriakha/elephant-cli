@@ -170,8 +170,9 @@ class PlannedPhaseDone(Base):
         self.ok("phase", "plan", "2", "Fix", "--goal", "fixed and shipped [run: test:fast] [owner]")
         self.ok("todo", "add", "2", "fix the outage line", "--expect", "[run: jest → green]")
         out, _ = self.ok("todo", "done", "2.1", "run:jest → green", "one line now")
-        self.assertIn("note: phase 2 Fix is planned, not open — phase 1 Ship is in flight: this work closes from the plan, "
-                      "el phase close 2 \"what came out\" once every item ended; its close asks for [run: test:fast] · [owner], "
+        self.assertIn("note: phase 2 Fix is planned, not open — phase 1 Ship is in flight: this work closes from the plan once "
+                      "every item ended — el phase close 2 \"what came out\" --reflect \"the lesson\" --align \"what changes "
+                      "next\"; its close asks for [run: test:fast] · [owner], "
                       "none proved yet; no item carries [run: test:fast]: el todo add 2 \"…\" --expect \"[run: test:fast]\"", out)
         self.ok("todo", "add", "2", "fix the hang", "--expect", "[run: jest → green]")
         out, _ = self.ok("todo", "done", "2.2", "run:jest → green", "no hang")
