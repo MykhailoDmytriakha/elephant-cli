@@ -316,6 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--howto", help="close: the recipe question when the phase logged a PROBLEM — .howto/<verb>.md (first line `when:`) or \"none: why\" (P8)")
     s.add_argument("--edit", type=int, metavar="K", help="note only: rewrite note K in place")
     s.add_argument("--drop", type=int, metavar="K", help="note only: remove note K")
+    s.add_argument("--path", metavar="K", help="close only: the line of the README path the phase stands on — its position or name")
 
     s = sub.add_parser("readme", help="write from --file/stdin · set <prefix> \"…\" (\"\" removes; State only) · add <section> \"…\" · edit <section> <k> \"…\" · drop <section> <k> | drop state <prefix> · touch (State read and still true: moves `as of`)", allow_abbrev=False)
     s.add_argument("action", nargs="?", choices=["set", "add", "edit", "drop", "touch"])
@@ -323,6 +324,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("b", nargs="?")
     s.add_argument("c", nargs="?")
     s.add_argument("--file", default=None, help="a whole README to validate and write (`-` = stdin)")
+    s.add_argument("--phases", metavar="N,M-K", help="add/edit path only: the phases that stand on the line")
 
     s = sub.add_parser("case", help="case new <name> --goal … · case list · case use <name> · case cancel \"why\" · case reopen \"why\" · case new --root", allow_abbrev=False)
     s.add_argument("action", choices=["new", "list", "use", "cancel", "reopen"])
@@ -463,9 +465,9 @@ OPTION_ACTIONS = {
              "edit": ("note",), "drop": ("note",), "check": ("hold",), "by": ("accept", "reopen"),
              "run": ("accept", "reopen"), "sample": ("brief",)},
     "phase": {"goal": ("plan", "open"), "why": ("open",), "reflect": ("close",), "align": ("close",), "rest": ("close",),
-              "howto": ("close",), "edit": ("note",), "drop": ("note",)},
+              "howto": ("close",), "edit": ("note",), "drop": ("note",), "path": ("close",)},
     "case": {"goal": ("new",), "root": ("new",), "all": ("list",)},  # Codex acceptance: `case cancel --goal …` closed the case
-    "readme": {"file": (None,)},  # None — the bare call: `el readme --file x` writes, `readme set … --file x` dropped it
+    "readme": {"file": (None,), "phases": ("add", "edit")},  # None — the bare call: `el readme --file x` writes, `readme set … --file x` dropped it
 }
 BARE = {"todo": "shows the plan", "readme": "writes the README"}
 OPTION_DOORS = {("todo", "done", "run"): 'the doer\'s proof is a kind: el todo done N.M run:"<command → outcome>" "what came out"',
@@ -952,7 +954,7 @@ def _run(argv=None) -> int:
                     if not args.text:
                         raise StoreError(f"phase close needs a summary: `el phase close {args.n} \"what it delivered\"`", 2)
                     out = commands.phase_close(case, args.n, args.text, reflect=args.reflect, align=args.align, rest=args.rest,
-                                               howto=args.howto)
+                                               howto=args.howto, path=args.path)
             elif args.cmd == "readme":
                 if args.action == "set":
                     if not args.a or args.b is None:
@@ -961,11 +963,12 @@ def _run(argv=None) -> int:
                 elif args.action == "add":
                     if not args.a or not args.b:
                         raise StoreError("usage: el readme add <section> \"line\"", 2)
-                    out = commands.readme_add(case, args.a, args.b)
+                    out = commands.readme_add(case, args.a, args.b, phases=args.phases)
                 elif args.action == "edit":
-                    if not args.a or not args.b or args.c is None:
-                        raise StoreError("usage: el readme edit <section> <k> \"new text\" · el readme edit state <prefix> \"text\"", 2)
-                    out = commands.readme_edit(case, args.a, args.b, args.c)
+                    if not args.a or not args.b or (args.c is None and not (args.phases and args.a.lower() == "path")):
+                        raise StoreError("usage: el readme edit <section> <k> \"new text\" · el readme edit state <prefix> \"text\""
+                                         " · el readme edit path <k> --phases 3,4", 2)
+                    out = commands.readme_edit(case, args.a, args.b, args.c, phases=args.phases)
                 elif args.action == "touch":
                     out = commands.readme_touch(case)
                 elif args.action == "drop":

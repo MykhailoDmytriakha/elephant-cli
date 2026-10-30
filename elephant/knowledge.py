@@ -236,6 +236,19 @@ happened. Now the lower layer is visible from the top, and the top is rendered f
   (`- budget: …`), or a file with `summary:` — its line lands in Links by itself.""",
 
     "readme": """readme — one line at a time; the whole file rarely
+README is the map of the case — what the owner and the next agent read first (the polygon, 2026-10-29: on the first
+screen the path, the owner line and a counted progress answered the owner's questions +0.60 of 5 better):
+- the path — `## Path` right after Context: a few big strokes of what the case went through, each «Name — what became
+  true», and the phases standing on it: `el readme add path "Prices — every good has a checked price" --phases 3,4,6-9`
+  · new words: `el readme edit path 2 "…"` (a new name takes its phases along) · more phases onto it: `el readme edit
+  path 2 --phases 10` · `el readme drop path 2`. Group by meaning, not by time; up to about seven strokes, however many
+  phases. At a close: `el phase close N "…" --path K` (K — the line's position or name); a closed phase on no line is
+  named in Order. el draws on each line how many phases stand on it and links to them (the first, «…», the last two),
+  the phase in flight (`▶ now:`) and how many closed phases the path holds; each phase keeps its place as `path:` in
+  its own file, under `result:`.
+- the owner line — what waits for the owner (a decision, a word, an action; «nothing» when nothing):
+  `el readme set owner "…"`; el keeps it right under `opened:`, where the owner looks first, and asks for it at
+  `set next`.
 - State lines go by prefix: `el readme set next "…"` sets or creates `- next: …` (a new case starts with el's own
   «next: open phase 1»; `phase open` takes it down — your next step is yours to write); `set <prefix> ""`
   (or `drop state <prefix>`) removes it. `progress:` / `last:` / `as of:` are Elephant's — derived on
@@ -246,8 +259,10 @@ happened. Now the lower layer is visible from the top, and the top is rendered f
   Plain lines (no `- `) are a paragraph, not a list — no position reaches them: the first of Context is the case goal,
   `el readme edit context goal "…"`; the others only a whole rewrite (`el readme --file <a copy of README.md>`). A line
   that changes on its own is a bullet: `el readme add context "…"`, then edit/drop k.
-  Sections: Context · State · Decisions · Problems · Links (your folder lines; file lines are rendered).
-  Drawn by el, never typed: State `opened:` (when and with which goal the case began), `progress:`, `last:`, `as of:`,
+  Sections: Context · Path (when it has a line) · State · Decisions · Problems · Links (your folder lines; file lines are
+  rendered).
+  Drawn by el, never typed: State `opened:` (when and with which goal the case began), `progress:` (past twelve phases
+  the ended ones as a count, the living ones by name), `last:`, `as of:`,
   `ready:`/`closed:`; under your Decisions lines the five newest decisions of the journal (`el log DECISION`), dated,
   under «from the journal — history, not the case's rules»; a rule that holds from now on is your own Decisions line.
 - `set` writes State only: a prefix that names a line of another section is refused with the
@@ -473,7 +488,9 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   from the editor), lists the items under `## Items at close` in the phase file with their links
   re-based (`docs/x.md` → `../docs/x.md`, the same files as from TODO), updates State. Said wrong? The same close
   again with other words restates them — the phase file, its TODO line, a DECISION with the old words and the new;
-  `--reflect`/`--align` given again take their Digest lines. The acceptance and the date stand. A close is no check:
+  `--reflect`/`--align` given again take their Digest lines. The acceptance and the date stand. `--path K` puts the
+  phase on line K of the README path (its position or name) — the moment you know best what the phase was; without it
+  the close asks once (el help readme). A close is no check:
   what it would ask is in Order and in the thread.
 - cancel: `el phase cancel 2 "why"` — the branch is not needed: its items are cancelled with it,
   the file says `result: снято: …`, TODO keeps one line marked «снято», progress shows ✗.

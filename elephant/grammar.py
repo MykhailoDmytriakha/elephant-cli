@@ -32,6 +32,15 @@ EVENT_BODY_LINES = 5
 BODY_WRAP = 160  # where el wraps an event's body; a link is never cut (1.68.0)
 
 README_SECTIONS = ["Context", "State", "Decisions", "Problems", "Links"]
+# The path (H11, the owner's word 2026-10-29 «README must become the map»): an optional section right after Context — what
+# the case went through, in big strokes, each a line of the agent's words; el draws onto each line how many closed phases
+# stand on it and links to them, and two lines of its own. README_ORDER is the order every README is read and written in.
+README_OPTIONAL = {"Path": "Context"}  # an optional section → the one it stands right after
+README_ORDER = ["Context", "Path", "State", "Decisions", "Problems", "Links"]
+PATH_LINE_RE = re.compile(r"^- \*\*(.+?)\*\* — (.+)$")  # the agent's line: `- **Name** — what became true`
+PATH_TAIL_RE = re.compile(r" · \d+ ✓(?: · \d+ ✗)?(?: · (?:\[[^\]]+\]\([^)\s]+\)|…))*$")  # el's tail on it (any target: mv rewrites it)
+PATH_DRAWN = ("- ▶ now: ", "- on the path: ")  # el's own lines of the section
+PATH_LINE_CHARS = 200  # the agent's words of a path line: past this a warning — a stroke is one claim, the story is a file
 CLOSED_TALLY_RE = re.compile(r"(?: · acceptance: \d+ of \d+ done accepted.*| · closed by the owner: «.*»)$")  # el's tail on `closed:` (F23), not counted
 STATE_OWNED = ("opened", "progress", "last", "as of", "ready", "closed")
 DECISIONS_DRAWN_HEAD = "- from the journal, newest first — history, not the case's rules:"  # el's line in Decisions  # State lines el writes (F3): whole, not the agent's to shorten
@@ -778,6 +787,7 @@ def parse_readme(text: str) -> Readme:
     lines = _frame(text, r)
     r.lines, r.bytes = len(lines), len("\n".join(lines).encode("utf-8"))
     order, current = [], None
+    path_names: set = set()
     for i, raw in enumerate(lines[1:], start=2):
         m = SECTION_RE.match(raw)
         if m:
@@ -799,10 +809,20 @@ def parse_readme(text: str) -> Readme:
             # are text, bounded by the README byte limit (2026-09-17: 19 Decisions lines warned for weeks, nobody acted).
             # Lines el derives (`progress:` over 21 phases) are not the agent's to shorten (feedback 2026-09-04)
             r.warn("F2", i, f"pointer line is {visible_len(raw.strip())} visible chars, over {README_POINTER_CHARS}")
+        if current == "Path" and raw.startswith("- ") and not raw.startswith(PATH_DRAWN):
+            words = PATH_TAIL_RE.sub("", raw)[2:]
+            named = PATH_LINE_RE.match(f"- {words}")
+            key = " ".join(named.group(1).split()).lower() if named else None
+            if key and key in path_names:  # phases stand on a name: two lines of one name would both claim them
+                r.error("F1", i, f"path line «{named.group(1)}» appears twice — a name holds its phases once")
+            path_names.add(key)
+            if visible_len(words) > PATH_LINE_CHARS:  # a stroke of the path is one claim; the drawn tail is el's
+                r.warn("F2", i, f"path line is {visible_len(words)} visible chars of your words, over {PATH_LINE_CHARS}")
     # F2 counts the text people write. The nested Links lines (files, sub-folders, `other:`) are
     # rendered by el from the files and cannot be shortened in README — they are reported, not
     # counted (feedback 2026-09-03: a growing file index squeezed the owner's own five lines out).
     rendered = [ln for ln in r.sections.get("Links", []) if ln.startswith("  ")]
+    rendered += [ln for ln in r.sections.get("Path", []) if ln.startswith(PATH_DRAWN)]  # el's lines of the path (H11)
     decisions = r.sections.get("Decisions", [])  # the decisions el draws from the journal (2026-10-08) are el's too
     head = next((i for i, ln in enumerate(decisions) if ln == DECISIONS_DRAWN_HEAD), None)
     if head is not None:
@@ -819,6 +839,8 @@ def parse_readme(text: str) -> Readme:
     # the next write once el added it)
     drawn_open = [ln for ln in r.sections.get("State", []) if ln.startswith("- opened: ")]
     drawn_tail += sum(len(ln.encode("utf-8")) + 1 for ln in drawn_open)
+    drawn_tail += sum(len(m.group(0).encode("utf-8")) for ln in r.sections.get("Path", [])  # the count and links el draws on
+                      for m in [PATH_TAIL_RE.search(ln)] if m and not ln.startswith(PATH_DRAWN))  # an agent's path line
     own_lines = r.lines - r.rendered_lines - len(drawn_wait) - len(drawn_open)
     own_bytes = r.bytes - r.rendered_bytes - drawn_tail
     aside = (f" (Links rendered by el: {r.rendered_lines} lines / {r.rendered_bytes} bytes more, not counted)"
@@ -828,8 +850,12 @@ def parse_readme(text: str) -> Readme:
     elif own_lines > README_WARN_LINES or own_bytes > README_WARN_BYTES:
         r.warn("F2", 0, f"README is {own_lines} lines / {own_bytes} bytes of your text, over {README_WARN_LINES} / {README_WARN_BYTES}: "
                         f"move a section into a file{aside}")
-    if order != README_SECTIONS:
-        r.error("F1", 0, f"sections must be exactly {' · '.join(README_SECTIONS)}, got {' · '.join(order) or 'none'}")
+    required = [s for s in order if s not in README_OPTIONAL]
+    misplaced = [s for s in order if s in README_OPTIONAL and (README_OPTIONAL[s] not in order
+                                                               or order.index(s) != order.index(README_OPTIONAL[s]) + 1)]
+    if required != README_SECTIONS or misplaced:
+        r.error("F1", 0, f"sections must be exactly {' · '.join(README_SECTIONS)} (and Path, when there is one, right after "
+                         f"Context), got {' · '.join(order) or 'none'}")
     state = r.sections.get("State", [])
     if not any(ln.lstrip("- ").startswith("progress:") for ln in state):
         r.warn("F3", 0, "State has no `progress:` line")

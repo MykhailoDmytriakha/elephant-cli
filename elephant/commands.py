@@ -346,15 +346,32 @@ def _set_state_line(readme: str, prefix: str, value: Optional[str]) -> str:
     return "\n".join(out) + "\n"
 
 
+PROGRESS_NAMES_MAX = 12  # past this many phases the ended ones are counted, not named
+
+
 def progress_line(todo: grammar.Todo, case: Optional[Path] = None) -> str:
-    """`✓` closed · `▶` opened (its phase file exists) · `⏸` paused for a detour (F26) · no mark = planned (F3)."""
+    """`✓` closed · `▶` opened (its phase file exists) · `⏸` paused for a detour (F26) · no mark = planned (F3).
+    Past PROGRESS_NAMES_MAX phases the ended ones are a count and only the living ones keep their names (the polygon,
+    2026-10-29: a line of 215 names filled the owner's first screen before he reached what waits for him — counted,
+    the first-screen readers answered better; their names stay in TODO and in phases/)."""
+    phases = sorted(todo.phases, key=lambda x: x.n)
+    if not phases:
+        return "(no phases yet)"
     parts = []
-    for p in sorted(todo.phases, key=lambda x: x.n):
+    if len(phases) > PROGRESS_NAMES_MAX:
+        closed = sum(1 for p in phases if p.done and not _cancelled(p))
+        cancelled = sum(1 for p in phases if p.done and _cancelled(p))
+        parts.append(f"{closed} closed ✓")
+        if cancelled:
+            parts.append(f"{cancelled} cancelled ✗")
+    for p in phases:
+        if p.done and len(phases) > PROGRESS_NAMES_MAX:
+            continue
         opened = case is not None and _phase_file(case, p.n, p.name).exists()
         cancelled = _cancelled(p)
         mark = (" ✗" if cancelled else " ✓") if p.done else (" ⏸" if p.held else " ▶" if opened else "")
         parts.append(f"{p.n} {p.name}{mark}")
-    return " · ".join(parts) if parts else "(no phases yet)"
+    return " · ".join(parts)
 
 
 def _is_project(case: Path) -> bool:
@@ -388,6 +405,7 @@ def _derive_readme(case: Path, body: str) -> str:
             if _default_next_in_state(text) and any(_phase_file(case, p.n, p.name).exists() for p in todo.phases):
                 text = _set_state_line(text, "next: ", None)  # el's own pointer, done once a phase opened (L2) — never the agent's
             text = _draw_waits(case, text, [w for p in todo.phases for w in p.waits])
+            text = _draw_path(case, text, todo)
             if _ready_value(text) and (not _two_hands(text) or any(not p.done for p in todo.phases) or any(
                     order.child_status(k)[0] != "closed" for k in order.child_cases(case, _is_project(case)))):
                 text = _set_state_line(text, READY_PREFIX, None)  # el's own word, untrue once work resumed
@@ -407,7 +425,254 @@ def _derive_readme(case: Path, body: str) -> str:
             text = _set_state_line(text, "last: ", _event_words(last))
     except StoreError:
         pass
-    return _blank_before_headings(text)
+    return _blank_before_headings(_owner_on_top(text))
+
+
+# ---- the path: README as the map of the case (H11, the owner's word 2026-10-29) ------------------------------------------
+# «README must become the map: where we set out from, how we went» — and the polygon the same evening (H11–H11d, six live
+# cases, cold readers of the README alone, blind scoring against an examiner's key): read whole, every form answered alike;
+# on the first screen the path in big strokes with links to its phases, the owner's line and a counted progress gave
+# +0.60 of 5 (interval +0.50…+0.70) — a brief in prose, a list of facts and a folded Links did not. A stroke is the agent's
+# words; which phases stand on it is each phase's own header line (`path:`, line 4 of its file, beside goal: and result:
+# — F18: a node's line at the parent is drawn from the node's header); the count and the links are el's.
+PATH_REF = "path: "
+PATH_LINKS_MAX = 4  # links el draws on a stroke: the first range, «…», the last two — a stroke of 100 phases is one line
+
+
+def _phase_path_title(pf: Path) -> Optional[str]:
+    """The line of the path a phase stands on — the `path:` line 4 of its file, or None."""
+    try:
+        with pf.open(encoding="utf-8") as fh:
+            head = [next(fh, "") for _ in range(4)]
+    except OSError:
+        return None
+    ln = head[3].rstrip("\n")
+    return (" ".join(ln[len(PATH_REF):].split()) or None) if ln.startswith(PATH_REF) else None
+
+
+def _set_phase_path(pf: Path, title: str) -> Optional[str]:
+    """Put the phase on the stroke `title`; returns the stroke it stood on before."""
+    lines = pf.read_text(encoding="utf-8").split("\n")
+    was = None
+    if len(lines) > 3 and lines[3].startswith(PATH_REF):
+        was = " ".join(lines.pop(3)[len(PATH_REF):].split()) or None
+    while len(lines) < 3:
+        lines.append("")
+    lines.insert(3, f"{PATH_REF}{title}")
+    store.write_file(pf, "\n".join(lines))
+    return was
+
+
+def _path_strokes(readme_body: str) -> List[str]:
+    """The names of the agent's lines of the path, in order — what `--path K` and `edit path K` count."""
+    parsed = grammar.parse_readme(readme_body)
+    names = []
+    for ln in parsed.sections.get("Path", []):
+        if ln.startswith(grammar.PATH_DRAWN):
+            continue
+        m = grammar.PATH_LINE_RE.match(grammar.PATH_TAIL_RE.sub("", ln))
+        if m:
+            names.append(" ".join(m.group(1).split()))
+    return names
+
+
+def _path_line(text: str) -> str:
+    """`Name — what became true` → `**Name** — what became true`; refused when there is no name to hold phases by, and
+    when the words end the way el's drawn tail does (Codex, 2026-10-29: «suite passed · 7 ✓» was read back as el's count
+    and the agent's words were gone with exit 0) — the end of a path line is el's, the agent rephrases its own end."""
+    text = " ".join(text.split())
+    m = grammar.PATH_LINE_RE.match(f"- {text}")
+    name, claim = (m.group(1), m.group(2)) if m else text.partition(" — ")[::2]
+    name = name.strip().strip("*").strip()
+    if (" — " not in text or not re.search(r"\w", name) or not claim.strip() or len(name.split()) > 6
+            or "**" in name):
+        raise StoreError("a line of the path is a name and what became true: el readme add path \"Name — what became "
+                         "true\" (the name, up to six words, is what phases stand on: --phases 3,4,6-9) — el help readme", 2)
+    if grammar.PATH_TAIL_RE.search(f" {claim.strip()}" if not claim.startswith(" ") else claim):
+        raise StoreError(f"«{order._short(claim.strip(), 60)}» ends the way el's count does («· N ✓ …») — el draws that "
+                         f"end on every write and would take your words for it: end the claim in other words", 2)
+    return f"**{name}** — {claim.strip()}"
+
+
+def _path_title(case: Path, ref: str, door: str) -> str:
+    """The stroke a `--path` names: its position (1 = the first line of the path) or its name."""
+    names = _path_strokes(_readme_text(case))
+    ref = " ".join(str(ref).split())
+    if not names:
+        raise StoreError(f"the README has no path yet — write its first line: el readme add path \"Name — what became "
+                         f"true\", then {door} — el help readme", 4)
+    if ref.isdigit() and 1 <= int(ref) <= len(names):
+        return names[int(ref) - 1]
+    hit = [s for s in names if s.lower() == ref.lower()]
+    if hit:
+        return hit[0]
+    listed = " · ".join(f"{k} {s}" for k, s in enumerate(names, 1))
+    raise StoreError(f"no line «{ref}» on the path — it has {listed}; a stroke of its own: el readme add path \"Name — "
+                     f"what became true\"", 4)
+
+
+def _phase_numbers(spec: str) -> List[int]:
+    nums: List[int] = []
+    for part in re.split(r"[,\s]+", spec.strip()):
+        if not part:
+            continue
+        m = re.fullmatch(r"(\d+)(?:[-–](\d+))?", part)
+        if not m or (m.group(2) and int(m.group(2)) < int(m.group(1))):
+            raise StoreError(f"--phases takes phase numbers and ranges: --phases 3,4,6-9 (not «{part}»)", 2)
+        a, b = int(m.group(1)), int(m.group(2) or m.group(1))
+        nums.extend(range(a, b + 1))
+    return list(dict.fromkeys(nums))
+
+
+def _place_on_path(case: Path, todo: grammar.Todo, nums: List[int], title: str, out: Outcome) -> None:
+    """Each phase's own header line names the stroke; the README draws the rest on its next write."""
+    files = []
+    for n in nums:
+        p = todo.phase(n)
+        if p is None:
+            raise StoreError(f"no phase {n} in TODO.md", 4)
+        pf = _phase_file(case, n, p.name)
+        if not pf.exists() and p.done:  # el reads a phase from its own place (Codex, 2026-10-29: `el mv` of a phase file)
+            raise StoreError(f"phase {n} {p.name} is closed and its file is not at phases/{pf.name} — el reads a phase "
+                             f"from there: el mv <where it is> phases/{pf.name}", 4)
+        if not pf.exists():
+            raise StoreError(f"phase {n} {p.name} is planned — it takes its place on the path when it closes: "
+                             f"el phase close {n} \"…\" --path K", 4)
+        files.append((n, pf))
+    moved = []
+    for n, pf in files:
+        was = _set_phase_path(pf, title)
+        if was and was != title:
+            moved.append(f"{n} (was «{was}»)")
+    out.say(f"on the path «{title}»: phase(s) {', '.join(str(n) for n, _ in files)}"
+            + (f" — moved: {', '.join(moved)}" if moved else ""))
+
+
+def _rename_on_path(case: Path, todo: grammar.Todo, old: str, new: str) -> List[int]:
+    """A stroke renamed through el takes its phases along — their header lines follow the name."""
+    hit = []
+    for p in todo.phases:
+        pf = _phase_file(case, p.n, p.name)
+        if pf.exists() and _phase_path_title(pf) == old:
+            _set_phase_path(pf, new)
+            hit.append(p.n)
+    return hit
+
+
+def _compact_links(members: List[Tuple[int, str]]) -> str:
+    """Runs of consecutive phases as ranges, each a link to its first phase file; past PATH_LINKS_MAX the first, «…», the
+    last two (the polygon, 2026-10-29: every range of a 215-phase case on its strokes took the first screen — N 1.80
+    against A 2.25; four links a stroke, +0.94 there)."""
+    runs: List[List[Tuple[int, str]]] = []
+    for n, f in sorted(members):
+        if runs and n == runs[-1][-1][0] + 1:
+            runs[-1].append((n, f))
+        else:
+            runs.append([(n, f)])
+    parts = [f"[{r[0][0]}{'–' + str(r[-1][0]) if len(r) > 1 else ''}](phases/{r[0][1]})" for r in runs]
+    if len(parts) > PATH_LINKS_MAX:
+        parts = [parts[0], "…"] + parts[-(PATH_LINKS_MAX - 2):]
+    return " · ".join(parts)
+
+
+def _draw_path(case: Path, readme: str, todo: grammar.Todo) -> str:
+    """The section as el draws it on every write: the agent's lines with the count and links of their phases, the phase
+    in flight, and how many closed phases the path holds. No section — nothing drawn: the path starts with its first line."""
+    parsed = grammar.parse_readme(readme)
+    if parsed.errors or "Path" not in parsed.sections:
+        return readme
+    members: Dict[str, List[Tuple[int, str, bool]]] = {}
+    flying = []
+    for p in todo.phases:
+        pf = _phase_file(case, p.n, p.name)
+        if not pf.exists():
+            continue
+        title = _phase_path_title(pf)
+        if p.done and title:
+            members.setdefault(title, []).append((p.n, pf.name, _cancelled(p)))
+        elif not p.done and not p.held:
+            flying.append((p, pf, title))
+    lines, names = [], set()
+    for ln in parsed.sections["Path"]:
+        if ln.startswith(grammar.PATH_DRAWN) or not ln.strip():
+            continue
+        base = grammar.PATH_TAIL_RE.sub("", ln)
+        m = grammar.PATH_LINE_RE.match(base)
+        if not m:
+            lines.append(base)  # the agent's prose stays as written; only a named line holds phases
+            continue
+        name = " ".join(m.group(1).split())
+        names.add(name)
+        ms = members.get(name, [])
+        done = [(n, f) for n, f, c in ms if not c]
+        gone = [(n, f) for n, f, c in ms if c]
+        links = _compact_links([(n, f) for n, f, _ in ms])
+        lines.append(f"{base} · {len(done)} ✓" + (f" · {len(gone)} ✗" if gone else "") + (f" · {links}" if links else ""))
+    if not lines:  # every line of the agent dropped: the section goes with them — el does not keep a path of its own
+        return _drop_section(readme, "Path")
+    for p, pf, title in flying:
+        lines.append(f"- ▶ now: [{p.n} {p.name}](phases/{pf.name})" + (f" — on «{title}»" if title in names else ""))
+    if names:
+        closed = [p for p in todo.phases if p.done and not _cancelled(p)]
+        on = sum(1 for p in closed for f in [_phase_file(case, p.n, p.name)] if f.exists() and _phase_path_title(f) in names)
+        lines.append(f"- on the path: {on} of {len(closed)} closed phases")
+    return _replace_section(readme, "Path", lines)
+
+
+def _drop_section(body: str, name: str) -> str:
+    lines = body.rstrip("\n").split("\n")
+    start = next((i for i, ln in enumerate(lines) if ln == f"## {name}"), None)
+    if start is None:
+        return body
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    return "\n".join(lines[:start] + lines[end:]) + "\n"
+
+
+def _off_path(case: Path, todo: grammar.Todo, readme_body: str) -> List[int]:
+    names = set(_path_strokes(readme_body))
+    if not names:
+        return []
+    return [p.n for p in todo.phases if p.done and not _cancelled(p)  # a file not at its place stands on no line
+            for f in [_phase_file(case, p.n, p.name)] if not f.exists() or _phase_path_title(f) not in names]
+
+
+def _numbers(nums: List[int]) -> str:
+    """3,4,5,7 → 3-5,7 — the form --phases takes."""
+    out, i = [], 0
+    while i < len(nums):
+        j = i
+        while j + 1 < len(nums) and nums[j + 1] == nums[j] + 1:
+            j += 1
+        out.append(str(nums[i]) if i == j else f"{nums[i]}-{nums[j]}")
+        i = j + 1
+    return ",".join(out)
+
+
+def _off_path_lines(case: Path, todo: grammar.Todo, readme_body: str) -> List[str]:
+    """Once the path has a line, a closed phase that stands on none is named — the map does not go stale in silence."""
+    if grammar.is_closed(readme_body):
+        return []
+    off = _off_path(case, todo, readme_body)
+    if not off:
+        return []
+    return [f"{len(off)} closed phase(s) on no line of the path — {_numbers(off)} → el readme edit path K --phases "
+            f"{_numbers(off)} (K — the line they belong to) · a stroke of their own: el readme add path \"Name — what "
+            f"became true\" --phases {_numbers(off)}"]
+
+
+def _ask_path(case: Path, todo: grammar.Todo, n: int, out: Outcome) -> None:
+    """At a close — when the closer knows best what the phase was — the path is asked for once, never required."""
+    body = _readme_text(case)
+    names = _path_strokes(body)
+    if names:
+        out.say(f"on the path? el readme edit path K --phases {n} — {' · '.join(f'{k} {s}' for k, s in enumerate(names, 1))}"
+                f" · a stroke of its own: el readme add path \"Name — what became true\" --phases {n}")
+        return
+    closed = [p.n for p in todo.phases if p.done and not _cancelled(p)]
+    if len(closed) >= 3:
+        out.say(f"{len(closed)} phases closed and the README has no path — what they amount to, in a few big strokes, is "
+                f"what the owner and the next agent read first: el readme add path \"Name — what became true\" --phases "
+                f"{_numbers(closed)} — el help readme")
 
 
 # ---- decisions drawn from the journal (the cold reader and the owner's «yes», 2026-10-08) -----------------------------
@@ -480,6 +745,29 @@ def _opened_line(journal: grammar.Journal, parsed) -> Optional[str]:
     if norm(context).startswith(norm(then)):  # the whole goal: a cut would hide a rewrite past it (Codex, 2026-10-08)
         return f"{first.date} — with the goal above"
     return f"{first.date} — the goal then: «{then}»"
+
+
+OWNER_PREFIX = "owner: "  # what waits for the owner — the agent's line, kept on top of State by el
+
+
+def _owner_on_top(readme: str) -> str:
+    """The agent's `- owner:` line right under `opened:` (or first in State), wherever it was written. The polygon,
+    2026-10-29 (H11–H11d, six live cases): «what waits for you» was found by 0.46–0.79 of cold readers without the line
+    and 0.83–0.92 with it — the fact lived in prose further down, or nowhere; on the first screen it is what the owner
+    came for. Its words are the agent's: el moves the line, never writes it."""
+    lines = readme.rstrip("\n").split("\n")
+    start = next((i for i, ln in enumerate(lines) if ln == "## State"), None)
+    if start is None:
+        return readme
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    at = next((i for i in range(start + 1, end) if lines[i].startswith(f"- {OWNER_PREFIX}")), None)
+    if at is None:
+        return readme
+    line = lines.pop(at)
+    end -= 1
+    opened = next((i for i in range(start + 1, end) if lines[i].startswith("- opened: ")), None)
+    lines.insert(opened + 1 if opened is not None else start + 1, line)
+    return "\n".join(lines) + "\n"
 
 
 def _set_first_state_line(readme: str, prefix: str, value: str) -> str:
@@ -5435,11 +5723,11 @@ def _replan_cancelled(case: Path, todo: grammar.Todo, phase: grammar.Phase, name
     if pf.exists():
         lines = pf.read_text(encoding="utf-8").split("\n")
         section = ""
-        for ln in lines[3:]:
+        for k, ln in enumerate(lines[3:], start=3):
             if ln.startswith("## "):
                 section = ln[3:].strip()
                 continue
-            if not ln.strip():
+            if not ln.strip() or (k == 3 and ln.startswith(PATH_REF)):  # the header's line, not the phase's material
                 continue
             m = re.fullmatch(rf"- {n}\.(\d+) [✓✗] (.*)", ln)
             pocket = re.fullmatch(r"  - (why|note|expect|fact): (.+)", ln)
@@ -5685,7 +5973,7 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
 
 
 def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None, align: Optional[str] = None,
-                rest: Optional[str] = None, howto: Optional[str] = None) -> Outcome:
+                rest: Optional[str] = None, howto: Optional[str] = None, path: Optional[str] = None) -> Outcome:
     """Close a phase. `--reflect "…"` and `--align "…"` log the two DECISION events P8 asks for in the same
     command (feedback 2026-09-16: three shell round trips for one close added friction, not rigour) — the
     record is identical, the gates are the same, and nothing is logged if another gate refuses the close.
@@ -5695,12 +5983,17 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     if rest is not None and rest.strip().lower() not in LATER_WORDS:
         raise StoreError(f"--rest takes `later`: the open items go to the general list; to another phase: el todo move N.M K", 2)
     howto_text = _howto_text(case, howto) if howto else None  # checked before anything is written
+    on_path = _path_title(case, path, f"el phase close {n} \"…\" --path K") if path is not None else None  # the same
     todo = _todo(case, out)
     phase = todo.phase(n)
     if phase is None:
         raise StoreError(f"no phase {n} in TODO.md", 4)
     if phase.done:
-        return _restate_closed(case, todo, phase, summary, reflect, align, rest, howto_text, out)
+        res = _restate_closed(case, todo, phase, summary, reflect, align, rest, howto_text, out)
+        if on_path:  # a closed phase takes its place on the path through the same door that restates it
+            _place_on_path(case, todo, [n], on_path, res)
+            _write_readme(case, _readme_text(case), res)  # the count on the stroke follows at once, not at the next write
+        return res
     pf = _phase_file(case, n, phase.name)
     rest_items =[it for it in phase.items if not it.done] if rest is not None else []
     carrying = [it for it in rest_items if it.subs]
@@ -5864,7 +6157,10 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     text = pf.read_text(encoding="utf-8").split("\n")
     text[2] = f"result: {said}"
     goal_line = grammar.parse_phase_file("\n".join(text)).goal
-    text = text[:3] + ["", "## Digest", *_digest(case, pf, phase, evs_here, goal_line)] + text[3:]
+    placed = text.pop(3) if len(text) > 3 and text[3].startswith(PATH_REF) else None  # the header line stays the header's
+    if on_path:
+        placed = f"{PATH_REF}{on_path}"
+    text = text[:3] + ([placed] if placed else []) + ["", "## Digest", *_digest(case, pf, phase, evs_here, goal_line)] + text[3:]
     if phase.items:
         text.append("")
         text.append("## Items at close")
@@ -5883,7 +6179,9 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
                else " (закрыта до своей очереди, без открытия)")
     out.lines = log(case, "PHASE", f"{phase.name} закрыта{ran} → {summary}", f"p{n}").lines + out.lines
     out.say(f"closed: phase {n} {phase.name} → TODO.md (collapsed), {rel} (result), README.md State"
-            + (f" · acceptance: {tally}" if tally else ""))
+            + (f" · acceptance: {tally}" if tally else "") + (f" · on the path: «{on_path}»" if on_path else ""))
+    if not on_path:
+        _ask_path(case, todo, n, out)
     later = _later_boundary_line(todo)
     if later:
         out.say(later)
@@ -6273,7 +6571,7 @@ def readme_show(case: Path, root: Optional[Path] = None) -> Outcome:
     return out
 
 
-SECTION_NAMES = {n.lower(): n for n in grammar.README_SECTIONS}
+SECTION_NAMES = {n.lower(): n for n in grammar.README_ORDER}
 
 
 def _readme_sections(case: Path, out: Outcome):
@@ -6286,7 +6584,9 @@ def _readme_sections(case: Path, out: Outcome):
 
 def _render_readme(parsed) -> str:
     lines = [f"# {parsed.title}"]
-    for name in grammar.README_SECTIONS:
+    for name in grammar.README_ORDER:
+        if name in grammar.README_OPTIONAL and name not in parsed.sections:
+            continue  # an optional section is written when it has something, never as an empty heading
         lines += ["", f"## {name}"] + parsed.sections.get(name, [])
     return "\n".join(lines) + "\n"
 
@@ -6330,6 +6630,10 @@ def readme_set(case: Path, prefix: str, text: str) -> Outcome:
     _write_readme(case, body, out, anchor=True)
     out.say(f"README State: `- {prefix}: …` set (as of the newest journal entry)")
     if prefix.lower() == "next":
+        if not any(ln.startswith(f"- {OWNER_PREFIX}") for ln in _readme_sections(case, Outcome()).sections.get("State", [])):
+            # the end of a session is when the agent knows what it leaves to the owner — asked once there, never refused
+            out.say(f"what waits for the owner — a decision, a word, an action? el readme set owner \"…\" (\"nothing\" when "
+                    f"nothing) — it stands on top of State, where the owner looks first — el help readme")
         _walls_question(out)
     return out
 
@@ -6337,13 +6641,28 @@ def readme_set(case: Path, prefix: str, text: str) -> Outcome:
 STATE_OWNED = grammar.STATE_OWNED  # lines el derives on every write — not yours to remove
 
 
-def readme_add(case: Path, section: str, line: str) -> Outcome:
+def readme_add(case: Path, section: str, line: str, phases: Optional[str] = None) -> Outcome:
     out = Outcome()
     name = SECTION_NAMES.get(section.lower())
     if name is None:
-        raise StoreError(f"no section `{section}` — sections: {' · '.join(grammar.README_SECTIONS)}", 2)
-    line = _context_text(line) if name == "Context" else " ".join(line.split())  # a promise names a kind from the closed list
+        raise StoreError(f"no section `{section}` — sections: {' · '.join(grammar.README_ORDER)}", 2)
+    if phases is not None and name != "Path":
+        raise StoreError(f"--phases puts phases on a line of the path: el readme add path \"Name — what became true\" "
+                         f"--phases 3,4 — {name} lines hold no phases", 2)
+    line = _context_text(line) if name == "Context" else _path_line(line) if name == "Path" else " ".join(line.split())
     parsed = _readme_sections(case, out)
+    if name == "Path":
+        stroke = grammar.PATH_LINE_RE.match(f"- {line}").group(1)
+        if stroke.lower() in (s.lower() for s in _path_strokes(_readme_text(case))):
+            k = [s.lower() for s in _path_strokes(_readme_text(case))].index(stroke.lower()) + 1
+            raise StoreError(f"the path has «{stroke}» already — line {k}: its words: el readme edit path {k} \"…\" · "
+                             f"phases onto it: el readme edit path {k} --phases …", 4)
+        if phases is not None:
+            _place_on_path(case, _todo(case, out), _phase_numbers(phases), stroke, out)
+        parsed.sections.setdefault("Path", []).append(f"- {line}")
+        _write_readme(case, _render_readme(parsed), out)
+        out.say(f"README Path: line {len(_path_strokes(_readme_text(case)))} added — «{stroke}»")
+        return out
     # the same line twice is noise the next reader reads twice (feedback 2026-10-08: the rule line `case new --root` wrote,
     # added again by hand, exit 0) — said where it stands, nothing written, like a move to where an item already is
     mine = [ln for ln in parsed.sections.get(name, []) if ln.startswith("- ") and ln != DECISIONS_DRAWN_HEAD]
@@ -6358,14 +6677,19 @@ def readme_add(case: Path, section: str, line: str) -> Outcome:
     return out
 
 
-def readme_edit(case: Path, section: str, ref: str, text: str) -> Outcome:
+def readme_edit(case: Path, section: str, ref: str, text: Optional[str], phases: Optional[str] = None) -> Outcome:
     """Replace line k of a section in place — the order is kept (feedback 2026-09-08: fixing two of
     six Decisions lines meant dump README, patch it with python, `--file`). State goes by prefix (`set`)."""
     out = Outcome()
     name = SECTION_NAMES.get(section.lower())
     if name is None:
-        raise StoreError(f"no section `{section}` — sections: {' · '.join(grammar.README_SECTIONS)}", 2)
-    text = " ".join(text.split())
+        raise StoreError(f"no section `{section}` — sections: {' · '.join(grammar.README_ORDER)}", 2)
+    if phases is not None and name != "Path":
+        raise StoreError(f"--phases puts phases on a line of the path: el readme edit path K --phases 3,4 — {name} lines "
+                         f"hold no phases", 2)
+    if name == "Path":
+        return _edit_path(case, ref, text, phases, out)
+    text = " ".join((text or "").split())
     if not text:
         raise StoreError(f"usage: el readme edit {name.lower()} <k> \"new text\" — to remove a line: el readme drop {name.lower()} <k>", 2)
     if name == "State":
@@ -6396,6 +6720,40 @@ def readme_edit(case: Path, section: str, ref: str, text: str) -> Outcome:
     _write_readme(case, _render_readme(parsed), out)
     out.say(f"README {name}: line {k} edited → «{text}» (was: «{old[2:]}»)")
     _say_fork_word(text if name == "Context" else "", out, context=True)
+    return out
+
+
+def _edit_path(case: Path, ref: str, text: Optional[str], phases: Optional[str], out: Outcome) -> Outcome:
+    """A line of the path by its position: new words (a new name takes its phases along) and/or phases onto it."""
+    names = _path_strokes(_readme_text(case))
+    if not str(ref).isdigit() or not 1 <= int(ref) <= len(names):
+        listed = " · ".join(f"{k} {s}" for k, s in enumerate(names, 1)) or "no line yet: el readme add path \"Name — what became true\""
+        raise StoreError(f"usage: el readme edit path K \"Name — what became true\" · el readme edit path K --phases 3,4 — "
+                         f"the path: {listed}", 2)
+    k, old = int(ref), names[int(ref) - 1]
+    if not (text or "").strip() and phases is None:
+        raise StoreError(f"usage: el readme edit path {k} \"Name — what became true\" · el readme edit path {k} --phases 3,4", 2)
+    todo = _todo(case, out)
+    nums = _phase_numbers(phases) if phases is not None else []
+    if text and text.strip():
+        line = _path_line(text)
+        new = grammar.PATH_LINE_RE.match(f"- {line}").group(1)
+        if new.lower() != old.lower() and new.lower() in (s.lower() for s in names):
+            raise StoreError(f"the path has «{new}» already — two lines of one name would share their phases", 4)
+        parsed = _readme_sections(case, out)
+        own = [i for i, ln in enumerate(parsed.sections["Path"]) if not ln.startswith(grammar.PATH_DRAWN)
+               and grammar.PATH_LINE_RE.match(grammar.PATH_TAIL_RE.sub("", ln))]
+        was = grammar.PATH_TAIL_RE.sub("", parsed.sections["Path"][own[k - 1]])[2:]
+        parsed.sections["Path"][own[k - 1]] = f"- {line}"
+        moved = _rename_on_path(case, todo, old, new) if new != old else []
+        if nums:
+            _place_on_path(case, todo, nums, new, out)
+        _write_readme(case, _render_readme(parsed), out)
+        out.say(f"README Path: line {k} edited → «{line}» (was: «{was}»)"
+                + (f" · its phases follow the name: {_numbers(moved)}" if moved else ""))
+        return out
+    _place_on_path(case, todo, nums, old, out)
+    _write_readme(case, _readme_text(case), out)
     return out
 
 
@@ -6499,7 +6857,7 @@ def readme_drop(case: Path, section: str, ref: str) -> Outcome:
     out = Outcome()
     name = SECTION_NAMES.get(section.lower())
     if name is None:
-        raise StoreError(f"no section `{section}` — sections: {' · '.join(grammar.README_SECTIONS)}", 2)
+        raise StoreError(f"no section `{section}` — sections: {' · '.join(grammar.README_ORDER)}", 2)
     parsed = _readme_sections(case, out)
     ref = str(ref).strip()
     if not ref.isdigit():
@@ -6521,13 +6879,24 @@ def readme_drop(case: Path, section: str, ref: str) -> Outcome:
         out.say(f"README State: `- {prefix}: …` removed")
         return out
     k = int(ref)
-    bullets = [i for i, ln in enumerate(parsed.sections.get(name, [])) if ln.startswith("- ") and ln != DECISIONS_DRAWN_HEAD]
+    bullets = [i for i, ln in enumerate(parsed.sections.get(name, [])) if ln.startswith("- ") and ln != DECISIONS_DRAWN_HEAD
+               and not (name == "Path" and ln.startswith(grammar.PATH_DRAWN))]
     if not 1 <= k <= len(bullets):
         raise _no_position(name, parsed.sections.get(name, []), len(bullets), k, "drop")
     if name == "State" and grammar.DRAWN_WAIT_RE.match(parsed.sections[name][bullets[k - 1]]):
         raise _drawn_wait_refusal(parsed.sections[name][bullets[k - 1]])
     removed = parsed.sections[name].pop(bullets[k - 1])
     _write_readme(case, _render_readme(parsed), out, anchor=name == "State")
+    if name == "Path":
+        removed = grammar.PATH_TAIL_RE.sub("", removed)
+        m = grammar.PATH_LINE_RE.match(removed)
+        left = [p.n for p in _todo(case, out).phases for f in [_phase_file(case, p.n, p.name)]
+                if m and f.exists() and _phase_path_title(f) == " ".join(m.group(1).split())]
+        door = (f"el readme edit path K --phases {_numbers(left)}" if _path_strokes(_readme_text(case))
+                else f"el readme add path \"Name — what became true\" --phases {_numbers(left)}")
+        out.say(f"README Path: dropped «{removed[2:]}»" + (f" — phases {_numbers(left)} stood on it and stand on no line "
+                                                           f"now: {door}" if left else ""))
+        return out
     out.say(f"README {name}: dropped «{removed[2:]}»")
     return out
 
@@ -7804,6 +8173,7 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_stalled_lines(todo_now, journal))            # an item sent back again and again is stuck (F23)
         lines.extend(_later_lines(todo_now, journal))              # a thought the boundaries keep passing by (F24)
         lines.extend(_scope_lines(case, todo_now, readme_body, journal))  # a running phase without the owner's scope (F24)
+        lines.extend(_off_path_lines(case, todo_now, readme_body))          # a closed phase no line of the path holds (H11)
         lines.extend(_unaccepted_lines(case, todo_now, readme_body))  # done by one hand, not yet accepted by another (F23)
         lines.extend(_unready_lines(case, root, todo_now, readme_body))  # the owner's case ended below, not said ready
     except StoreError:
