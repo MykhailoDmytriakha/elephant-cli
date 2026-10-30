@@ -42,9 +42,14 @@ PATH_TAIL_RE = re.compile(r" · \d+ ✓(?: · \d+ ✗)?(?: · (?:\[[^\]]+\]\([^)
 PATH_DRAWN = ("- ▶ now: ", "- on the path: ")  # el's own lines of the section
 PATH_LINE_CHARS = 200  # the agent's words of a path line: past this a warning — a stroke is one claim, the story is a file
 CLOSED_TALLY_RE = re.compile(r"(?: · acceptance: \d+ of \d+ done accepted.*| · closed by the owner: «.*»)$")  # el's tail on `closed:` (F23), not counted
-STATE_OWNED = ("opened", "progress", "last", "as of", "ready", "closed")
+STATE_OWNED = ("opened", "progress", "last", "as of", "ready", "closed", "waits for the owner")
 DECISIONS_DRAWN_HEAD = "- from the journal, newest first — history, not the case's rules:"  # el's line in Decisions  # State lines el writes (F3): whole, not the agent's to shorten
 JOURNAL_TYPES = {"PHASE", "DECISION", "PROBLEM", "RESULT"}
+# The DECISIONs el writes itself that change the state of the work — an item accepted, sent back, cancelled, a phase's rest
+# moved, a case cancelled. They make a State written before them stale like a RESULT does (the live run of 2026-10-29: eight
+# acceptances left «next: a fresh session accepts 1.1–1.4…» in README, and Order said nothing — it counted RESULT and PHASE).
+EL_STATE_RE = re.compile(r"^принято [\d., L]+: |^снято \d|^дело снято →|^остаток фазы \d+ → "
+                         r"|^[\d.,L ]+ \S+ в работу — ")
 # F20 (2026-09-14, the owner's word): a done item carries the KIND of its evidence — a closed list, on
 # purpose. file = a thing in the case anyone can open · ref = a trace outside the case a person can
 # check · run = a command and what came out, a machine can repeat · owner = the owner's word, the
@@ -837,7 +842,7 @@ def parse_readme(text: str) -> Readme:
     drawn_tail += sum(len(ln.encode("utf-8")) + 1 for ln in drawn_wait)
     # and the `opened:` line el draws first in State from the journal (2026-10-08; Codex: a README at its limit refused
     # the next write once el added it)
-    drawn_open = [ln for ln in r.sections.get("State", []) if ln.startswith("- opened: ")]
+    drawn_open = [ln for ln in r.sections.get("State", []) if ln.startswith(("- opened: ", "- waits for the owner: "))]
     drawn_tail += sum(len(ln.encode("utf-8")) + 1 for ln in drawn_open)
     drawn_tail += sum(len(m.group(0).encode("utf-8")) for ln in r.sections.get("Path", [])  # the count and links el draws on
                       for m in [PATH_TAIL_RE.search(ln)] if m and not ln.startswith(PATH_DRAWN))  # an agent's path line

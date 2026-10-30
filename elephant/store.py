@@ -509,13 +509,25 @@ def take_ask(case: Path, sign: Tuple[str, str, str], limit: int) -> int:
         return 1
 
 
-def _hand_file(root: Path) -> Optional[Path]:
-    sid = session_id()
-    if not sid:
+def _session_key() -> str:
+    """The exact session, as the harness names it — the key a session's own files are kept under (the 8 chars of
+    `session_id` are for reading: `shared01-A` and `shared01-B` are two sessions; Codex, 2026-10-05 for the signature,
+    2026-10-29 for the hand: two sessions shared one hand file and a write landed in the other's case)."""
+    return next((f"{k}={os.environ[k]}" for k in SESSION_ENVS if re.sub(r"[^A-Za-z0-9]", "", os.environ.get(k) or "")), "")
+
+
+def _hand_file(root: Path, legacy: bool = False) -> Optional[Path]:
+    """The session's bookmark in this space — private: it says where the session's next bare command goes, never who
+    works where (the live run of 2026-10-29: a session that only listed the cases was announced to the next one as
+    «another session holds it»). `legacy` — the file el kept before 1.74.0, named by the 8 chars of the session."""
+    full = _session_key()
+    if not full:
         return None
     base = os.environ.get("EL_HANDS_DIR") or os.path.join(tempfile.gettempdir(), "elephant-hands")
     key = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:12]
-    return Path(base) / f"{sid}-{key}"
+    if legacy:
+        return Path(base) / f"{session_id()}-{key}"
+    return Path(base) / f"{hashlib.sha256(full.encode('utf-8')).hexdigest()[:24]}-{key}"
 
 
 def hold(root: Path, case: Path):
@@ -544,15 +556,22 @@ def mark_aimed(case: Path):
 
 
 def held(root: Path, closed_too: bool = False) -> Optional[Path]:
-    """The case this session holds, while it is still an open case here — or, `closed_too`, the one it held last, closed."""
+    """The case this session holds, while it is still an open case here — or, `closed_too`, the one it held last, closed.
+    A session that took its hand under el before 1.74.0 keeps it: its old file is read until the next hold writes the new."""
     f = _hand_file(root)
+    legacy = f is not None and not f.is_file()
+    if legacy:
+        f = _hand_file(root, legacy=True)
     if f is None or not f.is_file():
         return None
     try:
         target = (root.resolve().parent / f.read_text(encoding="utf-8").strip()).resolve()
     except OSError:
         return None
-    return next((c for c in all_cases(root) if c.resolve() == target and (closed_too or is_open(c))), None)
+    found = next((c for c in all_cases(root) if c.resolve() == target and (closed_too or is_open(c))), None)
+    if legacy and found is not None:  # the old file is shared by every session with the same 8 chars, and an older el may
+        hold(root, found)  # move it: what this session read becomes its own at once (Codex, 2026-10-30)
+    return found
 
 
 def hand(root: Path, explicit: Optional[str] = None, look: bool = False) -> Path:
@@ -588,27 +607,46 @@ def hand(root: Path, explicit: Optional[str] = None, look: bool = False) -> Path
         return mine
     picked = max(open_cases, key=freshness)
     global HAND_NOTE
-    other = _other_holder(root, picked)
-    if other:  # a fresh session lands where another live session works — said, not silent (feedback 2026-10-10)
-        sid, when = other
-        HAND_NOTE = (f"this session had no case in hand and took {picked.name}, where the last write went — another session "
-                     f"({sid}) holds it since {when}; if yours is another: el case use <name> · cases: el case list")
+    other = _other_writer(root, picked)
+    if other:  # a fresh session lands where another session wrote lately — said, not silent (feedback 2026-10-10), in what
+        sid, when = other  # el knows: that session wrote here then. A bookmark is not work — a session that only listed the
+        # cases was announced as «another session holds it» (the live run of 2026-10-29), so a look leaves no mark
+        HAND_NOTE = (f"this session had no case in hand and took {picked.name}, where the last write went — session {sid} "
+                     f"wrote here at {when}; if it works here now, take your own: el case use <name> · cases: el case list")
     hold(root, picked)  # picked up once: another session's write no longer moves it
     return picked
 
 
-HAND_NOTE = ""  # said once by main when a fresh session took a case another session holds
-HAND_FRESH = 12 * 3600  # seconds: a hand older than this is a session that has ended — a first guess
+HAND_NOTE = ""  # said once by main when a fresh session took a case another session wrote to lately
+HAND_FRESH = 12 * 3600  # seconds: a write older than this is a session that has ended — a first guess, kept from 1.59.0
 
 
-def _other_holder(root: Path, case: Path) -> Optional[Tuple[str, str]]:
-    """Another session that holds `case` in this space, recently: (its id, «HH:MM» of its last hold) — the newest one."""
-    mine = _hand_file(root)
+def _wrote_file(root: Path) -> Optional[Path]:
+    hand = _hand_file(root)
+    return hand.with_name(hand.name + ".wrote") if hand is not None else None
+
+
+def mark_wrote(root: Path, case: Path):
+    """This session wrote to `case` — the only fact the note to another session stands on (a look writes no mark)."""
+    f = _wrote_file(root)
+    if f is None:
+        return
+    try:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        shown = re.sub(r"[^A-Za-z0-9-]", "", _session_key().partition("=")[2])[:16]  # 8 chars read as one session for two
+        f.write_text(f"{os.path.relpath(case.resolve(), root.resolve().parent)}\n{shown}", encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+
+
+def _other_writer(root: Path, case: Path) -> Optional[Tuple[str, str]]:
+    """Another session that wrote to `case` in this space lately: (its id, «HH:MM» of its last write) — the newest one."""
+    mine = _wrote_file(root)
     base = Path(os.environ.get("EL_HANDS_DIR") or os.path.join(tempfile.gettempdir(), "elephant-hands"))
     key = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:12]
     best = None
     try:
-        files = list(base.glob(f"*-{key}"))
+        files = list(base.glob(f"*-{key}.wrote"))
     except OSError:
         return None
     for f in files:
@@ -618,14 +656,13 @@ def _other_holder(root: Path, case: Path) -> Optional[Tuple[str, str]]:
             st = f.stat()
             if datetime.datetime.now().timestamp() - st.st_mtime > HAND_FRESH:
                 continue
-            target = (root.resolve().parent / f.read_text(encoding="utf-8").strip()).resolve()
+            rel, _, sid = f.read_text(encoding="utf-8").partition("\n")
+            target = (root.resolve().parent / rel.strip()).resolve()
         except (OSError, ValueError):
             continue
-        if target == case.resolve() and (best is None or st.st_mtime > best[1]):
-            best = (f.name[: -(len(key) + 1)], st.st_mtime)
-    if best is None:
-        return None
-    return best[0], datetime.datetime.fromtimestamp(best[1]).strftime("%H:%M")
+        if target == case.resolve() and (best is None or st.st_mtime > best[2]):
+            best = (sid.strip() or "?", datetime.datetime.fromtimestamp(st.st_mtime).strftime("%H:%M"), st.st_mtime)
+    return (best[0], best[1]) if best else None
 
 
 def stray_files(case: Path) -> List[Path]:

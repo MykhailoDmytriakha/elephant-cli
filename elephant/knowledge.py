@@ -246,9 +246,11 @@ screen the path, the owner line and a counted progress answered the owner's ques
   named in Order. el draws on each line how many phases stand on it and links to them (the first, «…», the last two),
   the phase in flight (`▶ now:`) and how many closed phases the path holds; each phase keeps its place as `path:` in
   its own file, under `result:`.
-- the owner line — what waits for the owner (a decision, a word, an action; «nothing» when nothing):
-  `el readme set owner "…"`; el keeps it right under `opened:`, where the owner looks first, and asks for it at
-  `set next`.
+- what waits for the owner — two lines right under `opened:`, where the owner looks first. el draws its own from the
+  structure, at the write that changes it: `waits for the owner:` — the scope of a running phase (only his words agree
+  it), the word that closes a ready case, done items for a second hand (a fresh session or his word). What only you
+  know — a question, a decision, a check only he can make — is your line: `el readme set owner "…"` («nothing» when
+  nothing); el asks for it at `set next`; a closed or cancelled case takes both down.
 - State lines go by prefix: `el readme set next "…"` sets or creates `- next: …` (a new case starts with el's own
   «next: open phase 1»; `phase open` takes it down — your next step is yours to write); `set <prefix> ""`
   (or `drop state <prefix>`) removes it. `progress:` / `last:` / `as of:` are Elephant's — derived on
@@ -267,9 +269,11 @@ screen the path, the owner line and a counted progress answered the owner's ques
   under «from the journal — history, not the case's rules»; a rule that holds from now on is your own Decisions line.
 - `set` writes State only: a prefix that names a line of another section is refused with the
   edit command for that line — it never quietly opens a second line in State.
-- Order says «State is behind»: RESULT/PHASE events landed after `as of`. Read State: something
-  changed → `el readme set next "…"`; still true as it stands → `el readme touch` (moves the
-  anchor only). Both put `as of` on the newest journal entry; el cannot tell truth, only freshness.
+- Order says «State is behind»: RESULT/PHASE events landed after `as of`, or el's own decisions that change the work
+  (an item accepted, sent back, cancelled). Read State: something changed → `el readme set next "…"`; still true as it
+  stands → `el readme touch` (moves the anchor only). Only these two read State whole and put `as of` on the newest
+  journal entry; another State line set (`owner`, your own prefixes) is that line, and the anchor stays. el cannot
+  tell truth, only freshness.
 - `el readme --file README.md` rewrites the whole file — rare; el re-renders what it owns.
   Bare `el readme` (nothing piped) prints the entry's head — thread, counts, Order, hint — then the README and these
   doors; it writes nothing. A stdin left open and empty is not a write: after half a second it is a question.

@@ -62,7 +62,8 @@ class TheAgentsMakeItReady(Base):
         os.environ["EL_SESSION"] = "owner1008-fresh"
         code, out, _ = run()
         self.assertEqual(code, 0)
-        self.assertIn("awaits the owner's word: el done --by owner", out.split("\n")[2])
+        head = "\n".join(out.split("\n")[:6])  # a fresh session after another's write hears a note first (2026-10-29)
+        self.assertIn("awaits the owner's word: el done --by owner", head)
         self.assertIn("- ✓ everything in place", out)
 
     def test_case_list_shows_it_waiting(self):

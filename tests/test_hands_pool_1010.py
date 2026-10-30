@@ -65,7 +65,8 @@ class AFreshSessionIsToldWhoHoldsItsCase(Base):
         os.environ["EL_SESSION"] = "fresh222"
         out = run()[1]
         self.assertIn("note: this session had no case in hand and took", out)
-        self.assertIn("another session (pool1010) holds it", out)
+        self.assertIn("session pool1010 wrote here at", out)  # what el knows: a write, not an occupant (2026-10-29)
+        self.assertNotIn("holds it", out)
         self.assertNotIn("another session", run()[1].split("\n")[2] if len(run()[1].split("\n")) > 2 else "")
 
 
@@ -119,8 +120,8 @@ class TheReview(Base):
         run("case", "use", self.case.name)
         os.environ["EL_SESSION"] = "fresh333"
         code, _, err = run("check")
-        self.assertIn("another session (pool1010) holds it", err)
-        self.assertNotIn("another session (pool1010)", run()[1])  # said once: the hand is this session's now
+        self.assertIn("session pool1010 wrote here at", err)
+        self.assertNotIn("pool1010 wrote here", run()[1])  # said once: the hand is this session's now
 
     def test_2_a_recipe_outside_the_project_is_refused(self):
         outside = Path(self.tmp.name).parent / f"outside-{os.getpid()}" / ".howto"

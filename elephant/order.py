@@ -635,15 +635,16 @@ def anchor(readme_body: str):
     return (m.group(1), m.group(2), m.group(3), int(m.group(4)) if m.group(4) else None)
 
 
-def stale(journal: grammar.Journal, key) -> Tuple[int, int, int]:
-    """(entries touched after the anchor, RESULT events among them, PHASE events among them).
+def stale(journal: grammar.Journal, key) -> Tuple[int, int, int, int]:
+    """(entries touched after the anchor, RESULT events among them, PHASE events among them, el's DECISIONs among them that
+    change the state of the work — accepted, sent back, cancelled: grammar.EL_STATE_RE).
 
     Position, not time: `log` appends to the newest entry when the minute and phase repeat, so the
     anchor names the entry AND how many events it had. Entries above it are newer; events past the
     count inside it are newer too. A legacy anchor without a count falls back to the time key.
     """
     if key is None:
-        return 0, 0, 0
+        return 0, 0, 0, 0
     date, time, phase, count = key
     new_events = []
     touched = 0
@@ -663,7 +664,8 @@ def stale(journal: grammar.Journal, key) -> Tuple[int, int, int]:
             new_events.extend(journal.entries[idx].events[count:])
     r = sum(1 for ev in new_events if ev.type == "RESULT")
     p = sum(1 for ev in new_events if ev.type == "PHASE")
-    return touched, r, p
+    s = sum(1 for ev in new_events if ev.type == "DECISION" and grammar.EL_STATE_RE.match(ev.text))
+    return touched, r, p, s
 
 
 def newest_header(journal: grammar.Journal) -> Optional[str]:
@@ -818,10 +820,11 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
             if any(ev.type in ("RESULT", "PHASE") for e in journal.entries for ev in e.events):
                 out.append("State has no `as of` anchor → rewrite it once: el readme set next \"…\" (sets the anchor)")
         else:
-            n, r, p = stale(journal, key)
-            if r or p:
+            n, r, p, s = stale(journal, key)
+            if r or p or s:
+                states = f", {s} accepted, sent back or cancelled" if s else ""
                 out.append(f"State is behind: {n} journal entr{'y' if n == 1 else 'ies'} touched since as of {key[0]} {key[1]} "
-                           f"({r} RESULT, {p} PHASE) → el readme set next \"…\" · still true as it stands: el readme touch "
+                           f"({r} RESULT, {p} PHASE{states}) → el readme set next \"…\" · still true as it stands: el readme touch "
                            f"· or el readme --file README.md")
     long_ = [(d.rel, grammar.visible_len(d.summary)) for f in folders for d in f.all_docs()
              if d.summary and grammar.visible_len(d.summary) > SUMMARY_CHARS and d.path.resolve() not in (frozen or set())]

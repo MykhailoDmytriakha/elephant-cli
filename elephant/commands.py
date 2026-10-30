@@ -425,7 +425,7 @@ def _derive_readme(case: Path, body: str) -> str:
             text = _set_state_line(text, "last: ", _event_words(last))
     except StoreError:
         pass
-    return _blank_before_headings(_owner_on_top(text))
+    return _blank_before_headings(_owner_on_top(_draw_owner_waits(case, text)))
 
 
 # ---- the path: README as the map of the case (H11, the owner's word 2026-10-29) ------------------------------------------
@@ -684,9 +684,9 @@ def _ask_path(case: Path, todo: grammar.Todo, n: int, out: Outcome) -> None:
 DECISIONS_DRAWN_HEAD = grammar.DECISIONS_DRAWN_HEAD
 DECISIONS_DRAWN = 5
 EL_DECISION_RE = re.compile(  # the formats el itself writes — an agent's «фаза 2 uses …» is a decision (Codex, 2026-10-08)
-    r"^(?:howto|reflect|align): |^принято [\d., L]+: |^снято \d|^дело снято →|^объём фазы \d+ утверждён владельцем: «"
-    r"|^остаток фазы \d+ → |^фаза \d+ (?:[\w-]+ ){0,3}(?:возвращена в план|на паузе)|^фаза \d+ раньше запланированных"
-    r"|^[\d.,L ]+ \S+ в работу — |^todo (?:\d+\.\d+|add|done|edit|move|drop)\b")  # `todo …`: v0.7–0.8 logged each TODO edit
+    r"^(?:howto|reflect|align): |" + grammar.EL_STATE_RE.pattern + r"|^объём фазы \d+ утверждён владельцем: «"
+    r"|^фаза \d+ (?:[\w-]+ ){0,3}(?:возвращена в план|на паузе)|^фаза \d+ раньше запланированных"
+    r"|^todo (?:\d+\.\d+|add|done|edit|move|drop)\b")  # `todo …`: v0.7–0.8 logged each TODO edit
 
 
 def _draw_decisions(readme: str, journal: grammar.Journal) -> str:
@@ -748,6 +748,67 @@ def _opened_line(journal: grammar.Journal, parsed) -> Optional[str]:
 
 
 OWNER_PREFIX = "owner: "  # what waits for the owner — the agent's line, kept on top of State by el
+OWNER_WAITS = "waits for the owner: "  # el's line beside it: what the work waits for from the owner, drawn from the structure
+
+
+def _owner_waits(case: Path, todo: grammar.Todo, readme_body: str, journal: Optional[grammar.Journal]) -> List[str]:
+    """What the work waits for from the owner, as far as the structure says — the same facts Order tells the agent, said to
+    the owner where he looks first (the live run of 2026-10-29: Order showed the agent «phase 1 runs without the owner's
+    agreed scope», the agent told the owner in chat, README said nothing). Only what needs the owner, or is his to give:
+    the scope of a running phase under «two hands» (only his words agree it) · the word that closes a ready case (only his)
+    · done items awaiting a second hand (his word is one of the two doors). What the agent alone knows — a question, a
+    decision — is its own `owner:` line."""
+    if grammar.is_closed(readme_body):
+        return []
+    parts = []
+    two = _two_hands(readme_body)
+    if two and journal is not None:
+        unagreed = [p for p in _running_phases(case, todo) if not _scope_agreed(journal, p.n)]
+        if unagreed:
+            parts.append(f"your scope for phase{'s' if len(unagreed) > 1 else ''} "
+                         + ", ".join(f"{p.n} {p.name}" for p in unagreed))
+    if _ready_value(readme_body):  # el writes ready: only where the owner's word closes the case
+        parts.append("your word that closes the case — it is ready")
+    if two:
+        waiting = [it for p in todo.phases if not p.done  # planned ones too: work done out of turn waits all the same
+                   for it in grammar.flat(p.items) if it.done and not it.accepted]  # (the replay of 2026-10-30: 4.4)
+        if waiting:
+            parts.append(f"{len(waiting)} done item{'s' if len(waiting) > 1 else ''} for a second hand — a fresh session "
+                         f"or your word")
+    return parts
+
+
+def _draw_owner_waits(case: Path, readme: str) -> str:
+    try:
+        todo = grammar.parse_todo(store.read(case, "TODO.md"))
+        journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
+    except StoreError:
+        return readme
+    if todo.errors:
+        return readme
+    parts = _owner_waits(case, todo, readme, None if journal.errors else journal)
+    return _set_state_line(readme, OWNER_WAITS, " · ".join(parts) if parts else None)
+
+
+def sync_owner_waits(case: Path, out: Outcome) -> None:
+    """After a write that did not draw README (an acceptance, an agreed scope, a done): the one line about the owner made
+    true at the moment the work changed — not at the next entry, which the agent who wrote may never make (the live run of
+    2026-10-29 ended in chat). One State line, not the whole render: on a case of 215 phases README costs 4–9 s, this ~0.
+    A README el cannot vouch for (its stamp does not match — a hand edit) is left to its own next write: a side line never
+    rebuilds a file and moves the hand's text to recovery behind a command that succeeded (Codex, 2026-10-30)."""
+    try:
+        raw = store.read(case, "README.md")
+    except StoreError:
+        return
+    if not stamp.verify(raw)[0]:
+        return
+    body = stamp.split(raw)[0]
+    new = _owner_on_top(_draw_owner_waits(case, body))
+    if new != body:
+        try:
+            out.absorb(store.write(case, "README.md", new))
+        except StoreError as e:
+            out.warn(f"README `waits for the owner:` not refreshed — {e}")  # the command is done; the line waits for the next write
 
 
 def _owner_on_top(readme: str) -> str:
@@ -760,13 +821,17 @@ def _owner_on_top(readme: str) -> str:
     if start is None:
         return readme
     end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
-    at = next((i for i in range(start + 1, end) if lines[i].startswith(f"- {OWNER_PREFIX}")), None)
-    if at is None:
+    picked = []
+    for prefix in (OWNER_WAITS, OWNER_PREFIX):  # el's observation first, the agent's words under it
+        at = next((i for i in range(start + 1, end) if lines[i].startswith(f"- {prefix}")), None)
+        if at is not None:
+            picked.append(lines.pop(at))
+            end -= 1
+    if not picked:
         return readme
-    line = lines.pop(at)
-    end -= 1
     opened = next((i for i in range(start + 1, end) if lines[i].startswith("- opened: ")), None)
-    lines.insert(opened + 1 if opened is not None else start + 1, line)
+    at = opened + 1 if opened is not None else start + 1
+    lines[at:at] = picked
     return "\n".join(lines) + "\n"
 
 
@@ -5272,8 +5337,7 @@ def _unaccepted_lines(case: Path, todo: grammar.Todo, readme_body: str) -> List[
     first = f"{items[0].ref}"
     shown = ", ".join(f"{it.ref}" for it in items[:6]) + (f" … +{len(items) - 6}" if len(items) > 6 else "")
     same = [it for it in items if it.n == items[0].n]
-    span = (", ".join(it.ref for it in same) if any(it.k for it in same)  # sub-items are named, a range is one item level
-            else f"{items[0].n}.{min(it.m for it in same)}-{items[0].n}.{max(it.m for it in same)}")
+    span = _accept_span(todo, items)
     many = f"; many at once: el todo accept {span} --by owner \"…\"" if len(same) > 1 else ""
     return [f"{len(items)} done item(s) not accepted — {shown} → a fresh session accepts or returns: el todo brief {first} "
             f"(this case's rule: two hands; the owner's word instead: el todo accept {first} --by owner \"…\"{many})"]
@@ -5300,6 +5364,20 @@ def _second_hand_doors(items: List[grammar.Item], first: str, span: str, journal
     return f"another hand accepts: a fresh session, or {sub} · or {owner}"
 
 
+def _accept_span(todo: grammar.Todo, owed: List[grammar.Item]) -> str:
+    """The items of the first phase among `owed`, as one accept takes them: a range only when nothing else lies inside it —
+    an open item in it would be refused; sub-items one by one (F25). One owner for every line that prints an accept (Codex,
+    2026-10-29: Order printed `accept 1.1-1.3` over an open 1.2 and the printed command was refused)."""
+    n = owed[0].n
+    if any(it.k for it in owed if it.n == n):
+        return ", ".join(it.ref for it in owed if it.n == n)
+    same = sorted(it.m for it in owed if it.n == n)
+    if len(same) == 1:
+        return f"{owed[0].ref}"
+    between = {it.m for p in todo.phases if p.n == n for it in p.items if same[0] <= it.m <= same[-1]}
+    return f"{n}.{same[0]}-{n}.{same[-1]}" if between == set(same) else ", ".join(f"{n}.{m}" for m in same)
+
+
 def _acceptance_line(todo: grammar.Todo, readme_body: str, journal: Optional[grammar.Journal], changed: int = 0) -> Optional[str]:
     """`acceptance: 3 of 7 done accepted — another session 2 · the owner's word 1 · returned by an acceptor 1` on entry,
     when the case asks for two hands or anything was accepted or returned by an acceptor."""
@@ -5316,15 +5394,7 @@ def _acceptance_line(todo: grammar.Todo, readme_body: str, journal: Optional[gra
     # subagent be briefed for form's sake?» — the line named the brief only, so the owner's word read as a shortcut)
     owed = [it for it in done if not it.accepted]
     first = f"{owed[0].ref}" if owed else "N.M"
-    span = first
-    if owed and any(it.k for it in owed if it.n == owed[0].n):  # F25: sub-items are named one by one
-        span = ", ".join(it.ref for it in owed if it.n == owed[0].n)
-    elif owed:
-        n = owed[0].n
-        same = sorted(it.m for it in owed if it.n == n)
-        between = {it.m for p in todo.phases if p.n == n for it in p.items if same[0] <= it.m <= same[-1]}
-        if len(same) > 1:  # a range only when nothing else lies inside it — an open item in it would be refused
-            span = f"{n}.{same[0]}-{n}.{same[-1]}" if between == set(same) else ", ".join(f"{n}.{m}" for m in same)
+    span = _accept_span(todo, owed) if owed else first
     doors = (_second_hand_doors([it for it in owed if f"{it.ref}" == first or it.n == owed[0].n], first, span, journal) if owed
              else f"a fresh session: el todo brief {first} · the owner's word said to you: el todo accept {span} --by owner \"…\"")
     spots = [t for p in todo.phases if not p.done for t in [_spot_tally(journal, p.n)] if t]
@@ -6627,8 +6697,10 @@ def readme_set(case: Path, prefix: str, text: str) -> Outcome:
             raise StoreError(f"`{prefix}` is not a State line — it is {name} line {k}: «{order._short(line, 60)}»; "
                              f"set writes State only → el readme edit {name.lower()} {k} \"…\"", 4)
     body = _set_state_line(_readme_text(case, out), f"{prefix}: ", text)
-    _write_readme(case, body, out, anchor=True)
-    out.say(f"README State: `- {prefix}: …` set (as of the newest journal entry)")
+    certifies = prefix.lower() == "next"  # the agent restating where the work is reads State as a whole; a line beside it
+    _write_readme(case, body, out, anchor=certifies)  # does not (Codex, 2026-10-29: `set owner` hid a stale `next:`)
+    out.say(f"README State: `- {prefix}: …` set" + (" (as of the newest journal entry)" if certifies else
+                                                  " — State's `as of` stays: el readme set next or touch reads it whole"))
     if prefix.lower() == "next":
         if not any(ln.startswith(f"- {OWNER_PREFIX}") for ln in _readme_sections(case, Outcome()).sections.get("State", [])):
             # the end of a session is when the agent knows what it leaves to the owner — asked once there, never refused
@@ -7236,6 +7308,39 @@ def _ready_words(value: str) -> str:
     return re.sub(r"^\d{4}-\d{2}-\d{2} · ", "", grammar.CLOSED_TALLY_RE.sub("", value).strip())
 
 
+def _case_promise_gate(case: Path, todo: grammar.Todo, readme_body: str) -> Optional[str]:
+    """The case's own promise (L6) that holds its close — the refusal `el done` gives, or None. One owner for `done` and for
+    the Order line that offers it (Codex, 2026-10-29: Order printed «el done "what came out"» over a promise no phase
+    proved, and the printed command was refused)."""
+    groups = _case_promise_groups(case, todo, readme_body)
+    unproved = [members for members, st in groups if st != "proved"]
+    if unproved and len(unproved[0]) > 1:  # a fork: either side proved in a phase closes it (the owner's word, 2026-10-09)
+        fork = _fork_text([m[0] for m in unproved[0]])
+        free = max((p.n for p in todo.phases), default=0) + 1
+        return (f"cannot close the case: it promised the fork {fork} in Context and neither side is proved inside a phase "
+                         f"→ prove one: a phase whose goal carries it, closed with its proof ({_carry_command(free, fork)}) · or "
+                         f"correct the promise to what was proved, in the owner's words: {_promise_fix(unproved[0][0][1])}")
+    unproved = [members[0] for members in unproved]
+    if unproved:  # L6: the case's own promise holds its close, as a phase's goal holds the phase's (F12)
+        (kind, what), where, status, refs = unproved[0]
+        near = _near_promises(case, todo, kind, what)
+        more = f" (+{len(unproved) - 1} more promise(s) unproved)" if len(unproved) > 1 else ""
+        why = (f"phase {refs} carries it and did not prove it" if status == "promised"
+               else "no phase proves it" + (f" — the phases promised {near}: the same in other words?" if near else ""))
+        free = max((p.n for p in todo.phases), default=0) + 1
+        return (f"cannot close the case: it promised {_slot(kind, what)} in Context and {why} → prove it: a phase whose "
+                         f"goal carries {_slot(kind, what)}, closed with its proof ({_carry_command(free, _slot(kind, what))}) · or correct "
+                         f"the promise to what was proved, in the owner's words: {_promise_fix(where)}{more}")
+    return None
+
+
+def _case_problems_unanswered(journal: grammar.Journal) -> List[grammar.Event]:
+    by_phase: Dict[str, List[grammar.Event]] = {}
+    for e in journal.entries:
+        by_phase.setdefault(e.phase, []).extend(e.events)
+    return [ev for evs in by_phase.values() for ev in _unanswered_problems(evs)]
+
+
 def done(root: Path, case: Path, summary: str, howto: Optional[str] = None, by: Optional[str] = None) -> Outcome:
     out = Outcome()
     if by is not None and by != "owner":
@@ -7260,33 +7365,15 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None, by: 
     if live:  # F20: a parent closes only when every child is done or cancelled; BROKEN holds it open (F18)
         raise StoreError("cannot close the case: nested cases still open — " + ", ".join(live) +
                          " → close each (el --case <name> done \"…\") or cancel it with a reason", 4)
-    groups = _case_promise_groups(case, todo, _readme_text(case, out))
-    unproved = [members for members, st in groups if st != "proved"]
-    if unproved and len(unproved[0]) > 1:  # a fork: either side proved in a phase closes it (the owner's word, 2026-10-09)
-        fork = _fork_text([m[0] for m in unproved[0]])
-        free = max((p.n for p in todo.phases), default=0) + 1
-        raise StoreError(f"cannot close the case: it promised the fork {fork} in Context and neither side is proved inside a phase "
-                         f"→ prove one: a phase whose goal carries it, closed with its proof ({_carry_command(free, fork)}) · or "
-                         f"correct the promise to what was proved, in the owner's words: {_promise_fix(unproved[0][0][1])}", 4)
-    unproved = [members[0] for members in unproved]
-    if unproved:  # L6: the case's own promise holds its close, as a phase's goal holds the phase's (F12)
-        (kind, what), where, status, refs = unproved[0]
-        near = _near_promises(case, todo, kind, what)
-        more = f" (+{len(unproved) - 1} more promise(s) unproved)" if len(unproved) > 1 else ""
-        why = (f"phase {refs} carries it and did not prove it" if status == "promised"
-               else "no phase proves it" + (f" — the phases promised {near}: the same in other words?" if near else ""))
-        free = max((p.n for p in todo.phases), default=0) + 1
-        raise StoreError(f"cannot close the case: it promised {_slot(kind, what)} in Context and {why} → prove it: a phase whose "
-                         f"goal carries {_slot(kind, what)}, closed with its proof ({_carry_command(free, _slot(kind, what))}) · or correct "
-                         f"the promise to what was proved, in the owner's words: {_promise_fix(where)}{more}", 4)
+    gate = _case_promise_gate(case, todo, _readme_text(case, out))
+    if gate:
+        raise StoreError(gate, 4)
+    groups = _case_promise_groups(case, todo, _readme_text(case, out))  # a fork proved by one side says which, below
     words = " ".join(summary.split())
     _child_item_check(root, case, words, words, "summary", f"el done \"<the outcome in at most "
                       f"{grammar.TODO_ITEM_CHARS} chars>\"")
     journal = _journal(case, out)
-    by_phase: Dict[str, List[grammar.Event]] = {}
-    for e in journal.entries:
-        by_phase.setdefault(e.phase, []).extend(e.events)
-    unanswered = [ev for evs in by_phase.values() for ev in _unanswered_problems(evs)]
+    unanswered = _case_problems_unanswered(journal)
     if unanswered and not howto_text:  # P8 at the size of the case: what no phase close answered is asked once
         raise StoreError(f"cannot close the case: {len(unanswered)} PROBLEM(s) no recipe answers — «{order._short(unanswered[0].text, 60)}»: "
                          f"{HOWTO_ASK}: el done \"{' '.join(summary.split())}\" --howto …", 4)
@@ -7332,6 +7419,7 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None, by: 
     text = _set_state_line(_readme_text(case, out), "closed: ", shown)
     text = _set_state_line(text, "next: ", None)  # a closed case has no next step — the line would be a lie (2026-09-14)
     text = _set_state_line(text, READY_PREFIX, None)  # ready is over: the owner closed it
+    text = _set_state_line(text, OWNER_PREFIX, None)  # nothing waits for the owner of a closed case (Codex, 2026-10-29)
     _write_readme(case, text, out, anchor=True)
     out.lines = log(case, "PHASE", f"дело закрыто → {summary}" + (f" · слово владельца: «{owner_words}»" if owner_words else "")).lines + out.lines
     _deliver_to_parent(root, case, summary, out)
@@ -7397,6 +7485,7 @@ def case_cancel(root: Path, case: Path, why: str) -> Outcome:
                            _closed_line(f"{date} · снято: {why}" + (f" · acceptance: {tally}" if tally else ""))[1])
     text = _set_state_line(text, "next: ", None)  # nothing is next for a cancelled case
     text = _set_state_line(text, READY_PREFIX, None)  # a cancel ends the wait for the owner too (Codex, 2026-10-08)
+    text = _set_state_line(text, OWNER_PREFIX, None)  # and the agent's words about it
     _write_readme(case, text, out, anchor=True)
     out.lines = log(case, "DECISION", f"дело снято → {why}").lines + out.lines
     _deliver_to_parent(root, case, f"снято: {why}", out)
@@ -8127,7 +8216,16 @@ def _unready_lines(case: Path, root: Path, todo: grammar.Todo, readme_body: str)
     if any(order.child_status(k)[0] != "closed" for k in order.child_cases(case, _is_project(case))):
         return []
     free = max(p.n for p in todo.phases) + 1
-    return [f"every phase ended and the case is not said ready — the agents' part ends with el done \"what came out\" "
+    gate = _case_promise_gate(case, todo, readme_body)  # what `done` would refuse is said first, never a command it refuses
+    if gate:
+        return [f"every phase ended and the case is not said ready — before el done: {gate[len('cannot close the case: '):]}"]
+    try:
+        asked = _case_problems_unanswered(_journal(case))
+    except StoreError:
+        asked = []
+    howto = (f" --howto \"none: why\" ({len(asked)} PROBLEM(s) no recipe answers — a recipe written for them: "
+             f"--howto .howto/verb.md)") if asked else ""
+    return [f"every phase ended and the case is not said ready — the agents' part ends with el done \"what came out\"{howto} "
             f"(ready: the owner's word closes it) · more work first: el phase plan {free} \"Name\" --goal \"…\""]
 
 
@@ -8293,7 +8391,7 @@ def entry(root: Path, case: Path) -> Outcome:
         return _legacy_entry(root, case, names, legacy_here)
     out.say(f"el · case in hand: {' › '.join(names)}" if store.is_open(case)
             else f"el · closed case: {' › '.join(names)} — the hand holds open cases only", "")
-    if store.HAND_NOTE:  # a fresh session landed where another live session works (feedback 2026-10-10)
+    if store.HAND_NOTE:  # a fresh session landed where another session wrote lately (feedback 2026-10-10, 2026-10-29)
         out.say(f"note: {store.HAND_NOTE}", "")
         store.HAND_NOTE = ""
     refreshed = onboarding.refresh(_project_root(case))  # the block in CLAUDE.md / AGENTS.md follows the one el ships

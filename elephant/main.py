@@ -626,8 +626,8 @@ def run(argv=None) -> int:
     store.begin()
     try:
         code = _run(argv)
-        if store.HAND_NOTE:  # once, whichever command took the hand: a fresh session landed on a case another live session
-            print(f"el: {store.HAND_NOTE}", file=sys.stderr)  # holds (the entry says it under its first line itself)
+        if store.HAND_NOTE:  # once, whichever command took the hand: a fresh session landed where another session wrote
+            print(f"el: {store.HAND_NOTE}", file=sys.stderr)  # lately (the entry says it under its first line itself)
             store.HAND_NOTE = ""
         return code
     except BaseException:
@@ -806,6 +806,7 @@ def _run(argv=None) -> int:
             if args.root:
                 out = commands.project_new(root, args.name, args.goal)
                 store.hold(root, root.parent)
+                store.mark_wrote(root, root.parent)  # the session that opened the case wrote it
                 print("\n".join(out.lines))
                 if commands._default_rules():  # said in root mode too (feedback 2026-10-08: unsaid, the agent added the line again)
                     print(TWO_HANDS_SAID)
@@ -814,6 +815,7 @@ def _run(argv=None) -> int:
                 return 0
             case = commands.case_new(root, args.name, args.goal)
             store.hold(root, case)  # the session that opened the case holds it (feedback 2026-09-27)
+            store.mark_wrote(root, case)  # and wrote it — what another session's note may say
             print(f"created: {case.relative_to(root.parent)} — now `el phase open 1 <Name> --goal \"…\"`")
             known = commands.knowledge_line(root)
             if known:  # the moment a task starts: what the project already knows (the polygon, 2026-10-08)
@@ -996,6 +998,9 @@ def _run(argv=None) -> int:
                 out = commands.relink(case, args.old, args.new)
             elif args.cmd == "spawn":
                 out = commands.spawn(root, case, args.name, args.goal)
+                child = store.held(root)  # spawn holds the child it opened: its write, not the parent's
+                if child is not None:
+                    store.mark_wrote(root, child)
             elif args.cmd == "done":
                 out = commands.done(root, case, args.summary, howto=args.howto, by=args.by)
             else:  # pragma: no cover
@@ -1013,6 +1018,8 @@ def _run(argv=None) -> int:
                                 f"el case use {case.name}")
                 if store.is_open(case) and not shown and not _looks(args):
                     store.mark_aimed(case)  # and a fresh session without a hand starts there (2026-10-07)
+                    store.mark_wrote(root, case)  # this session works here — what another session's note may say
+                    commands.sync_owner_waits(case, out)  # what waits for the owner, true at the write that changed it
         nudge = commands.acceptance_as_text(locals().get("case"), _written_text(args))
         if nudge:
             out.say(nudge)  # last: the line a `tail -1` reader keeps
