@@ -858,13 +858,21 @@ def unreferenced(case: Path, folders: List[Folder], readme_body: str, todo_body:
 
 # ---- the report shown on every entry (P12) ------------------------------------------------------
 def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[grammar.Journal],
-           links_lines: List[str], link_violations: Optional[list] = None, frozen: Optional[set] = None) -> List[str]:
+           links_lines: List[str], link_violations: Optional[list] = None, frozen: Optional[set] = None,
+           full: bool = False) -> List[str]:
     """Lines for the `## Order` block: each one names what is out of order and the command that
     puts it back. Empty list = everything in place. With `link_violations` (a list), broken links
     in README/TODO are collected there for `check` to report as violations (F16) instead. `frozen`: resolved paths of
     case files that are versioned proofs of done items — their line 2 is not asked to change (it would change the version
-    an acceptance stands on); `done` says it while the edit is still cheap."""
+    an acceptance stands on); `done` says it while the edit is still cheap. `full` (an `el order` asked for): every file of
+    a counted line is named — the entry keeps the count and names the door (the polygon, 2026-11-06: «8 summary lines …
+    +4» named four, nothing named the rest, and the agent rewrote every file by a script — two frozen proofs with them)."""
     out: List[str] = []
+
+    def names(items: List[str], shown: int = 4) -> str:
+        if full or len(items) <= shown:
+            return ", ".join(items)
+        return ", ".join(items[:shown]) + f" … +{len(items) - shown} (each named: el order)"
     described: Dict[str, str] = {}
     for ln in links_lines:
         folder = folder_line(ln)
@@ -885,20 +893,22 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
                 out.append(f"State is behind: {n} journal entr{'y' if n == 1 else 'ies'} touched since as of {key[0]} {key[1]} "
                            f"({r} RESULT, {p} PHASE{states}) → el readme set next \"…\" · still true as it stands: el readme touch "
                            f"· or el readme --file README.md")
-    long_ = [(d.rel, grammar.visible_len(d.summary)) for f in folders for d in f.all_docs()
-             if d.summary and grammar.visible_len(d.summary) > SUMMARY_CHARS and d.path.resolve() not in (frozen or set())]
+    over = [d for f in folders for d in f.all_docs() if d.summary and grammar.visible_len(d.summary) > SUMMARY_CHARS]
+    long_ = [(d.rel, grammar.visible_len(d.summary)) for d in over if d.path.resolve() not in (frozen or set())]
     if long_:  # the limit asks the source to be rephrased; Links shows the summary whole (feedback 2026-09-25)
-        shown = ", ".join(f"{rel} ({n})" for rel, n in long_[:4]) + (f" … +{len(long_) - 4}" if len(long_) > 4 else "")
-        out.append(f"{len(long_)} `summary:` line(s) over {SUMMARY_CHARS} chars — {shown} → rephrase line 2 of the file: the one line "
-                   f"a reader scans in Links (shown whole there, never cut)")
+        held = len(over) - len(long_)
+        out.append(f"{len(long_)} `summary:` line(s) over {SUMMARY_CHARS} chars — {names([f'{rel} ({n})' for rel, n in long_])} "
+                   f"→ rephrase line 2 of each file, one by one: the one line a reader scans in Links (shown whole there, never "
+                   f"cut)" + (f"; {held} more {'is a proof' if held == 1 else 'are proofs'} of done items with their version, "
+                              f"left out on purpose — leave {'it' if held == 1 else 'them'}: an edit changes the version an "
+                              f"acceptance stands on" if held else ""))
     missing = [d.rel for f in folders for d in f.all_docs() if not d.summary]
     if missing:
-        shown = ", ".join(missing[:4]) + (f" … +{len(missing) - 4}" if len(missing) > 4 else "")
-        out.append(f"{len(missing)} file(s) without `summary:` — {shown} → add `summary: one line` as line 2, "
+        out.append(f"{len(missing)} file(s) without `summary:` — {names(missing)} → add `summary: one line` as line 2, "
                    f"or el order --adopt (takes the descriptions from Links)")
     bare = [f.name for f in folders if not described.get(f.name, "") or described[f.name].startswith(PLACEHOLDER_FOLDER)]
     if len(bare) > COUNTED_AFTER:  # many of one kind: one line with the count (the live long case, 2026-11-05)
-        out.append(f"{len(bare)} folder(s) without a description — {', '.join(n + '/' for n in bare[:4])} … +{len(bare) - 4} → "
+        out.append(f"{len(bare)} folder(s) without a description — {names([n + '/' for n in bare])} → "
                    f"el readme add links \"{bare[0]}/ — что здесь\", one per folder")
     else:
         out += [f"folder {n}/ has no description → el readme add links \"{n}/ — что здесь\"" for n in bare]
@@ -910,8 +920,18 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
             out.append(f"nested case {k.name}: from before el (never stamped, outside the grammar) — it holds this case open (F18) → el --case {k.name} migrate")
     pairs = duplicates(folders)
     if len(pairs) > COUNTED_AFTER:  # 23 038 lines of pairs on a live long case (2026-11-05): a count, the strongest first
-        shown = ", ".join(f"{a} ≈ {b} ({int(x * 100)} %)" for a, b, x in pairs[:3])
-        out.append(f"{len(pairs)} pair(s) of files share text verbatim — {shown} … +{len(pairs) - 3} → relate each pair: link "
+        if full:  # every file in a pair named once, with its strongest pair — every file, not every one of 23 038 pairs
+            seen, cover = set(), []
+            for a, b, x in pairs:
+                if a not in seen or b not in seen:
+                    cover.append((a, b, x))
+                    seen.update((a, b))
+            shown = ", ".join(f"{a} ≈ {b} ({int(x * 100)} %)" for a, b, x in cover)
+            rest = f" — every file named with its strongest pair ({len(seen)} files)"
+        else:
+            shown = ", ".join(f"{a} ≈ {b} ({int(x * 100)} %)" for a, b, x in pairs[:3]) + f" … +{len(pairs) - 3} (each file named: el order)"
+            rest = ""
+        out.append(f"{len(pairs)} pair(s) of files share text verbatim{rest} — {shown} → relate each pair: link "
                    f"one from the other, saying in words how it differs · or merge them")
     else:
         for small, other, share in pairs:
@@ -919,9 +939,9 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
                        f"{other.rsplit('/', 1)[-1]} → relate them: link one from the other, saying in words how it differs "
                        f"(«second run over [run 1](run-1.md): …») · or merge them")
     big = budgets(folders)
-    out.extend(big if len(big) <= COUNTED_AFTER else
+    out.extend(big if len(big) <= COUNTED_AFTER or full else
                [f"{len(big)} file(s) over {FILE_WARN_BYTES // 1024} KB — {'; '.join(b.split(' → ')[0] for b in big[:3])} … "
-                f"+{len(big) - 3} → split each by summary or trim"])
+                f"+{len(big) - 3} (each named: el order) → split each by summary or trim"])
     try:
         from . import store, stamp  # local: store imports order for the README render
         todo_body = stamp.split(store.read(case, "TODO.md"))[0]
@@ -929,8 +949,7 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
         todo_body = ""
     dead = unreferenced(case, folders, readme_body, todo_body, journal)
     if dead:
-        shown = ", ".join(dead[:4]) + (f" … +{len(dead) - 4}" if len(dead) > 4 else "")
-        out.append(f"{len(dead)} file(s) nothing in the work points at — {shown} → link it from an item, a phase file or a "
+        out.append(f"{len(dead)} file(s) nothing in the work points at — {names(dead)} → link it from an item, a phase file or a "
                    f"decision · park it: el mv <file> archive/ · or delete it (F21)")
     broken = broken_links(case, folders, readme_body, todo_body, journal)
     if link_violations is not None:
@@ -938,7 +957,6 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
         broken = [(f, t) for f, t in broken if f not in ("README.md", "TODO.md")]
     if broken:
         pairs = list(dict.fromkeys(broken))  # five journal links to one gone file are one thing to fix
-        shown = ", ".join(f"{f} → {t}" for f, t in pairs[:4]) + (f" … +{len(pairs) - 4}" if len(pairs) > 4 else "")
-        out.append(f"{len(broken)} broken link(s): {shown} → fix the link, or move files with `el mv old new` (links follow); "
+        out.append(f"{len(broken)} broken link(s): {names([f'{f} → {t}' for f, t in pairs])} → fix the link, or move files with `el mv old new` (links follow); "
                    f"already moved without el: el relink old new · gone for good or an example: el relink old none")
     return out

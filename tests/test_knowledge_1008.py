@@ -96,7 +96,10 @@ class TheEntryOfEveryCaseNamesIt(Base):
         self.assertIn("+1 more — el facts", line)
 
     def test_a_dead_link_is_an_order_line_and_never_named_as_knowledge(self):
+        gone = self.research / "docs" / "gone.md"  # a link that died after it was written: the write refuses a dead one (1.76.0)
+        gone.write_text("# gone\nsummary: soon gone\n", encoding="utf-8")
         run("--case", "research", "readme", "add", "context", "knowledge: [gone.md](docs/gone.md)")
+        gone.unlink()
         code, out, _ = run()
         self.assertIn("broken link(s): README.md → docs/gone.md", out)  # like every README link (F16)
         self.assertNotIn("knowledge:", self.head(out).split("## Order")[0])

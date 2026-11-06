@@ -363,7 +363,7 @@ class Thread(Base):
         out = run()[1]
         line = next(ln for ln in out.split("\n") if ln.startswith("thread: "))
         self.assertTrue(line.startswith("thread: goal «the service answers in under a second» → phase 1 Speed «p95 under a second» → "
-                                        "item 1.1 «cache the price lookup» (why: the owner waits two seconds on every page) → "), line)
+                                        "item 1.1 «cache the price lookup» (why: «the owner waits two seconds on every page») → "), line)
         self.assertTrue(line.endswith(" → next: «measure the cold cache»"), line)
         # since 2026-09-25 a debt in Order is a step of the thread (tests/test_thread_order_0925.py): here, the folder evidence/
         self.assertIn("→ first: Order «folder evidence/", line)

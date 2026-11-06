@@ -170,6 +170,10 @@ check · a second copy of the stamp.""",
 
     "order": """order — the case keeps itself tidy (F14, F15, S5, P12)
 Every `el` entry ends with `## Order`: each line = one thing out of place + the command that fixes it.
+Many of one kind are one line with a count on the entry; `el order`, asked for, names each file (2026-11-06).
+- a `summary:` over 150 chars → rephrase line 2 of each file, one by one — a script that cuts them loses the claim.
+  A file that is a proof of a done item with its version is left out on purpose and the line says so: an edit would
+  change the version an acceptance stands on.
 - files without `summary:` → add `summary: one line` as line 2 of the file (under its title);
   descriptions already written in README Links → `el order --adopt` moves them into the files
   (markdown only — a file with no body keeps its description in the Links line).
@@ -263,7 +267,11 @@ screen the path, the owner line and a counted progress answered the owner's ques
   `el readme edit decisions 3 "new text"` (in place, order kept) · `el readme drop decisions 3`.
   Plain lines (no `- `) are a paragraph, not a list — no position reaches them: the first of Context is the case goal,
   `el readme edit context goal "…"`; the others only a whole rewrite (`el readme --file <a copy of README.md>`). A line
-  that changes on its own is a bullet: `el readme add context "…"`, then edit/drop k.
+  that changes on its own is a bullet: `el readme add context "…"`, then edit/drop k. Words where k goes
+  (`el readme drop context "knowledge:"`) are refused with the lines numbered and the command for the one they begin.
+- a link in a README line is read from the case, where README lives and the owner clicks: `[x](docs/x.md)`; one typed
+  from the project root (`.cases/<case>/docs/x.md`, `src/app.py`) is rewritten to the case and said; one that leads
+  nowhere is refused before the write — `check` would call it a broken link (F16).
   Sections: Context · Path (when it has a line) · State · Decisions · Problems · Links (your folder lines; file lines are
   rendered).
   Drawn by el, never typed: State `opened:` (when and with which goal the case began), `progress:` (past twelve phases
@@ -513,7 +521,9 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   one phase in flight still. A dead end: `el phase close N "…" --rest later` — the open items go to the general
   list with their pockets, the gates are the same (`el help later`). The scope the owner agreed:
   `el phase agree N "the owner's words"` — at the boundary, before opening; under the case rule «two hands»
-  Order names a running phase without it (`el help acceptance`).
+  Order names a running phase without it (`el help acceptance`). It is no lock: the work goes on while the owner is
+  away, and a close without it marks the phase line «scope not agreed by the owner» — he sees it before his word
+  closes the case.
 - a detour (F26, the owner's word 2026-10-06): life goes sideways in the middle of a phase — something comes up that
   has to be done first («the furniture arrives: sign the lease»), or a step back must be redone («the bolt must be
   longer»). `el phase open K "Name" --goal "…" --why "what came up"` while phase P is in flight: P pauses — `[~]` in
@@ -989,7 +999,8 @@ records the verdict.
   words, as said"` — el writes them as a quote (`слово владельца: «…»`), never as the agent's account of them; one word
   for many items is one quote over a range, and the record shows it was one word.
 - a file of the case is accepted as a version (L8, 2026-10-02): `done` wrote the content's version on the proof line;
-  if the file changed since, `accept` refuses — you would sign bytes the doer never claimed — and names the moves:
+  if the file changed since, `accept` refuses — you would sign bytes the doer never claimed; a verdict holds only for
+  the version it was given for, so after the doer records the new one, you check it again — and names the moves:
   the doer records this version (`el todo done N.M file:<path> "…"`, the acceptance starts over), or moves the proof to
   a copy kept of the version claimed (`el todo done N.M file:<the copy>`), or you return it (`el todo reopen N.M --by
   <you> "…"`). A change after your acceptance is said on entry and holds the phase close.
@@ -1008,8 +1019,12 @@ records the verdict.
   hand always); an older case takes it by the same line: `el readme add context "rule: two hands — the owner agrees each
   phase's scope, a fresh session accepts each done item"`; the owner drops it with `el readme drop context k`. It makes
   the entry count `acceptance: k of n done accepted`, Order names the done items
-  nobody accepted and a running phase whose scope the owner never agreed (`el phase agree N "…"`), and `phase close`
-  refuses over an unaccepted item — a fresh session accepts, or the owner's word.""",
+  nobody accepted and a running phase whose scope the owner never agreed (`el phase agree N "…"` — no lock: a close
+  without it is marked on the phase line), and `phase close` refuses over an unaccepted item — a fresh session
+  accepts, or the owner's word.
+- a refused verdict is kept by the session with the version each item stood on: the same words, once the item stands on
+  another version, are refused — they were not given for it; on the same version they pass. A version is which file
+  holds which bytes: a copy of the version claimed and `el mv` keep it, two files that swap contents do not (2026-11-06).""",
 
     "onboarding": """onboarding — the block your agent's instruction file carries (S6; the owner's word, 2026-09-25)
 An agent starts with no memory; what it reads first is its instruction file — CLAUDE.md (Claude Code), AGENTS.md (Codex,

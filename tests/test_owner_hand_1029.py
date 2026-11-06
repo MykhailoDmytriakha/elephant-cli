@@ -154,7 +154,7 @@ class OwnerWaits(Base):
 
     def test_the_scope_and_the_second_hand_follow_each_write(self):
         self.ok("phase", "open", "1", "Work", "--goal", "the work is done")
-        self.assertEqual(self.waits(), "- waits for the owner: your scope for phase 1 Work")
+        self.assertEqual(self.waits(), "- waits for the owner: your scope for phase 1 Work (the work does not stop for it; a close without it is marked)")
         self.ok("phase", "agree", "1", "the owner agreed")
         self.assertIsNone(self.waits(), "the agreed scope leaves the line at once")
         self.ok("todo", "add", "1", "a step")

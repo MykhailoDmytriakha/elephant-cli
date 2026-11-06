@@ -52,7 +52,7 @@ class TheWallHasAWayOut(Base):
         self.assertEqual(code, 0, err)
         self.assertIn(f"[~] 1.1 check the port — hold: {HOLD} — check: touch ran.txt && ./check-port.sh", self.todo_text())
         self.assertEqual((self.item().hold_reason, self.item().hold_check), (HOLD, "touch ran.txt && ./check-port.sh"))
-        self.assertIn("is it over? `touch ran.txt && ./check-port.sh` — it came: el todo resume 1.1", self.thread())
+        self.assertIn("is it over? «touch ran.txt && ./check-port.sh» — it came: el todo resume 1.1", self.thread())
         self.assertFalse(Path("ran.txt").exists(), "el never runs a check — the agent does")
         self.assertEqual(run("check")[0], 0)
 

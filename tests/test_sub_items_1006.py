@@ -97,7 +97,7 @@ class AddingAndEnding(Base):
     def test_add_under_an_item_makes_the_next_sub_item_under_it(self):
         code, out, err = run("todo", "add", "1.1", "probe: the code drops late events", "--fact", "the code drops them")
         self.assertEqual(code, 0, err)
-        self.assertIn("added: 1.1.1 probe: the code drops late events — under 1.1", out)
+        self.assertIn("added: 1.1.1 «probe: the code drops late events» — under 1.1", out)
         todo = self.read("TODO.md")
         self.assertIn("    - [ ] 1.1.1 probe: the code drops late events\n      - fact: the code drops them", todo)
         self.assertIn("  - [ ] 1.1 find why the metric drops at 02:00 — sub-items: 1 open", todo)

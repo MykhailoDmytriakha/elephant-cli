@@ -423,6 +423,53 @@ def mark_walls_asked(n: int) -> None:
         pass
 
 
+def _verdicts_file() -> Optional[Path]:
+    f = _walls_file()
+    return f.with_name(f.name[:-len("-walls.jsonl")] + "-verdicts.jsonl") if f is not None else None
+
+
+def _verdict_key(case: Path, ref: str, words: str) -> str:
+    raw = f"{case.resolve()}\n{ref}\n{' '.join(words.split())}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def record_refused_verdict(case: Path, ref: str, words: str, claim: list) -> None:
+    """A refused verdict, kept by the session like its walls, with the versions the item stood on (the polygon, 2026-11-06:
+    an acceptor checked #A, the doer edited it to #B, the accept was refused; the doer recorded #B and sent the same words
+    in the same second — «accepted» for bytes no acceptor saw). Only a key: the words stay with the agent. Never raises."""
+    try:
+        f = _verdicts_file()
+        if f is None:
+            return
+        rec = {"ts": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "key": _verdict_key(case, ref, words), "claim": claim}
+        f.parent.mkdir(parents=True, exist_ok=True)
+        with f.open("a", encoding="utf-8") as fh:
+            _locked(fh)
+            fh.write(json.dumps(rec) + "\n")
+    except Exception:  # noqa: BLE001 — the refusal comes first
+        pass
+
+
+def refused_verdicts(case: Path, ref: str, words: str) -> List[dict]:
+    """This session's refused verdicts with the same words for this item, oldest first — [] when none or no session."""
+    try:
+        f = _verdicts_file()
+        if f is None or not f.is_file():
+            return []
+        key = _verdict_key(case, ref, words)
+        found = []
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(rec, dict) and rec.get("key") == key:
+                found.append(rec)
+        return found
+    except OSError:
+        return []
+
+
 def _calls_file() -> Optional[Path]:
     f = _walls_file()
     return f.with_name(f.name[:-len("-walls.jsonl")] + "-calls.json") if f is not None else None

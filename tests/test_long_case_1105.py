@@ -111,11 +111,15 @@ class OrderCountsWhatRepeats(Base):
         for k in range(6):
             (docs / f"copy{k}.md").write_text(f"# c{k}\nsummary: copy {k}\n\n" + TRACKER,
                                               encoding="utf-8")
-        out, _ = self.ok("order")
+        out, _ = self.ok()  # the entry counts; `el order`, asked for, names every file once (1.76.0)
         lines = [ln for ln in out.split("\n") if "verbatim" in ln]
         self.assertEqual(len(lines), 1, out)
         self.assertIn("15 pair(s) of files share text verbatim", lines[0])
-        self.assertIn("… +12", lines[0])
+        self.assertIn("… +12 (each file named: el order)", lines[0])
+        out, _ = self.ok("order")
+        lines = [ln for ln in out.split("\n") if "verbatim" in ln]
+        self.assertEqual(len(lines), 1, out)
+        self.assertIn("every file named with its strongest pair (6 files)", lines[0])
 
     def test_a_few_pairs_keep_a_line_each(self):
         docs = self.case() / "docs"
@@ -132,8 +136,10 @@ class OrderCountsWhatRepeats(Base):
             d = self.case() / f"run{k}"
             d.mkdir()
             (d / "x.txt").write_text("x\n", encoding="utf-8")
+        out, _ = self.ok()  # the entry counts and names the door; `el order`, asked for, names each (1.76.0)
+        self.assertIn("5 folder(s) without a description — run0/, run1/, run2/, run3/ … +1 (each named: el order)", out)
         out, _ = self.ok("order")
-        self.assertIn("5 folder(s) without a description — run0/, run1/, run2/, run3/ … +1", out)
+        self.assertIn("5 folder(s) without a description — run0/, run1/, run2/, run3/, run4/ →", out)
 
     def test_the_entry_prints_twelve_lines_of_order_and_the_door_to_all(self):
         from elephant import commands

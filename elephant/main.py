@@ -780,6 +780,11 @@ def _run(argv=None) -> int:
             raise StoreError(trace, 2)
         if args.cmd == "help":
             words = [w for w in args.topic or [] if w.strip()]
+            if len(words) == 1 and "-" in words[0].strip("-") and words[0].split("-", 1)[0].lower() in _commands(parser):
+                words = words[0].split("-", 1)  # `el help case-new` is `el help case new` (the polygon, 2026-11-06)
+            if [w.lower() for w in words] in (["topics"], ["topic"]):  # the list asked for is an answer, not a refusal
+                print(f"doses: {knowledge.topic_list()} — open one: el help <topic>; a command's form: el <command> -h")
+                return 0
             args.topic = " ".join(words)
             alias = HELP_ALIASES.get(tuple(w.lower() for w in words[:2]))
             if len(words) == 2 and alias:  # the forms el accepts are told as such (Codex, 2026-10-20: `help todo list` said
@@ -1102,6 +1107,24 @@ def _run(argv=None) -> int:
 CASE_COMMANDS = commands.CASE_COMMANDS
 
 
+def _is_command(words: str) -> bool:
+    """The agent's field is itself an el command line (`el todo resume 1.1`): it is printed as a door, with the call's
+    `--case` — the carry never leaves a runnable command without it (Codex, rounds 10–11 of the acceptance of 1.76.0)."""
+    try:
+        argv = shlex.split(words)
+    except ValueError:
+        return False
+    if len(argv) < 2 or argv[0] != "el":
+        return False
+    import contextlib, io
+    try:
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            build_parser().parse_args(argv[1:])
+        return True
+    except (SystemExit, Exception):  # el's parser refuses with StoreError: not a command line
+        return False
+
+
 def _carry_case(lines: List[str], args) -> List[str]:
     """`--case` acts on one call (1.60.0), so a command el prints in the answer to such a call names the same case —
     or, run as printed, it acts on the case in hand, another one (Codex acceptance, 2026-10-11: the recovery of an
@@ -1110,7 +1133,13 @@ def _carry_case(lines: List[str], args) -> List[str]:
     name = getattr(args, "case", None) if args is not None else None
     if not name or getattr(args, "cmd", None) not in (None, "feedback", *{c.split()[0] for c in CASE_COMMANDS}):
         return lines
-    return [ln if isinstance(ln, commands.Stored) else commands.carry_case(ln, name) for ln in lines]  # the case as stored
+    stored: List[str] = []
+    if any(not isinstance(ln, commands.Stored) and commands.CARRY_RE.search(ln) for ln in lines):
+        try:  # the agent's own words in the case, to tell «el order works» of a fact from a door el composed (Codex, ten rounds)
+            stored = commands.case_words(store.resolve_case(store.find_root(), name))
+        except (StoreError, OSError):
+            stored = []
+    return [ln if isinstance(ln, commands.Stored) else commands.carry_case(ln, name, stored, _is_command) for ln in lines]
 
 
 NAMES_A_COMMAND = re.compile(r"\bel (?:--[a-z]+ \S+ )?[a-z]")  # a line that names an el command — a door
