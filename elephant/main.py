@@ -208,6 +208,10 @@ class Parser(argparse.ArgumentParser):
         self._argv = list(args) if args is not None else sys.argv[1:]
         return super().parse_args(args, namespace)
 
+    def parse_known_args(self, args=None, namespace=None):  # what run() calls: the words are kept for the doors too
+        self._argv = list(args) if args is not None else sys.argv[1:]
+        return super().parse_known_args(args, namespace)
+
     def error(self, message: str):
         prog = self.prog
         unknown = re.match(r"argument cmd: invalid choice: '([^']*)'", message) if prog == "el" else None
@@ -215,6 +219,19 @@ class Parser(argparse.ArgumentParser):
         if door:  # the word names what the agent meant: the door to it, last — not the start of the day (a live wall
             # report, 2026-10-21: `el next` twice, `el goal` twice, `el list`, `el phaseclose -h` in one Codex session)
             line, recovery = door
+            argv = getattr(self, "_argv", [])
+            at = _command_position(argv)
+            if (at is not None and argv[at] == unknown.group(1) and " · " not in recovery and recovery.startswith("el ")
+                    and "…" not in recovery):
+                # the words typed after it go with the door (a wall report, 2026-10-31: `el brief 242.1` → «recovery: el
+                # todo brief», the item gone), and the case the call named — run as printed, it acts on that case
+                head, rest = argv[:at], argv[at + 1:]
+                case = next((head[i + 1] for i, w in enumerate(head[:-1]) if w == "--case"), None) or next(
+                    (w.split("=", 1)[1] for w in head if w.startswith("--case=")), None)
+                if case:
+                    recovery = commands.carry_case(recovery, case)
+                if rest:
+                    recovery = recovery + " " + " ".join(shlex.quote(w) for w in rest)
             raise StoreError(f"{prog}: {message}\n  {line}", 2, recovery=recovery)
         if prog == "el" and message.startswith("unrecognized arguments"):
             # extras are caught by the top parser, which knows no command — name the one that was called (the live map,
@@ -242,6 +259,21 @@ HABIT_DOORS = {
 }
 HABIT_DOORS.update({"view": HABIT_DOORS["read"], "state": HABIT_DOORS["read"], "align": HABIT_DOORS["reflect"],
                     "ls": HABIT_DOORS["list"], "cases": HABIT_DOORS["list"]})  # `show` is an action of todo and phase
+
+
+def _command_position(argv: List[str]) -> Optional[int]:
+    """Where the command word stands: after el's own options and their values (`--case x`, `--case=x`, `--version`) — not
+    the first word equal to it (Codex, 2026-11-05: `el --case brief brief 1.1` took the case's name for the command)."""
+    i = 0
+    while i < len(argv):
+        w = argv[i]
+        if w == "--case":
+            i += 2
+        elif w.startswith("-"):
+            i += 1
+        else:
+            return i
+    return None
 
 
 def _unknown_command_door(parser: argparse.ArgumentParser, word: str) -> Optional[Tuple[str, str]]:
@@ -395,6 +427,10 @@ SHELL_TRACES = (
     # what a swallowed `$150.72` or `$12.345` leaves; a measure written `.0878` (WER, a ratio) is not money (the live
     # map, 2026-10-08: a digest line «WER .0878» was refused)
     (re.compile(r"(?:^|\s)\.\d{1,3}(?!\d)"), "an orphan decimal like `.72`"),  # `$12.345` leaves `.345` (Codex)
+    # what a swallowed `$2–2,5` or `$2,5` leaves (a report, 2026-11-03: «дали $2–2,5 тыс.» landed as «дали –2,5 тыс.» in a
+    # journal line no one can edit). Measured on 235 012 lines of live cases, 2026-11-05: a space, then `,` or `–` right
+    # before a digit — 0 times; a hyphen there — 342 (`tail -4`, `-1px`), so a hyphen stays out: a trace el cannot tell
+    (re.compile(r"(?:^|\s)[,–]\d"), "a dash or comma glued to a number like `–2,5`"),
     (re.compile(r"^\s"), "a leading space"),  # a trailing one is too often innocent (`"x " * n`) to refuse
 )
 TEXT_ARGS = ("text", "goal", "a", "b", "c", "name", "summary", "title", "expected", "actual", "why", "acceptance", "repro", "note", "expect", "reflect", "align", "fact", "howto", "run", "check")
@@ -596,7 +632,9 @@ def shell_trace(args) -> Optional[str]:
                 # a number meant as written has its door too (the polygon, 2026-10-10: «WER .172» in single quotes was
                 # refused, and the advice — single quotes — was what the agent had already done)
                 whole = (f"; the number meant as written, quotes already single? write it whole: 0{m.group().strip()} — el "
-                         f"reads that as a number, not a trace" if what.startswith("an orphan decimal") else "")
+                         f"reads that as a number, not a trace" if what.startswith("an orphan decimal") else
+                         "; a negative number meant? write it with the minus sign −2 (U+2212) — el reads that as a number"
+                         if what.startswith("a dash") else "")
                 return (f"text not written: {what} at «…{where}…» — a `$…` swallowed by the shell? inside double quotes "
                         f"`$150` is a variable and vanishes; write the text in SINGLE quotes: el {args.cmd} … '…'{whole} "
                         f"(a double space is never kept anyway — fix the text and repeat)")
@@ -800,9 +838,12 @@ def _run(argv=None) -> int:
             print("\n".join(out.lines))
             return 0
         if args.cmd == "case" and args.action == "new":
-            if not args.name or not args.goal:
-                raise StoreError("usage: el case new <name> --goal \"one line\" [--root]", 2)
+            if not (args.name or args.root) or not args.goal:
+                raise StoreError("usage: el case new <name> --goal \"one line\" [--root] — with --root the name defaults to the "
+                                 "project folder's", 2)
             root = _root_or_create()
+            if args.root and not args.name:  # root mode: the project folder is the case — its name is the folder's (a
+                args.name = root.parent.name  # report, 2026-10-30: help showed [name], and the call asked for it)
             if args.root:
                 out = commands.project_new(root, args.name, args.goal)
                 store.hold(root, root.parent)
@@ -1058,14 +1099,7 @@ def _run(argv=None) -> int:
         return e.code
 
 
-CASE_COMMANDS = ("todo", "phase", "log", "readme", "done", "check", "order", "facts", "mv", "relink", "spawn", "status",
-                 "migrate", "case cancel", "case reopen")
-CARRY_RE = re.compile(r"(?<![\w/.-])el (?=(?:" + "|".join(re.escape(c) for c in CASE_COMMANDS) + r")\b(?!:))")  # not `el done:` — a label
-
-
-# a quoted stretch is someone's words (2026-10-12: «el todo …» in an item's text came back as «el --case x todo …»); an
-# apostrophe inside a word (item's) opens nothing
-QUOTED_RE = re.compile(r"""(«[^»]*»|(?<!\w)'(?:[^'\n]|'\\'')*'(?!\w)|(?<!\w)"[^"\n]*"(?!\w))""")
+CASE_COMMANDS = commands.CASE_COMMANDS
 
 
 def _carry_case(lines: List[str], args) -> List[str]:
@@ -1076,12 +1110,7 @@ def _carry_case(lines: List[str], args) -> List[str]:
     name = getattr(args, "case", None) if args is not None else None
     if not name or getattr(args, "cmd", None) not in (None, "feedback", *{c.split()[0] for c in CASE_COMMANDS}):
         return lines
-    word = name if re.fullmatch(r"[\w.@+/-]+", name) else shlex.quote(name)
-    opt = f"--case={word}" if name.startswith("-") else f"--case {word}"
-    def carry(ln: str) -> str:  # only el's own words: a quote holds the agent's — «…», a shell-quoted argument
-        parts = QUOTED_RE.split(ln)
-        return "".join(p if i % 2 else CARRY_RE.sub(f"el {opt} ", p) for i, p in enumerate(parts))
-    return [ln if isinstance(ln, commands.Stored) else carry(ln) for ln in lines]  # the case as stored
+    return [ln if isinstance(ln, commands.Stored) else commands.carry_case(ln, name) for ln in lines]  # the case as stored
 
 
 NAMES_A_COMMAND = re.compile(r"\bel (?:--[a-z]+ \S+ )?[a-z]")  # a line that names an el command — a door

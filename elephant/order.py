@@ -14,6 +14,7 @@ visible from the top:
 Nothing here refuses a write: the lower layer is written by the agent directly, so the tool can
 only show what is out of order, with the command that fixes it — on every entry (P12).
 """
+import math
 import posixpath
 import re
 from dataclasses import dataclass, field
@@ -28,6 +29,7 @@ SUMMARY_SCAN_LINES = 5
 # day: «and the limit by the measure, and the freeze») — 120 asked a seventh of good one-liners to be rewritten
 SUMMARY_CHARS = 150
 FILE_WARN_BYTES = 24 * 1024
+COUNTED_AFTER = 3  # more lines of one kind than this: one line with the count — what grows keeps a form that holds (2026-10-28)
 # F15 duplicate = verbatim overlap: word 3-grams (shingles) of the smaller file found in the other.
 # Measured 2026-09-03 on a live case (8 documents in one folder): the pair the 0.10 word-set metric
 # flagged at 0.46 — a document drawn from another, kept apart on purpose — shares 0.34 of its
@@ -37,6 +39,7 @@ DUP_SHARE = 0.50
 DUP_MIN_SHINGLES = 30  # a file of ~30 words is too short to call anything a copy of it
 TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.I)
 SKIP_DIRS = {"phases", "node_modules", "scripts", "legacy"}  # legacy/ = byte-for-byte archive, never nagged
+DEPENDENCY_DIRS = store.DEPENDENCY_DIRS  # one list: what the walk and the map never enter
 # L4 kinds — in root mode only these (plus folders already listed in Links) are content folders,
 # because the project folder also holds source code, build output and whatever else.
 KNOWN_KINDS = {"docs", "research", "logs", "meetings", "jira", "data", "inbox", "notes", "forms",
@@ -153,11 +156,11 @@ def content_folders(case: Path, root_mode: bool, listed: Optional[set] = None) -
     if not case.is_dir():
         return out
     for d in sorted(case.iterdir()):
-        if not d.is_dir() or d.name.startswith(".") or d.name in SKIP_DIRS or _is_case_dir(d):
+        if not d.is_dir() or d.name.startswith(".") or d.name in SKIP_DIRS or d.name in DEPENDENCY_DIRS or _is_case_dir(d):
             continue
         if root_mode and d.name not in KNOWN_KINDS and d.name not in listed:
             continue
-        out.append(_scan_folder(d, d.name))
+        out.append(Folder(d.name, d) if d.is_symlink() else _scan_folder(d, d.name))  # a link to a folder: never walked
     return out
 
 
@@ -170,7 +173,11 @@ def _scan_folder(d: Path, rel: str) -> Folder:
         if child.name.startswith("."):
             continue
         if child.is_dir():
-            if not _is_case_dir(child) and child.name not in SKIP_DIRS:
+            if child.name in SKIP_DIRS:
+                continue
+            if child.is_symlink() or child.name in DEPENDENCY_DIRS:  # a link to a folder, a dependency tree: one artifact,
+                folder.other.append((f"{child.name}/", f"{rel}/{child.name}"))  # never walked (two live reports, 2026-11-01)
+            elif not _is_case_dir(child):
                 folder.subs.append(_scan_folder(child, f"{rel}/{child.name}"))
         elif child.suffix.lower() == ".md":
             size = child.stat().st_size
@@ -454,6 +461,9 @@ def _render_folder(f: Folder, depth: int, folder_desc: Dict[str, str], fallback:
             out.append(f"{ind}- [{d.path.name}]({d.rel})")  # no summary: the link alone — Order names the gap
     plain = []
     for name, rel in f.other:
+        if name.endswith("/") and folder_desc.get(rel):  # a link to a folder the agent described (Codex, 2026-11-05: the
+            out.append(f"{ind}- {rel}/ — {folder_desc[rel]}")  # line was «added» and gone) — its line, nothing behind it
+            continue
         desc = fallback.get(rel)
         if desc:  # described by the agent in Links: a file under work, not an attachment — it
             rendered.add(rel)  # belongs among the folder's documents, before the sub-folders
@@ -461,6 +471,9 @@ def _render_folder(f: Folder, depth: int, folder_desc: Dict[str, str], fallback:
         else:
             plain.append(name)
     for s in f.subs:
+        if s.subs and not _holds_own(s, folder_desc, fallback):  # material: a tree — a stand, an export — with no document
+            plain.append(f"{s.path.name}/")  # and nothing described inside; one name in el's `other:` line, not a tree
+            continue  # (the live long case, 2026-11-05: 13 557 such folders made 21 000 lines of the map)
         desc = folder_desc.get(s.name, "")
         out.append(f"{ind}- {s.name}/" + (f" — {desc}" if desc else ""))
         _render_folder(s, depth + 1, folder_desc, fallback, rendered, out)
@@ -468,6 +481,17 @@ def _render_folder(f: Folder, depth: int, folder_desc: Dict[str, str], fallback:
         shown = plain[:6]
         more = f" … +{len(plain) - 6}" if len(plain) > 6 else ""
         out.append(f"{ind}- other: {', '.join(shown)}{more}")
+
+
+def _holds_own(f: Folder, folder_desc: Dict[str, str], fallback: Dict[str, str]) -> bool:
+    """Does the folder hold, at any depth, what the map is for — a document, a folder or a file the agent described?
+    Documents are drawn at any depth (feedback 2026-09-03: sorted into sub-folders, a third of a case went invisible);
+    a tree with none of these is material, named once in its parent's `other:` line; a flat folder of attachments is
+    drawn as before, its `other:` line under it (feedback 2026-09-11)."""
+    if f.docs or folder_desc.get(f.name) or any(rel in fallback or (name.endswith("/") and folder_desc.get(rel))
+                                                for name, rel in f.other):  # a described link to a folder counts too
+        return True  # (the second hand, 2026-11-05: `wrapper/deep/stand/` described, folded into `other: wrapper/`)
+    return any(_holds_own(s, folder_desc, fallback) for s in f.subs)
 
 
 def adopt(case: Path, fallback: Dict[str, str]) -> List[str]:
@@ -497,37 +521,72 @@ def _shingles(path: Path) -> set:
 
 
 def duplicates(folders: List[Folder]) -> List[Tuple[str, str, float]]:
-    """(smaller file, other file, share of the smaller file's phrasing found verbatim in the other)."""
+    """(smaller file, other file, share of the smaller file's phrasing found verbatim in the other).
+    Exact, without trying every pair (a live long case, 2026-11-05: 2 252 documents, 3.3 million pairs, 36 s of every
+    entry): a pair counts when at least t = ⌈DUP_SHARE·|small|⌉ of the smaller file's 3-grams are in the other, so the
+    other holds at least one of any |small| − t + 1 of them — the rarest are taken, and only files that share one are
+    compared. A file's links are read once, not once per pair."""
     docs = [d for f in folders if f.name != "phases" for d in f.all_docs()]
     shingles = {d.rel: _shingles(d.path) for d in docs}
+    docs = [d for d in docs if len(shingles[d.rel]) >= DUP_MIN_SHINGLES]
+    index: Dict[tuple, List[int]] = {}
+    for i, d in enumerate(docs):
+        for sh in shingles[d.rel]:
+            index.setdefault(sh, []).append(i)
+    targets: Dict[str, set] = {}
     pairs = []
     for i, a in enumerate(docs):
-        for b in docs[i + 1:]:
-            sa, sb = shingles[a.rel], shingles[b.rel]
-            if len(sa) < DUP_MIN_SHINGLES or len(sb) < DUP_MIN_SHINGLES:
-                continue
-            small, other = (a, b) if len(sa) <= len(sb) else (b, a)
-            share = len(sa & sb) / min(len(sa), len(sb))
-            if share >= DUP_SHARE and not (_links_to(a, b) or _links_to(b, a)):
-                pairs.append((small.rel, other.rel, share))
-    return sorted(pairs, key=lambda x: -x[2])
+        sa = shingles[a.rel]
+        need = math.ceil(DUP_SHARE * len(sa))
+        if need > 1 and (need - 1) / len(sa) >= DUP_SHARE:
+            need -= 1  # float edge: the smallest overlap that passes `share >= DUP_SHARE`
+        common = [sh for sh in sa if len(index[sh]) > 1]
+        if len(common) < need:
+            continue
+        common.sort(key=lambda sh: len(index[sh]))
+        cand = set()
+        for sh in common[:len(common) - need + 1]:  # the overlap lies in `common`: any of these many hit it
+            cand.update(index[sh])
+        for j in cand:
+            b = docs[j]
+            sb = shingles[b.rel]
+            if j == i or len(sb) < len(sa) or (len(sb) == len(sa) and j < i):
+                continue  # `a` is the smaller; of two the same size, the earlier — each pair once, as before
+            share = len(sa & sb) / len(sa)
+            if share >= DUP_SHARE and not (_links_to(a, b, targets) or _links_to(b, a, targets)):
+                pairs.append((min(i, j), max(i, j), a.rel, b.rel, share))
+    return [(x, y, share) for _, _, x, y, share in sorted(pairs, key=lambda p: (-p[4], p[0], p[1]))]
 
 
-def _links_to(a: Doc, b: Doc) -> bool:
+def _links_to(a: Doc, b: Doc, cache: Optional[Dict[str, set]] = None) -> bool:
     """Does a's text link to b? Two files that share text and are linked were related by their author on purpose — the
     second run's report «over [run 1](run-1.md): what differs», a draft and its final; the reader sees the relation and
     the difference in words, and the Order line has its honest close (feedback 2026-10-10: its advice «say the difference
     in each summary» did not close it — only a merge did, and merging two honest reports spoils them)."""
+    if cache is None or a.rel not in cache:
+        found = set()
+        try:
+            text = a.path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+        for m in LINK_RE.finditer(text):
+            dest = m.group(2).split("#", 1)[0]
+            if dest and not re.match(r"[a-z]+://", dest):
+                try:
+                    found.add((a.path.parent / dest).resolve())
+                except (OSError, RuntimeError):  # a link loop: Python 3.9 raises (Codex, 2026-11-05); 3.13+ does not
+                    continue
+        if cache is None:
+            return _resolved(b.path) in found
+        cache[a.rel] = found
+    return _resolved(b.path) in cache[a.rel]
+
+
+def _resolved(path: Path) -> Optional[Path]:
     try:
-        text = a.path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return False
-    target = b.path.resolve()
-    for m in LINK_RE.finditer(text):
-        dest = m.group(2).split("#", 1)[0]
-        if dest and not re.match(r"[a-z]+://", dest) and (a.path.parent / dest).resolve() == target:
-            return True
-    return False
+        return path.resolve()
+    except (OSError, RuntimeError):
+        return None
 
 
 def budgets(folders: List[Folder]) -> List[str]:
@@ -837,21 +896,32 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
         shown = ", ".join(missing[:4]) + (f" … +{len(missing) - 4}" if len(missing) > 4 else "")
         out.append(f"{len(missing)} file(s) without `summary:` — {shown} → add `summary: one line` as line 2, "
                    f"or el order --adopt (takes the descriptions from Links)")
-    for f in folders:
-        desc = described.get(f.name, "")
-        if not desc or desc.startswith(PLACEHOLDER_FOLDER):
-            out.append(f"folder {f.name}/ has no description → el readme add links \"{f.name}/ — что здесь\"")
+    bare = [f.name for f in folders if not described.get(f.name, "") or described[f.name].startswith(PLACEHOLDER_FOLDER)]
+    if len(bare) > COUNTED_AFTER:  # many of one kind: one line with the count (the live long case, 2026-11-05)
+        out.append(f"{len(bare)} folder(s) without a description — {', '.join(n + '/' for n in bare[:4])} … +{len(bare) - 4} → "
+                   f"el readme add links \"{bare[0]}/ — что здесь\", one per folder")
+    else:
+        out += [f"folder {n}/ has no description → el readme add links \"{n}/ — что здесь\"" for n in bare]
     for k in child_cases(case, root_mode):
         kind = child_status(k)[0]
         if kind == "broken":
             out.append(f"nested case {k.name}: README unparsable — it holds this case open (F18) → el --case {k.name} check")
         elif kind == "legacy":  # a case from before el: its own name and its own fix, never "broken" (2026-09-15)
             out.append(f"nested case {k.name}: from before el (never stamped, outside the grammar) — it holds this case open (F18) → el --case {k.name} migrate")
-    for small, other, share in duplicates(folders):
-        out.append(f"{small} ≈ {other}: {int(share * 100)} % of {small.rsplit('/', 1)[-1]}'s text is verbatim in "
-                   f"{other.rsplit('/', 1)[-1]} → relate them: link one from the other, saying in words how it differs "
-                   f"(«second run over [run 1](run-1.md): …») · or merge them")
-    out.extend(budgets(folders))
+    pairs = duplicates(folders)
+    if len(pairs) > COUNTED_AFTER:  # 23 038 lines of pairs on a live long case (2026-11-05): a count, the strongest first
+        shown = ", ".join(f"{a} ≈ {b} ({int(x * 100)} %)" for a, b, x in pairs[:3])
+        out.append(f"{len(pairs)} pair(s) of files share text verbatim — {shown} … +{len(pairs) - 3} → relate each pair: link "
+                   f"one from the other, saying in words how it differs · or merge them")
+    else:
+        for small, other, share in pairs:
+            out.append(f"{small} ≈ {other}: {int(share * 100)} % of {small.rsplit('/', 1)[-1]}'s text is verbatim in "
+                       f"{other.rsplit('/', 1)[-1]} → relate them: link one from the other, saying in words how it differs "
+                       f"(«second run over [run 1](run-1.md): …») · or merge them")
+    big = budgets(folders)
+    out.extend(big if len(big) <= COUNTED_AFTER else
+               [f"{len(big)} file(s) over {FILE_WARN_BYTES // 1024} KB — {'; '.join(b.split(' → ')[0] for b in big[:3])} … "
+                f"+{len(big) - 3} → split each by summary or trim"])
     try:
         from . import store, stamp  # local: store imports order for the README render
         todo_body = stamp.split(store.read(case, "TODO.md"))[0]

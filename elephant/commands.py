@@ -13,6 +13,7 @@ import posixpath
 import random
 import re
 import secrets
+import shlex
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1268,8 +1269,12 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: s
     body, report = store.load(case, "JOURNAL.md")
     out.absorb(report)
     lines = grammar.mend_cuts(body).rstrip("\n").split("\n")  # a link el once cut is sewn back at this write
-    header = f"- {date} {time} · {phase}"
     first = next((i for i, ln in enumerate(lines) if grammar.ENTRY_RE.match(ln)), None)
+    if first is not None:  # a clock gone back (daylight saving ended, another machine's clock) never puts el's own entry
+        top = grammar.ENTRY_RE.match(lines[first]).groups()[:2]  # under an older one: the newest entry's time stands in —
+        if (date, time) < top:  # order is what the journal keeps; a time an hour off is said by nothing worse (two live
+            date, time = top  # reports, 2026-11-01/02: el called its own write a hand edit and moved events to .recover.md)
+    header = f"- {date} {time} · {phase}"
     if first is not None and lines[first] == header:
         j = first + 1
         while j < len(lines) and lines[j].startswith("  "):
@@ -3516,7 +3521,7 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why:
                              f"drop --before to add at the end", 4)
         at = phase.items.index(target)
     if grammar.visible_len(text) > grammar.TODO_ITEM_CHARS:
-        raise StoreError(f"{_too_long('item text', text, grammar.TODO_ITEM_CHARS, 'F13')}\n"
+        raise StoreError(f"{_too_long('nothing added to phase ' + ref + ': the item text', text, grammar.TODO_ITEM_CHARS, 'F13')}\n"
                          f"{_split_suggestion(text, 'el todo add ' + ref + ' «head»', '--note «rest»')}\n{REPHRASE_HINT}\n"
                          f"  (a re-added item takes the next free number at the END of the list — "
                          f"`el todo add {ref} \"…\" --before {phase.n}.K` puts it in place)", 3)
@@ -3954,7 +3959,7 @@ def todo_edit(case: Path, ref: str, text: str) -> Outcome:
     if after:
         _set_after(case, todo, item, after)
     if grammar.visible_len(text) > grammar.TODO_ITEM_CHARS:
-        raise StoreError(f"{_too_long('item text', text, grammar.TODO_ITEM_CHARS, 'F13')}\n"
+        raise StoreError(f"{_too_long(ref + ' not changed: the new text', text, grammar.TODO_ITEM_CHARS, 'F13')}\n"
                          f"{_split_suggestion(text, 'el todo edit ' + ref + ' «head»', '&& el todo note ' + ref + ' «rest»')}\n{REPHRASE_HINT}", 3)
     old_text, item.text = item.text, text
     if due:
@@ -4707,7 +4712,7 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
                 if _not_run(r) or _words(pr) == _words(r):
                     continue
                 if _one_run(pr) and _one_run(r):
-                    if _outcome(pr).casefold() != _outcome(r).casefold():
+                    if _outcome_key(pr) != _outcome_key(r):
                         differs.append((it, pr, r))
                 else:
                     aside.append((it.ref, [pr], [r]))
@@ -4730,8 +4735,10 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
     out.say(f"accepted: {refs} by {who} ({_session_word(status)}{engine}) → TODO.md (accepted: line) · DECISION in the journal")
     if "subagent" in statuses and not sub_sign[1]:
         said = store.clean_part(os.environ.get("EL_MODEL", ""))
-        out.say(f"  model not given: {SUBAGENT_MODEL}" + (f" — EL_MODEL «{said}» does not read as a model's name: recorded as "
-                                                          f"`model ?`, compared with no one" if said else ""))
+        out.say(f"  model not given: {SUBAGENT_MODEL}" + (f" — EL_MODEL «{said}» does not read as a model's name: a name carries "
+                                                          f"its version (EL_MODEL='Sonnet 5.5', 'gpt-6.1-sol'); a family alone "
+                                                          f"names no one model — recorded as `model ?`, compared with no one"
+                                                          if said else ""))
     elif who != "owner":
         out.say(*_sign_ask(case))
     if "same" in statuses:
@@ -4790,6 +4797,12 @@ def _unwrap_quote(text: str) -> str:
 def _outcome(run: str) -> str:
     """What came out, the part after the arrow of `command → outcome`."""
     return " ".join(run.split("→", 1)[1].split()) if "→" in run else ""
+
+
+def _outcome_key(run: str) -> str:
+    """The outcome as compared: case and spaces aside — «PASS, 12 checks» and «PASS,12checks» are one result (a report,
+    2026-10-31: el called them different and the root reopened a passed item). Words and numbers still decide."""
+    return "".join(_outcome(run).casefold().split())
 
 
 def _not_run(run: str) -> bool:
@@ -5128,7 +5141,8 @@ def todo_brief(case: Path, ref: str, sample: Optional[int] = None) -> Outcome:
     out.say(VERDICT_SIZE)
     if mine and doers == {mine}:  # the reader will be a subagent of this session: its mind is not the session's signature
         out.say("A subagent of the doer's session: put your own model before the verdict — EL_MODEL='<your model>' el … todo "
-                "accept … — the session's signature is the doer's, not yours.")
+                "accept … — the name with its version, as 'Sonnet 5.5' (a family alone is recorded as no model); the "
+                "session's signature is the doer's, not yours.")
     if any(k == "run" for it in items for k, _ in it.evidence):
         several = any(k == "run" and not _one_run(pr) for it in items for k, pr in it.evidence)
         out.say("Every run proof is re-run by you: one --run per proof with what came out now"
@@ -5732,7 +5746,10 @@ def phase_plan(case: Path, n: int, name: str, goal: Optional[str]) -> Outcome:
     existing = todo.phase(n)
     intent = _goal_text(goal) if goal else None
     if intent and grammar.visible_len(intent) > grammar.TODO_ITEM_CHARS:
-        raise StoreError(f"{_too_long('intent (one line in TODO)', intent, grammar.TODO_ITEM_CHARS, 'F13')}\n"
+        what = (f"phase {n} not planned: its goal" if existing is None else f"phase {n}'s goal not changed: the new goal")
+        # the first line says what was not done (a wall report, 2026-10-30: a refused plan, then agree, open, add and note
+        # on the phase that was never planned — the chain read «nothing was written» as about the details)
+        raise StoreError(f"{_too_long(what + ' (one line in TODO)', intent, grammar.TODO_ITEM_CHARS, 'F13')}\n"
                          f"{_split_suggestion(intent, f'el phase plan {n} {chr(39)}{name}{chr(39)} --goal «head»', f'&& el phase note {n} «rest»')}\n"
                          f"{INTENT_HINT}", 3)
     if existing is not None:
@@ -6681,6 +6698,8 @@ def readme_set(case: Path, prefix: str, text: str) -> Outcome:
     out = Outcome()
     parsed = _readme_sections(case, out)  # ensures the file parses before we touch it
     prefix = prefix.rstrip(":")
+    if prefix.lower() in STATE_KEYS:
+        prefix = prefix.lower()  # `set NEXT` is `next`: a second line `NEXT:` beside it would be the one el never reads (Codex)
     text = " ".join(text.split())
     if prefix.lower() == "closed":
         raise StoreError("`- closed:` is written by `el done \"outcome\"` or `el case cancel \"why\"` — the case closes through "
@@ -6690,7 +6709,7 @@ def readme_set(case: Path, prefix: str, text: str) -> Outcome:
                          f"State is still true and only its anchor is behind: el readme touch", 2)
     if not text:  # an empty value removes the line — what the caller tries first (feedback 2026-09-03)
         return readme_drop(case, "state", prefix)
-    if not any(ln.startswith(f"- {prefix}:") for ln in parsed.sections.get("State", [])):
+    if prefix.lower() not in STATE_KEYS and not any(ln.startswith(f"- {prefix}:") for ln in parsed.sections.get("State", [])):
         hit = _line_elsewhere(parsed, prefix)
         if hit:
             name, k, line = hit
@@ -6711,6 +6730,10 @@ def readme_set(case: Path, prefix: str, text: str) -> Outcome:
 
 
 STATE_OWNED = grammar.STATE_OWNED  # lines el derives on every write — not yours to remove
+# the keys el names for State in its own hints and help: a State line by name, never shadowed by a line of another section
+# that starts with the same word (three reports, 2026-10-30…11-05: a Context line «owner 2026-11-03: …» — the owner's words
+# quoted — refused `el readme set owner`, the command el's own hint gave)
+STATE_KEYS = ("next", "owner", "due")
 
 
 def readme_add(case: Path, section: str, line: str, phases: Optional[str] = None) -> Outcome:
@@ -7135,6 +7158,10 @@ def case_use(root: Path, name: str) -> Outcome:
     _os.utime(case / "JOURNAL.md")
     store.hold(root, case)  # this session's hand; the mtime still moves it for a harness without a session id
     out.say(f"current case: {' › '.join(store.chain(case, root))}")
+    if not store.session_id():  # said once, where the hand is taken: what el cannot see here, and what holds it
+        out.say(f"  {store.harness() or 'this terminal'} gives el no session id — the hand here is the case a write was last "
+                f"aimed at, shared by every terminal without one; this case stays in hand until a write aims elsewhere. A "
+                f"hand of its own: export EL_SESSION={secrets.token_hex(4)} in this terminal")
     return out
 
 
@@ -7335,8 +7362,15 @@ def _case_promise_gate(case: Path, todo: grammar.Todo, readme_body: str) -> Opti
 
 
 def _case_problems_unanswered(journal: grammar.Journal) -> List[grammar.Event]:
+    """PROBLEMs no recipe answers, phase by phase — and a case's own `howto:` (written by `el done` outside every phase,
+    p0) answers every PROBLEM of the case before it (a live wall report, 2026-11-05: the agents' done took --howto for
+    the PROBLEMs it named, and the owner's close was refused on three of other phases it had never named)."""
+    case_howto = next((k for k, e in enumerate(journal.entries) if e.phase == "p0"
+                       and any(ev.type == "DECISION" and ev.text.startswith("howto:") for ev in e.events)), None)
     by_phase: Dict[str, List[grammar.Event]] = {}
-    for e in journal.entries:
+    for k, e in enumerate(journal.entries):
+        if case_howto is not None and k > case_howto:
+            break  # entries run newest first: everything below the case's howto is answered by it
         by_phase.setdefault(e.phase, []).extend(e.events)
     return [ev for evs in by_phase.values() for ev in _unanswered_problems(evs)]
 
@@ -7392,7 +7426,7 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None, by: 
                              f"what came out; his word said to you: el done --by owner \"his words\" · work goes on: open "
                              f"a phase and the ready line goes by itself", 4)
         if howto_text:
-            out.lines += log(case, "DECISION", f"howto: {howto_text}").lines
+            out.lines += log(case, "DECISION", f"howto: {howto_text}", "p0").lines  # the case's, not a phase's
         date, _ = _now()
         tally = _case_tally(case, todo, out)
         out.lines = log(case, "PHASE", f"дело готово, ждёт слова владельца → {summary}").lines + out.lines  # before the
@@ -7410,7 +7444,7 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None, by: 
             raise StoreError("the owner's words, as he said them: el done --by owner \"…\"", 2)
         summary = _ready_words(ready) or summary
     if howto_text:
-        out.lines += log(case, "DECISION", f"howto: {howto_text}").lines
+        out.lines += log(case, "DECISION", f"howto: {howto_text}", "p0").lines  # the case's, not a phase's
     date, _ = _now()
     tally = _case_tally(case, todo, out)
     # the case's own line carries how its work was accepted; the parent draws its line about the child from it
@@ -7870,12 +7904,8 @@ def _case_link_targets(case: Path) -> List[Path]:
             found += order._link_targets(stamp.split(store.read(case, name))[0], case, case)
         except (StoreError, OSError):
             continue
-    for f in sorted(case.rglob("*.md")):
+    for f in store.case_files(case, ".md"):
         rel = f.relative_to(case)
-        if any(part.startswith(".") or part in ("node_modules", "legacy") for part in rel.parts):
-            continue
-        if any(store.is_case_dir(case / Path(*rel.parts[:i + 1])) for i in range(len(rel.parts) - 1)):
-            continue
         if f.parent == case and f.name in store.FILES:
             continue
         try:
@@ -7949,11 +7979,9 @@ def _follow_links(case: Path, src: Path, dst: Optional[Path], out: Outcome, skip
             touched.append(f"{name} ({n + k})")
             break
     # every other markdown file of the case (documents, phase files), never the legacy archive
-    for p in sorted(case.rglob("*.md")):
+    for p in store.case_files(case, ".md"):
         rel = p.relative_to(case)
-        if p == skip or any(part.startswith(".") or part in ("node_modules", "legacy") for part in rel.parts):
-            continue
-        if rel.parts[0] == store.CASES_DIR or any(store.is_case_dir(case / Path(*rel.parts[:i + 1])) for i in range(len(rel.parts) - 1)):
+        if p == skip:
             continue
         if p.parent == case and p.name in store.FILES:
             continue
@@ -8339,8 +8367,10 @@ def _entry_head(case: Path, root: Path, readme_body: str, todo: grammar.Todo, jo
     # what to do now comes first, the case on disk after it (the polygon, 2026-10-07; the owner's word: «turn it over»):
     # fresh agents read the entry as `el | head -60`, and Order and the hint, last, were never seen — 21K chars on a
     # 63-file case. The hint stood last because a model weighs the last line most; a line it never reads weighs nothing.
-    if issues:
-        out.say(f"## Order — {len(issues)} thing(s) to put back", *(f"- {ln}" for ln in issues), "")
+    if issues:  # the entry is a dose: the first lines and the count; every line is one command away (live long case,
+        shown = issues[:ORDER_SHOWN]  # 2026-11-05: 23 251 lines, 8.6 MB, the item in work buried under them)
+        more = ([f"- … +{len(issues) - ORDER_SHOWN} more → el order (every line)"] if len(issues) > ORDER_SHOWN else [])
+        out.say(f"## Order — {len(issues)} thing(s) to put back", *(f"- {ln}" for ln in shown), *more, "")
     else:
         out.say("## Order", "- ✓ everything in place: files carry summaries, Links follow the files, State is current", "")
     if not todo.errors:  # one hint, derived from the case, right under Order: the two say what to do now
@@ -8381,6 +8411,9 @@ def _other_open_cases(root: Path, case: Path) -> List[str]:
         out.append(c.name + (" (from before el)" if store.legacy_files(c) else "")
                    + (f" (+{k} open nested — el case list)" if k else ""))
     return out
+
+
+ORDER_SHOWN = 12  # Order lines the entry prints; `el order` prints them all
 
 
 def entry(root: Path, case: Path) -> Outcome:
@@ -8454,7 +8487,7 @@ def _legacy_entry(root: Path, case: Path, names: List[str], legacy: List[tuple])
     if readme.exists():
         first = next((ln for ln in readme.read_text(encoding="utf-8", errors="replace").split("\n") if ln.strip()), "")
         title = first.lstrip("# ").strip()
-    count = sum(1 for p in case.rglob("*") if p.is_file())
+    count = len(store.case_files(case, skip=()))
     out.say(f"  what it is: «{order._short(title or case.name, 80)}» · {count} file(s) in the folder — not shown, they stay as they are", "")
     others = [(c, order.child_status(c)) for c in store.all_cases(root) if c != case and store.is_open(c)]
     live = [(c, st) for c, st in others if st[0] == "open"]
@@ -8769,7 +8802,7 @@ def _refused_note() -> str:
     refused 31 commands of one session — a README, twenty-four ticks on closed phases — every one sent to /dev/null by a
     helper script; the agent closed with `el check --all | tail -1` → «violations: 0 · warnings: 0» and reported the
     migration done and clean). The work the agent believes it did is not there; the count rides on the line it reads,
-    not on a line below it. It says the count alone: a refused `check` still appends to checks.log (Codex, 2026-10-07)."""
+    not on a line below it. It says the count alone (Codex, 2026-10-07)."""
     n = len(store.session_walls())
     return f" · refused this session: {n} command(s) — el feedback --wall lists them" if n else ""
 
@@ -8829,6 +8862,24 @@ CHECK_FOUND = ("the case breaks a rule, each violation on its line — check ref
                "wrote stands")
 
 
+CASE_COMMANDS = ("todo", "phase", "log", "readme", "done", "check", "order", "facts", "mv", "relink", "spawn", "status",
+                 "migrate", "case cancel", "case reopen")
+CARRY_RE = re.compile(r"(?<![\w/.-])el (?=(?:" + "|".join(re.escape(c) for c in CASE_COMMANDS) + r")\b(?!:))")  # not `el done:` — a label
+
+
+# a quoted stretch is someone's words (2026-10-12: «el todo …» in an item's text came back as «el --case x todo …»); an
+# apostrophe inside a word (item's) opens nothing
+QUOTED_RE = re.compile(r"""(«[^»]*»|(?<!\w)'(?:[^'\n]|'\\'')*'(?!\w)|(?<!\w)"[^"\n]*"(?!\w))""")
+
+
+def carry_case(line: str, name: str) -> str:
+    """`el <command>` in el's own words → `el --case <name> <command>`; a quoted stretch is someone's words and stays."""
+    word = name if re.fullmatch(r"[\w.@+/-]+", name) else shlex.quote(name)
+    opt = f"--case={word}" if name.startswith("-") else f"--case {word}"
+    parts = QUOTED_RE.split(line)
+    return "".join(p if i % 2 else CARRY_RE.sub(f"el {opt} ", p) for i, p in enumerate(parts))
+
+
 def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> Outcome:
     """The case in hand (`only`, with its nested cases) against the rules; `only` None = every case
     here. Feedback 2026-09-09: a workspace with legacy cases from past months made the bare `check`
@@ -8845,9 +8896,9 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
     for ln in order.people_lines(root):  # once per workspace, not once per case
         out.warn(f"people · {ln}")
     errors = 0
-    log_lines = []
-    date, time = _now()
+    marks = []  # where each case's lines begin: a command about case B carries B's name (a report, 2026-10-30)
     for case in cases:
+        marks.append((case, len(out.lines), len(out.warnings)))
         legacy = dict(store.legacy_files(case))  # name → why: never stamped, outside the grammar
         for name, parse in (("README.md", grammar.parse_readme), ("TODO.md", grammar.parse_todo), ("JOURNAL.md", grammar.parse_journal)):
             p = store.file_path(case, name)
@@ -8859,40 +8910,44 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
             r = parse(text)
             if name in legacy:  # one line, with the one recovery — its errors are not a to-do list, migrate is
                 out.say(f"x {case.name}/{name}: legacy — {legacy[name]}, not listed → el --case {case.name} migrate")
-                log_lines.append(f"{date} {time} · {case.name} · {name} · legacy · {legacy[name]}")
                 errors += 1
                 continue
             for f in r.errors:
                 out.say(f"x {case.name}/{name}: {f}")
-                log_lines.append(f"{date} {time} · {case.name} · {name} · {f.rule} · {f.message}")
                 errors += 1
             for line in _grouped_warnings(r.warnings):  # one line per rule, not one per old line (2026-09-17)
                 out.warn(f"{case.name}/{name}: {line}")
             if r.stamp_state in ("mismatch", "not-last"):
                 out.warn(f"{case.name}/{name}: stamp {r.stamp_state} — written bypassing Elephant (S4)")
-                log_lines.append(f"{date} {time} · {case.name} · {name} · S4 · stamp {r.stamp_state}")
         for pf in sorted((case / "phases").glob("*.md")) if (case / "phases").exists() else []:
             r = grammar.parse_phase_file(pf.read_text(encoding="utf-8"))
             for f in r.errors:
                 out.say(f"x {case.name}/phases/{pf.name}: {f}")
-                log_lines.append(f"{date} {time} · {case.name} · phases/{pf.name} · {f.rule} · {f.message}")
                 errors += 1
         try:  # the running phase is the write door: a tick without a kind there is F20 broken, not history (2026-09-17)
             for ref, it in _untyped_running(case, store.todo_of(case)):
                 out.say(f"x {case.name}/TODO.md: F20 · {ref} is done without a kind of evidence in the running phase → "
                         f"el todo done {ref} <kind> attaches it — words kept, no journal event (the running phase holds the current form; "
                         f"closed phases stay as they are)")
-                log_lines.append(f"{date} {time} · {case.name} · TODO.md · F20 · {ref} untyped in the running phase")
                 errors += 1
-            for p_, it, path, was, now in _changed_proofs(case, store.todo_of(case)):  # L8: done against other bytes
-                ref = f"{it.ref}"
-                out.say(f"x {case.name}/TODO.md: F20 · {ref} proof {path} changed since done (#{was} → now #{now}) → "
-                        f"{_changed_moves(ref, path, case, was)}")
-                log_lines.append(f"{date} {time} · {case.name} · TODO.md · F20 · {ref} proof {path} changed since done")
-                errors += 1
+            by_file: Dict[tuple, list] = {}  # L8: done against other bytes — one line per changed file, every item on it
+            for p_, it, path, was, now in _changed_proofs(case, store.todo_of(case)):  # (a report, 2026-11-04: two items
+                by_file.setdefault((path, was, now), []).append(it)  # on one file came as two lines, one never seen)
+            for (path, was, now), items in by_file.items():
+                ref = ", ".join(it.ref for it in items)
+                if len(items) == 1:
+                    out.say(f"x {case.name}/TODO.md: F20 · {ref} proof {path} changed since done (#{was} → now #{now}) → "
+                            f"{_changed_moves(ref, path, case, was)}")
+                else:
+                    out.say(f"x {case.name}/TODO.md: F20 · {path} changed since done (#{was} → now #{now}) — the proof of "
+                            f"{len(items)} items: {ref} → this version is their proof: "
+                            f"{_same_words(items, path, case, '') or f'el todo done {ref} ' + _file_arg(path, case) + ' …'} "
+                            f"(acceptance starts over) · kept a copy of the version done against? el todo done {ref} "
+                            f"file:<the copy> moves the proofs there, the acceptances stay · or el todo reopen N.M \"why\" "
+                            f"for each")
+                errors += len(items)
             for ref, line in _not_a_file_lines(case, store.todo_of(case)):  # a folder where the proof was: no dead link says it
                 out.say(f"x {case.name}/TODO.md: F20 · {line}")
-                log_lines.append(f"{date} {time} · {case.name} · TODO.md · F20 · {ref} proof is gone or not a file")
                 errors += 1
         except StoreError:
             pass
@@ -8904,14 +8959,13 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
                     or store.is_case_dir(folder) or case == store.project_case(root)):
                 continue
             if f"{folder.name}/" not in readme_text_:
-                n_files = sum(1 for f in folder.rglob("*") if f.is_file())
-                out.warn(f"{case.name}: folder {folder.name}/ ({n_files} file(s)) has no line in README Links — "
+                n_files = "a link to a folder" if folder.is_symlink() else f"{len(store.case_files(folder, skip=()))} file(s)"
+                out.warn(f"{case.name}: folder {folder.name}/ ({n_files}) has no line in README Links — "
                          f"for the owner it does not exist (L5); add: el readme add links \"{folder.name}/ — …\"")
         if case != store.project_case(root):
             for stray in store.stray_files(case):
                 out.say(f"x {case.name}: L4 · extra file in the case root: {stray.name} — only README/TODO/JOURNAL live "
                         f"there; move it into a folder by kind (docs/ research/ logs/ scripts/ …)")
-                log_lines.append(f"{date} {time} · {case.name} · {stray.name} · L4 · extra file in the case root")
                 errors += 1
         # order of the lower layer (F14, F15, S5): shown, never refused — Elephant does not write those files;
         # a closed case is an archive — `el order` still answers there when asked, check stays quiet
@@ -8927,11 +8981,15 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
             # nothing opens, and `violations: 0` is what gets read (feedback 2026-09-03)
             for f, t in dead:
                 out.say(f"x {case.name}/{f}: F16 · broken link → {t} — fix the link, or move files with `el mv old new` (links follow)")
-                log_lines.append(f"{date} {time} · {case.name} · {f} · F16 · broken link → {t}")
                 errors += 1
-    if log_lines:
-        with (root / "checks.log").open("a", encoding="utf-8") as fh:
-            fh.write("\n".join(log_lines) + "\n")
+    # checks.log is gone (a report, 2026-10-30: 13 MB, 79 000 lines, read by no code and no one): what check finds is
+    # its output, what must be acted on is Order and State, the history of the files is git's
+    if len(cases) > 1:  # `el --case A check --all` printed `el --case A readme add links …` for case B — a command that
+        ends = marks[1:] + [(None, len(out.lines), len(out.warnings))]  # writes into the wrong case
+        for (case, line0, warn0), (_, line1, warn1) in zip(marks, ends):
+            arg = store.case_arg(case, root)
+            out.lines[line0:line1] = [carry_case(ln, arg) for ln in out.lines[line0:line1]]
+            out.warnings[warn0:warn1] = [carry_case(w, arg) for w in out.warnings[warn0:warn1]]
     if not cases:
         out.say("cases: 0 — NOTHING WAS CHECKED (no cases found here); a zero here is not a green light")
     else:

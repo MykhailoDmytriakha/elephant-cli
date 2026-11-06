@@ -157,7 +157,8 @@ class Flow(unittest.TestCase):
         code, out, err = run("check")
         self.assertIn("pending JOURNAL.md.recover.md", err)
 
-    def test_check_logs_violations(self):
+    def test_check_reports_violations_and_keeps_no_log(self):
+        # feedback 2026-10-30: checks.log grew to 13 MB, 79 000 lines, read by no code — check's output is the report
         run("case", "new", "demo case", "--goal", "g")
         case = self.case()
         t = case / "TODO.md"
@@ -165,8 +166,7 @@ class Flow(unittest.TestCase):
         code, out, err = run("check")
         self.assertEqual(code, 3)
         self.assertIn("F13", err)
-        self.assertTrue((self.root / "checks.log").exists())
-        self.assertIn("F13", (self.root / "checks.log").read_text())
+        self.assertFalse((self.root / "checks.log").exists())
 
     def test_no_cases_dir(self):
         with tempfile.TemporaryDirectory() as other:

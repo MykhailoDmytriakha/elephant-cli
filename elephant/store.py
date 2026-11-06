@@ -13,6 +13,7 @@ import math
 import os
 import re
 import shlex
+import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -85,7 +86,29 @@ def find_root(start: Optional[Path] = None) -> Path:
 
 
 def is_case_dir(p: Path) -> bool:
-    return p.is_dir() and CASE_NAME_RE.match(p.name) is not None
+    """A case folder: a real folder with a case name — a link to a folder is an artifact, never a case (Codex, 2026-11-05:
+    a link named like a case held its parent open as a «nested case» no command could reach)."""
+    return p.is_dir() and not p.is_symlink() and CASE_NAME_RE.match(p.name) is not None
+
+
+DEPENDENCY_DIRS = ("node_modules", "site-packages", "__pycache__")  # a tree someone else wrote: material, never the case's prose
+
+
+def case_files(top: Path, suffix: Optional[str] = None, skip: Tuple[str, ...] = ("legacy",)) -> List[Path]:
+    """Every file under `top` that el reads as the case's own, by one walk: no hidden folder, no dependency tree, no
+    nested case, never through a link to a folder. A link to a folder is one artifact, not a tree (two live reports,
+    2026-11-01: an artifact folder linked to node_modules under another name — el walked it, the README inventoried
+    33 000 lines of a dependency tree and the entry printed 22 000 Order lines). `os.walk` does not follow folder
+    links on any Python; the walk says so, not the version (rglob changed its mind in 3.13)."""
+    found: List[Path] = []
+    if top.is_symlink():
+        return found  # a link to a folder given as the start: os.walk would enter it (Codex, 2026-11-05)
+    for dirpath, dirnames, filenames in os.walk(top, followlinks=False):
+        here = Path(dirpath)
+        dirnames[:] = sorted(n for n in dirnames if not n.startswith(".") and n not in DEPENDENCY_DIRS and n not in skip
+                             and not (here / n).is_symlink() and not CASE_NAME_RE.match(n))
+        found += [here / n for n in sorted(filenames) if not suffix or n.lower().endswith(suffix)]
+    return found
 
 
 def scan(root: Path):
@@ -100,7 +123,8 @@ def scan(root: Path):
 
     def walk(d: Path, top: bool):
         for child in sorted(d.iterdir()):
-            if not child.is_dir() or child.name.startswith(".") or child.name in ("node_modules", "phases"):
+            if (not child.is_dir() or child.is_symlink() or child.name.startswith(".")
+                    or child.name in ("node_modules", "phases")):  # a link to a folder is an artifact, never a case
                 continue
             if top and child.name == PEOPLE_DIR:
                 continue  # L10: the people cards — a known folder, not a case-like one
@@ -607,7 +631,10 @@ def hand(root: Path, explicit: Optional[str] = None, look: bool = False) -> Path
         return mine
     picked = max(open_cases, key=freshness)
     global HAND_NOTE
-    other = _other_writer(root, picked)
+    # a harness with no session id cannot tell this session from another: every writer looks «other», and the door the
+    # note gives (`el case use`) cannot hold here (a report, 2026-11-05: six writes in one VS Code Copilot terminal, the
+    # same note after `case use` each time) — the case a write was last aimed at is the hand, and el says no more
+    other = _other_writer(root, picked) if session_id() else None
     if other:  # a fresh session lands where another session wrote lately — said, not silent (feedback 2026-10-10), in what
         sid, when = other  # el knows: that session wrote here then. A bookmark is not work — a session that only listed the
         # cases was announced as «another session holds it» (the live run of 2026-10-29), so a look leaves no mark
@@ -746,17 +773,43 @@ def lock_space() -> None:
         try:
             fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             _SPACE_LOCK = fh
+            _say_holder(fh)
             return
         except BlockingIOError:
             if time.monotonic() >= deadline:
+                holder = _read_holder(path)
                 fh.close()
                 raise StoreError(f"another el command has been writing in this case space for {wait:g} s (another session, a "
                                  f"subagent, a script) — nothing was written: run the same command again; a lock no live "
-                                 f"process holds is gone by itself (to wait longer: EL_LOCK_WAIT=<seconds>)", 4)
+                                 f"process holds is gone by itself (to wait longer: EL_LOCK_WAIT=<seconds>)\n"
+                                 f"  held by: {holder or 'not said (an el older than 1.75.0)'} · lock: {path}"
+                                 + (f" · still running? ps -p {holder.split()[1]}" if holder.startswith("pid ") else "")
+                                 + "\n  a file el writes may already show the change while the writer still redraws the rest: "
+                                 "wait for its command to end, then run yours", 4)
             time.sleep(0.05)
         except OSError:  # a file system without locks: run as before
             fh.close()
             return
+
+
+def _say_holder(fh) -> None:
+    """The holder writes who it is into the lock file — read only by a command that waits, so a refusal names it (a report,
+    2026-11-02: three overlapping commands refused with no lock path and no holder). Best effort: the lock stands without it."""
+    try:
+        argv = " ".join(sys.argv[1:])[:120]
+        fh.seek(0)
+        fh.truncate()
+        fh.write(f"pid {os.getpid()} · el {argv} · since {datetime.datetime.now().strftime('%H:%M:%S')}\n")
+        fh.flush()
+    except OSError:
+        pass
+
+
+def _read_holder(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip().split("\n")[0][:200]
+    except OSError:
+        return ""
 
 
 def unlock_space() -> None:

@@ -218,8 +218,11 @@ happened. Now the lower layer is visible from the top, and the top is rendered f
   `- docs/notes/ — …` is yours and optional. A file that is not .md (pdf, html, png, a script) has
   no body to read: describe it with a Links line — `el readme add links "docs/council/send.html —
   what it is"` — and it renders as a link among the folder's documents; undescribed ones stay
-  folded into one `other:` line. A line you wrote for a file Elephant does not render (outside the
-  content folders) stays as written — nothing in Links is dropped silently.
+  folded into one `other:` line. A link to a folder (a dependency tree, a shared stand) is one name
+  in `other:` — el never walks behind it; so is a sub-folder tree with no document and nothing
+  described in it (a copied stand, an export): documents are drawn at any depth, material is named.
+  A line you wrote for a file Elephant does not render (outside the content folders) stays as
+  written — nothing in Links is dropped silently.
   A document is one question per file, and the answer first: the line under `summary:` (or the first
   paragraph) says the conclusion, the breakdown follows — the owner reads the Links line, then the top of
   the file, and should not scroll for the answer. Two questions in one file dilute the summary and bury
@@ -295,8 +298,9 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   Your own line breaks are kept: each line after the first becomes a body line (up to 5) — fields
   written one per line stay one per line. A link is never cut: a long one stands whole on a body
   line of its own (a link el cut before 1.68.0 is read whole and written whole at the next write).
-- An event is not editable afterwards — so a text with a trace of a shell substitution (`$150`
-  eaten inside double quotes leaves a double space) is refused: write sums in single quotes.
+- An event is not editable afterwards — so a text with a trace of a shell substitution is refused
+  (inside double quotes `$150` leaves a double space, `$12.34` an orphan `.34`, `$2–2,5` a dash
+  glued to `2,5`): write sums in single quotes; a negative number takes the minus sign −2.
 - A link in an event points at a file; the file moved without `el mv` → `el relink old new`
   rewrites the journal through the stamp door (Order names such links); gone for good, or the link
   was an example → `el relink old none` makes it literal text. Examples: write them in backticks.

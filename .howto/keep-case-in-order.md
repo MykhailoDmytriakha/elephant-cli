@@ -1,4 +1,4 @@
-when: Order говорит «State is behind» · «file(s) without summary» · «folder has no description» · «≈ … is verbatim in» · «limit 24» · «every item ended» · «phases run in order» · «out of turn» · README Links устарел · вход Elephant длинный · беспорядок в docs/
+when: Order говорит «State is behind» · «file(s) without summary» · «folder has no description» · «≈ … is verbatim in» · «pair(s) of files share text» · «+N more → el order» · «limit 24» · «every item ended» · «phases run in order» · «out of turn» · README Links устарел · вход Elephant длинный · беспорядок в docs/
 
 # Держать дело в порядке
 
@@ -11,6 +11,8 @@ when: Order говорит «State is behind» · «file(s) without summary» ·
 | файл под действием виден как `other: имя` | это не-markdown файл: тела у него нет, описание задаётся строкой `el readme add links "docs/имя.html — что это"` — с ней он рисуется ссылкой среди документов папки |
 | `folder docs/ has no description` | `el readme add links "docs/ — что здесь"` — строка папки твоя, файлы под ней el допишет сам |
 | `a.md ≈ b.md: NN % of a.md's text is verbatim in b.md` | назвать разницу в `summary:` обоих — или слить, если это копия. Считаются дословные фразы (тройки слов подряд), не словарь: два документа об одном предмете делят имена и даты и остаются двумя документами |
+| `N pair(s) of files share text verbatim` · `N folder(s) without a description` · `- … +N more → el order` | однотипного больше трёх — одна строка со счётом и первыми примерами; вход печатает 12 строк Order, все — `el order`. Сотни пар на длинном деле — обычно копии одного файла по версиям: связать ссылкой «над [v1](…): что изменилось» или убрать копии в `archive/` через `el mv` |
+| `other: имя/` вместо дерева папки | это ссылка на папку (зависимости, общий стенд) или дерево без единого документа (копия стенда, выгрузка): el за ссылку не ходит и такое дерево не рисует — нужное описать строкой `el readme add links "artifacts/stand/ — что это"` |
 | `x.md is NN KB (limit 24)` | разделить по summary или сократить. Бюджета папки нет: счётчик байтов не отличает рабочие документы от воды |
 | `overdue: N.M «…» was due …` | сделано → `el todo done N.M <вид> "что вышло"` (вид: `file:` · `ref:` · `run:` · `owner` — `el help evidence`); сдвинулось → `el todo due N.M <дата>`; больше не нужно → `el todo cancel N.M "почему"` |
 | `N broken link(s): file → target` | поправить ссылку руками или переносить файлы через `el mv old new` — ссылки переписываются сами; файл уже переехал мимо el → `el relink old new` (переписывает и журнал, который руками не тронуть); файла нет насовсем или ссылка была примером без обратных кавычек → `el relink old none` — ссылка становится текстом в кавычках. В README/TODO мёртвая ссылка — нарушение `check` (F16), в документах, файлах фаз и журнале — только эта строка |

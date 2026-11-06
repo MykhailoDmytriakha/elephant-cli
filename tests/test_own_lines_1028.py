@@ -83,6 +83,7 @@ class RouteFolders(Base):
         deep = self.case() / "artifacts" / "app" / "(pages)"
         deep.mkdir(parents=True)
         (deep / "page.tsx").write_text("x\n", encoding="utf-8")
+        (deep / "notes.md").write_text("# n\nsummary: the route notes\n", encoding="utf-8")  # a tree with a document is drawn (1.75.0)
         self.ok("readme", "set", "next", "one")
         body, _ = stamp.split(self.read("README.md"))
         head, links = body.split("## Links\n", 1)
@@ -90,16 +91,18 @@ class RouteFolders(Base):
         store.write(self.case(), "README.md", head + "## Links\n" + stale + links)
         self.ok("readme", "set", "next", "two")
         links = self.read("README.md").split("## Links", 1)[1]
-        self.assertEqual(links.count("artifacts/app/(pages)/"), 1, links)
+        self.assertEqual(sum(ln.strip() == "- artifacts/app/(pages)/" for ln in links.split("\n")), 1, links)
 
 
     def test_a_folder_gone_without_el_takes_its_drawn_line_along(self):
         gone = self.case() / "artifacts" / "export" / "all_kinds"
         gone.mkdir(parents=True)
         (gone / "data.bin").write_bytes(b"x")
+        (gone / "readme.md").write_text("# r\nsummary: the export\n", encoding="utf-8")  # a tree with a document is drawn (1.75.0)
         self.ok("readme", "set", "next", "one")
         self.assertIn("- artifacts/export/all_kinds/", self.read("README.md"))
         (gone / "data.bin").unlink()
+        (gone / "readme.md").unlink()
         gone.rmdir()
         self.ok("readme", "set", "next", "two")
         self.assertNotIn("all_kinds", self.read("README.md"), "a gone folder's line is el's drawing, not the agent's line")
