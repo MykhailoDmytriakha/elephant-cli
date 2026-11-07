@@ -923,3 +923,85 @@ class TheDoerCheckingItselfIsNotAnAcceptance(TwoHands):
         out, _ = self.ok("todo")
         self.assertIn("  - [x] 1.1 Wire the till", store.read(self.case(), "TODO.md"), "the rule lives on the door of the write")
         self.assertIn("accepted: codex · same session · 2026-11-01", store.read(self.case(), "TODO.md"))
+
+
+class TheWallQuestionGoesToTheCircling(Base):
+    """The radio, Codex #53, 2026-11-07: the first `el todo brief 330.9` on an open item was refused rightly, with the door —
+    and el added «the same wall 31 times this session»: the kind of wall had come once per item over a session of twelve
+    days, numbers counted as one. Measured on 306 repeats in 146 sessions: 67 within 5 minutes (circling), 229 an hour and
+    more apart (the next item). The question goes to the circling; the session's count of the kind stays beside it."""
+
+    def setUp(self):
+        super().setUp()
+        self.ok("phase", "open", "1", "Build", "--goal", "the shop builds")
+        self.ok("todo", "add", "1", "Wire the till")
+        self.ok("todo", "add", "1", "Count the drawer")
+
+    def brief(self, ref):
+        from tests.test_commands import run
+        code, out, err = run("todo", "brief", ref)
+        self.assertEqual(code, 4, out + err)
+        return err
+
+    def age_walls(self, minutes):
+        import datetime
+        import json
+        f = store._walls_file()
+        recs = [json.loads(ln) for ln in f.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        for r in recs:
+            r["ts"] = (datetime.datetime.strptime(r["ts"], "%Y-%m-%d %H:%M")
+                       - datetime.timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M")
+        f.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs), encoding="utf-8")
+
+    def test_the_kind_met_on_another_item_long_ago_is_not_asked(self):
+        self.brief("1.1")
+        self.age_walls(120)
+        err = self.brief("1.2")
+        self.assertIn("1.2 is open", err)
+        self.assertNotIn("did this refusal tell you", err, "the first brief of this item: the door was enough")
+
+    def test_the_same_item_again_is_asked_and_the_kind_is_counted(self):
+        self.brief("1.1")
+        self.age_walls(120)
+        self.brief("1.2")
+        err = self.brief("1.2")
+        self.assertIn("the same wall 2 times this session with these numbers (3 this session, other numbers too)", err)
+        self.assertIn("did this refusal tell you how to get through?", err)
+
+    def test_numbers_in_quotes_and_paths_are_numbers_too(self):
+        # the second hand, 2026-11-07: the exact key blanked quotes and paths — two items named only there read as one
+        same = store.wall_key("el: ERROR [exit 4] `el todo done 4.1` first — phases/4-a.md", numbers=True)
+        self.assertNotEqual(same, store.wall_key("el: ERROR [exit 4] `el todo done 9.3` first — phases/9-b.md", numbers=True))
+        self.assertEqual(same, store.wall_key("el: ERROR [exit 4]  `el todo done 4.1` first — phases/4-a.md", numbers=True))
+        self.assertEqual(store.wall_key("el: ERROR [exit 4] `el todo done 4.1` first — phases/4-a.md"),
+                         store.wall_key("el: ERROR [exit 4] `el todo done 9.3` first — phases/9-b.md"), "the kind stays one")
+
+    def test_a_repeat_that_differs_in_spaces_only_is_the_same_refusal(self):
+        # the second hand, round 2: the exact key took spaces out, the kind's filter kept them — the repeat fell out first
+        import json
+        self.brief("1.1")
+        self.age_walls(120)
+        f = store._walls_file()
+        recs = [json.loads(ln) for ln in f.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        recs[0]["text"] = recs[0]["text"].replace(" is open", "  is open", 1)
+        recs[0]["key"] = recs[0]["key"].replace(" is open", "  is open", 1)  # as an older el would have keyed it
+        f.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs), encoding="utf-8")
+        err = self.brief("1.1")
+        self.assertIn("the same wall 2 times this session with these numbers", err)
+
+    def test_the_third_rounds_edges(self):
+        # the second hand, round 3: a fraction split one wall in two; a record from the future read as «lately»; a record
+        # without text, keyed by an older el with spaces, fell out of its kind
+        self.assertEqual(store.wall_key("busy for 0 s"), store.wall_key("busy for 0.01 s"))
+        self.assertEqual(store.wall_kinds({"key": "el: ERROR [exit N]  N.N is open"}),
+                         store.wall_key("el: ERROR [exit 4] 1.2 is open"))
+        self.assertIsNone(store.wall_kinds({"key": "x"}, numbers=True), "a record without text is never the same refusal")
+        self.brief("1.1")
+        self.age_walls(-120)                                             # its clock was two hours ahead
+        err = self.brief("1.2")
+        self.assertNotIn("did this refusal tell you", err)
+
+    def test_the_kind_again_within_minutes_is_asked(self):
+        self.brief("1.1")                                                # an agent guessing the number is circling too
+        err = self.brief("1.2")
+        self.assertIn(f"the same kind of wall 2 times in {store.WALL_RECENT_MIN} minutes", err)

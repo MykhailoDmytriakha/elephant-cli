@@ -18,7 +18,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, NamedTuple
 
 from . import grammar, recover, stamp
 
@@ -331,17 +331,48 @@ def _walls_file() -> Optional[Path]:
 WALL_TEXT_LINES = 200  # a refusal is kept whole for the report; a bound only against a runaway output
 
 
-def wall_key(text: str) -> str:
+def wall_key(text: str, numbers: bool = False) -> str:
     """One wall, whatever its numbers, quoted words and paths: `phase 2 is missing` and `phase 5 is missing` are the same
     wall, so are two missing files; a refusal whose first line only announces a list (`cannot close phase N:`) is keyed
-    by the list's first line too, so two different blockers are two walls (Codex review, 2026-10-07)."""
+    by the list's first line too, so two different blockers are two walls (Codex review, 2026-10-07). `numbers` asks
+    for the same refusal, not its kind: the first line as printed, its quotes and paths too — a number lives in them as
+    often as outside (the second hand, 2026-11-07: «`el todo done 4.1 …`» and «`… 9.3 …`» read as one with quotes blanked)."""
     lines = [ln for ln in (text or "").split("\n") if ln.strip() and not re.match(r"\s*exit \d = ", ln)]  # not the legend
     first = lines[0] if lines else ""
     if first.rstrip().endswith(":") and len(lines) > 1:
         first = first + " " + lines[1].strip()
+    first = " ".join(first.split())  # spaces are no part of a wall, in either key (the second hand, round 2, 2026-11-07)
+    if numbers:
+        return first
     line = re.sub(r"`[^`]*`|«[^»]*»|\"[^\"]*\"|'[^']*'", "…", first)
     line = re.sub(r"[\w.-]*/[\w./-]*|\b[\w-]+\.(?:md|pdf|png|jpe?g|txt|json|csv|py|sh)\b", "PATH", line)
-    return re.sub(r"\d+", "N", line)[:160]
+    # a number is one N, its fraction and its dots too: a lock held 0 s and 0.01 s is one wall (the second hand, round 3)
+    return re.sub(r"\d+(?:[.,]\d+)*", "N", line)[:160]
+
+
+def wall_kinds(w: dict, numbers: bool = False) -> Optional[str]:
+    """A kept wall's key, from its own text — the key it was stored with was made by the rules of the el that kept it
+    (spaces kept, `N.N` for a fraction); a record without text falls back to that key, spaces aside, and is never the
+    same refusal (its first line is unknown). One reader for both counts: the question and the maintainer's report."""
+    if isinstance(w.get("text"), str):
+        return wall_key(w["text"], numbers)
+    k = w.get("key")
+    return None if numbers or not isinstance(k, str) else re.sub(r"N(?:[.,]N)*", "N", " ".join(k.split()))
+
+
+# When does a wall come again? Measured 2026-11-07 on 306 repeats of one kind of wall in 146 sessions (17 on this machine,
+# 129 of the polygon): 67 came within 5 minutes — an agent circling on one refusal — and 229 an hour and more apart — the
+# same kind of refusal on the next item of a long session (a Codex session of twelve days had met «N.N is open — a brief is
+# for accepting done work» 31 times, once per item, and el asked «the same wall 31 times» on the first brief of 330.9);
+# between 5 and 30 minutes, 10. The question goes to the circling: the same refusal with its own numbers, or its kind again
+# within this many minutes. The kind's count over the session stays — the maintainer's signal (el feedback --wall).
+WALL_RECENT_MIN = 10
+
+
+class WallCount(NamedTuple):
+    again: int   # this refusal met again: with the same numbers this session, or its kind within WALL_RECENT_MIN — 0 unknown
+    exact: bool  # `again` counts the same numbers (else the kind, lately)
+    total: int   # its kind over the whole session
 
 
 def _locked(fh) -> None:
@@ -354,15 +385,16 @@ def _locked(fh) -> None:
         pass
 
 
-def record_wall(argv: List[str], code: int, text: str) -> int:
+def record_wall(argv: List[str], code: int, text: str) -> WallCount:
     """Keep one refusal of this session (the polygon, 2026-10-07: thirty-odd walls in nineteen sessions, not one
     `el feedback` — the agents told the owner instead, and el, which printed every refusal, kept none of them).
-    Returns how many times this session has met the same wall, this one included; 0 when no session is known.
-    Never raises: a damaged walls file must not mask the refusal it was meant to keep."""
+    Returns how often it came again — this one included — and its kind over the session (WallCount); zeros when no
+    session is known. Never raises: a damaged walls file must not mask the refusal it was meant to keep."""
+    none = WallCount(0, False, 0)
     try:
         f = _walls_file()
         if f is None:
-            return 0
+            return none
         lines = (text or "").split("\n")
         rec = {"ts": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "argv": [str(a) for a in argv], "code": code,
                "text": "\n".join(lines[:WALL_TEXT_LINES]), "key": wall_key(text)}
@@ -378,9 +410,21 @@ def record_wall(argv: List[str], code: int, text: str) -> int:
                     fh.write("\n")
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
             fh.flush()
-            return sum(1 for w in session_walls() if w.get("key") == rec["key"])
+        kind = [w for w in session_walls() if wall_kinds(w) == wall_key(text)]
+        exact = wall_key(text, numbers=True)
+        same = sum(1 for w in kind if wall_kinds(w, True) == exact)
+        now = datetime.datetime.strptime(rec["ts"], "%Y-%m-%d %H:%M")
+
+        def lately(w) -> bool:
+            try:
+                gap = (now - datetime.datetime.strptime(str(w.get("ts")), "%Y-%m-%d %H:%M")).total_seconds()
+                return 0 <= gap <= WALL_RECENT_MIN * 60  # a record from a clock set ahead is not «lately» (round 3)
+            except ValueError:
+                return False
+        recent = sum(1 for w in kind if lately(w))
+        return WallCount(same, True, len(kind)) if same >= recent else WallCount(recent, False, len(kind))
     except Exception:  # noqa: BLE001 — the refusal comes first, the record is a convenience
-        return 0
+        return none
 
 
 def session_walls() -> List[dict]:

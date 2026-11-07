@@ -711,8 +711,9 @@ its walls, not whether your work was right there — that only you see. So the c
   el feedback --wall --expected "what you expected"   the last refusal el kept — it writes what it printed, the exit
                                                        code and the session's refusals; you write what you expected
   el feedback --wall                                   the walls kept this session, numbered — then --wall K
-The same wall twice in a session, and the end of a session (`readme set next`, `readme touch`) with walls in it, ask you
-— once per wall. The full form, for what el never refused (a lie on the screen, a missing door, a lever):
+The same wall again — the same refusal with its own numbers, or its kind within 10 minutes (an agent circling) — and the
+end of a session (`readme set next`, `readme touch`) with walls in it, ask you — once per wall. The kind met once per
+item over a long session is not asked (1.83.1: «the same wall 31 times» on the first brief of an item); its count stays. The full form, for what el never refused (a lie on the screen, a missing door, a lever):
   el feedback "short title" --actual "…" --expected "…" --onboarding "…" [--repro "…"] [--why "…"] [--acceptance "…"]
   title          what el did wrong, in a few words — it becomes the file name
   --actual       what el printed or wrote, verbatim, with the exit code — what happened, not what you feared

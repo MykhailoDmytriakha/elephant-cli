@@ -1088,7 +1088,7 @@ def _run(argv=None) -> int:
         called = list(argv) if argv is not None else sys.argv[1:]
         if _invoked(called) != "feedback":  # el keeps its own walls; a report's refusal — parsed or not — is not one
             seen = store.record_wall(called, e.code, "\n".join(_refusal_lines(e, [])))  # the refusal itself, first line first
-            if seen >= 2:  # el sees it circling (the polygon, 2026-10-07: the same refusal three times, no report)
+            if seen.again >= 2:  # el sees it circling (the polygon, 2026-10-07: the same refusal three times, no report)
                 lines = _refusal_lines(e, restored, seen=seen)
         if args is not None and args.cmd in (None, "status") and e.code == 4 and "every case here is closed" in str(e):
             try:  # the moment a new task begins in a finished project: what it already knows, above the door (2026-10-08)
@@ -1150,7 +1150,7 @@ def _carry_case(lines: List[str], args) -> List[str]:
 NAMES_A_COMMAND = re.compile(r"\bel (?:--[a-z]+ \S+ )?[a-z]")  # a line that names an el command — a door
 
 
-def _refusal_lines(e: StoreError, restored, seen: int = 0) -> List[str]:
+def _refusal_lines(e: StoreError, restored, seen: Optional["store.WallCount"] = None) -> List[str]:
     """A refusal reads from both ends (the polygon, 2026-10-07: of 1587 el calls agents piped 22 % through `tail -1` and
     22 % through `head -N`; 84 of 190 refusals reached them as the legend line alone — `exit 2 = wrong usage` — the
     reason and the door cut off). The first line says what is wrong, the last line is the door: `recovery:` when the
@@ -1163,9 +1163,15 @@ def _refusal_lines(e: StoreError, restored, seen: int = 0) -> List[str]:
     head, *rest = f"el: ERROR [exit {e.code}] {str(e).rstrip()}".split("\n")
     put_back = ["  put back as it was: " + " · ".join(_shown(p) for p in restored)] if restored else []
     legend = f"  exit {e.code} = {getattr(e, 'meaning', '') or store.EXIT_MEANING.get(e.code, '?')} — `el help errors`"
-    wall = ([f"  the same wall {seen} times this session — did this refusal tell you how to get through? If you are "
+    # asked of the circling only: the same refusal with its numbers, or its kind within minutes — not the kind met once
+    # per item over a long session (the radio with Codex, 2026-11-07: «the same wall 31 times» on the first brief of 330.9)
+    again = (f"the same wall {seen.again} times this session with these numbers" if seen and seen.exact else
+             f"the same kind of wall {seen.again} times in {store.WALL_RECENT_MIN} minutes" if seen else "")
+    if seen and seen.total > seen.again:
+        again += f" ({seen.total} this session, other numbers too)"
+    wall = ([f"  {again} — did this refusal tell you how to get through? If you are "
              f"guessing, that is el's defect, not yours: el feedback --wall --expected \"what the refusal should have "
-             f"said\" (el writes what it printed and the commands)"] if seen >= 2 else [])
+             f"said\" (el writes what it printed and the commands)"] if seen and seen.again >= 2 else [])
     if e.recovery:
         return [head, legend, *wall, *rest, *put_back, f"  recovery: {e.recovery}"]
     if not rest:

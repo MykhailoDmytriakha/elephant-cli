@@ -8231,7 +8231,7 @@ def feedback_wall(which: str, expected: str, title: Optional[str], why: str = ""
              f"{k}" + (f" — {left} left out" if left else "") + ":\n"
              + "\n".join(f"{i}. {_wall_command(x)}  → exit {x.get('code')}" + ("   ← reported" if i == k else "")
                           for i, x in enumerate(walls, 1) if lo <= i <= hi))
-    seen = sum(1 for x in walls if x.get("key") == w.get("key"))
+    seen = sum(1 for x in walls if store.wall_kinds(x) == store.wall_kinds(w))
     if seen > 1:
         repro += f"\n(the same wall {seen} times this session)"
     # the PROBLEM line acts on the call's --case (carried by main) or the case in hand — the case the wall was met in is not
