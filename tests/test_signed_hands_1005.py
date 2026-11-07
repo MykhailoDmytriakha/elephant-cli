@@ -95,6 +95,14 @@ class AcceptSaysHowIndependentItIs(Base):
         self.assertEqual(code, 0, err)
         return out + err
 
+    def refused_as_own(self):
+        """The doer's own session checking itself is refused since 1.83.0 (the radio with Codex, 2026-11-07) — the reading of
+        the doer is what these tests hold, and the refusal names it."""
+        code, out, err = run("todo", "accept", "1.1", "--by", "codex", "--run", "make test → OK", "re-ran the tests")
+        self.assertEqual(code, 4, out + err)
+        self.assertNotIn("    - accepted:", self.todo(), "a refusal writes nothing")
+        return out + err
+
     def test_another_engine(self):
         self.done()
         self.as_codex("3f2a91c0aa11", "GPT-6.1 Sol")
@@ -113,7 +121,7 @@ class AcceptSaysHowIndependentItIs(Base):
 
     def test_the_same_session_is_named(self):
         self.done()
-        self.assertIn("same session as the doer", self.accept())
+        self.assertIn("same session as the doer", self.refused_as_own())
 
 
 class TheDoerIsReadFromTheSignature(Base):
@@ -124,13 +132,13 @@ class TheDoerIsReadFromTheSignature(Base):
         run("todo", "reopen", "1.1", "the trace was of the wrong host")
         self.as_claude("doer0009", "Opus 5.5")
         self.done()
-        out = AcceptSaysHowIndependentItIs.accept(self)
+        out = AcceptSaysHowIndependentItIs.refused_as_own(self)
         self.assertIn("same session as the doer", out, "the newest done is doer0009's, not doer0001's")
 
     def test_a_typed_result_after_the_done(self):
         self.done()
         run("log", "RESULT", "1.1: run passed on the spare host")
-        self.assertIn("same session as the doer", AcceptSaysHowIndependentItIs.accept(self))
+        self.assertIn("same session as the doer", AcceptSaysHowIndependentItIs.refused_as_own(self))
 
     def test_a_range_whose_numbers_wrap_into_the_body(self):
         for k in range(2, 33):
@@ -143,7 +151,7 @@ class TheDoerIsReadFromTheSignature(Base):
         self.done()
         case = next((Path(self.tmp.name) / ".cases").iterdir())
         store.write(case, "TODO.md", "\n".join(ln for ln in self.todo().split("\n")[:-2] if not ln.startswith("    - done: ")) + "\n")
-        self.assertIn("same session as the doer", AcceptSaysHowIndependentItIs.accept(self), "old records read as before")
+        self.assertIn("same session as the doer", AcceptSaysHowIndependentItIs.refused_as_own(self), "old records read as before")
 
 
 class TheSignatureTravels(Base):

@@ -102,7 +102,7 @@ class TheSecondHandKnowsItself(Base):
 
     def test_the_doer_checking_itself_is_still_named(self):
         code, _, err = run("todo", "accept", "1.2", "--by", "claude", "--run", "make test → OK", "looked again")
-        self.assertEqual(code, 0, err)
+        self.assertEqual(code, 4, err)  # named, and refused since 1.83.0 (the radio with Codex, 2026-11-07)
         self.assertIn("same session as the doer, and not said to be a subagent", err)
         self.assertIn("--by subagent", err)
 

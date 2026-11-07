@@ -809,3 +809,117 @@ class ARefusedPhaseNameKeepsTheReason(Base):
         door = re.search(r"`(el phase open 3 .*?)`", out + err).group(1)
         self.assertIn("--goal 'saves survive' --why 'the owner saw it'", door)
         self.ok(*shlex.split(door)[1:])
+
+
+class TheDoerCheckingItselfIsNotAnAcceptance(TwoHands):
+    """The radio, Codex #45, 2026-11-07: a verdict with a long name was refused and the printed command carried
+    `--by codex`; the doer ran it relaying its subagent's words, el warned «the doer checking itself» and still wrote
+    «accepted: codex · same session» and drew `[x]` — the mark said two hands over one. A self-acceptance is not an
+    acceptance (F23): from the doer's session, not said to be a subagent, accept refuses and names the hands that can."""
+
+    def refused(self, *argv):
+        from tests.test_commands import run
+        code, out, err = run(*argv)
+        self.assertEqual(code, 4, out + err)
+        return (out + err).strip()
+
+    def test_the_doers_session_is_refused_and_nothing_is_written(self):
+        before = store.read(self.case(), "TODO.md")
+        said = self.refused("todo", "accept", "1.1", "--by", "codex", "--run", "build → ok", "re-ran the build")
+        self.assertIn("1.1: same session as the doer, and not said to be a subagent", said.split("\n")[0])
+        self.assertIn("the doer checking itself is not an acceptance", said)
+        self.assertEqual(store.read(self.case(), "TODO.md"), before, "nothing was written")
+        self.assertIn("  - [/] 1.1 Wire the till", before)
+        self.assertNotIn("принято 1.1", store.read(self.case(), "JOURNAL.md"))
+        door = re.search(r"it answers (el todo accept 1\.1 --by subagent .*?\"what it checked\")", said).group(1)
+        self.assertIn('--run "build → <what came out now>"', door, "the doer's command, as the brief prints it")
+        self.assertTrue(said.split("\n")[-1].endswith('--by owner "…"'), "the door is the last line")
+        self.ok(*shlex.split(door)[1:])                                  # the door runs as printed — by the subagent
+        self.assertIn("accepted: subagent · clean-context subagent", store.read(self.case(), "TODO.md"))
+
+    def test_a_long_name_in_the_doers_session_prints_the_subagent(self):
+        from tests.test_commands import run
+        code, out, err = run("todo", "accept", "1.1", "--by", "codex_till_final_acceptance", "--run", "build → ok",
+                             "the build passes")
+        self.assertEqual(code, 2, out + err)
+        door = re.search(r"(el todo accept 1\.1 --by subagent .*)$", out + err, re.M).group(1)
+        self.assertIn("1.1 was done in this session — a hand of the doer's session that is not the doer is a subagent",
+                      out + err)
+        self.ok(*shlex.split(door)[1:])                                  # it runs as printed, and says who checked
+        todo = store.read(self.case(), "TODO.md")
+        self.assertIn("accepted: subagent · clean-context subagent", todo)
+        self.assertIn("  - [x] 1.1 Wire the till", todo)
+        self.assertIn("codex_till_final_acceptance: the build passes", store.read(self.case(), "JOURNAL.md"))
+
+    def test_a_long_name_in_another_session_keeps_its_role(self):
+        os.environ["EL_SESSION"] = "fresh1107"
+        from tests.test_commands import run
+        code, out, err = run("todo", "accept", "1.1", "--by", "codex_till_final_acceptance", "--run", "build → ok",
+                             "the build passes")
+        self.assertEqual(code, 2, out + err)
+        door = re.search(r"(el todo accept 1\.1 --by codex .*)$", out + err, re.M).group(1)
+        self.ok(*shlex.split(door)[1:])
+        self.assertIn("accepted: codex · another session", store.read(self.case(), "TODO.md"))
+
+    def test_the_brief_keeps_the_hand_a_slot(self):
+        # printed in the doer's session, the brief goes to a subagent or to the next session — el cannot tell which reads
+        # it (my own first cut printed --by subagent there, and the brief of this very batch went to a fresh Codex session)
+        out, _ = self.ok("todo", "brief", "1.1")
+        self.assertIn("todo accept 1.1 --by <you: codex|claude|gemini|subagent>", out)
+        self.assertIn("a subagent with a clean context (it answers --by subagent) or the next session", out)
+
+    def test_a_range_names_the_own_items_and_the_door_to_the_others(self):
+        os.environ["EL_SESSION"] = "other1107"
+        self.ok("todo", "add", "1", "Count the drawer", "--expect", "[run: count]")
+        self.ok("todo", "done", "1.2", "run:count → ok", "the drawer counts")
+        said = self.refused("todo", "accept", "1.1-1.2", "--by", "codex", "--run", "build → ok", "re-ran it")
+        self.assertIn("1.2: same session as the doer", said)
+        door = re.search(r"the others are yours to accept: (el todo accept 1\.1 --by codex .*?\"what you checked\")",
+                         said).group(1)
+        self.ok(*shlex.split(door)[1:])
+        todo = store.read(self.case(), "TODO.md")
+        self.assertIn("  - [x] 1.1 Wire the till", todo)
+        self.assertIn("  - [/] 1.2 Count the drawer", todo)
+
+    def test_the_others_door_carries_only_their_own_re_runs(self):
+        # the second hand, 2026-11-07: the door for the others copied every --run of the range — a re-run of the doer's
+        # item went with them: refused (more re-runs than proofs), overflowed, or recorded as another item's
+        os.environ["EL_SESSION"] = "other1107"
+        self.ok("todo", "add", "1", "Count the drawer", "--expect", "[run: count]")
+        self.ok("todo", "done", "1.2", "run:count → ok", "the drawer counts")
+        said = self.refused("todo", "accept", "1.1-1.2", "--by", "codex", "--run", "build → ok now",
+                            "--run", "count → ok now", "re-ran both")
+        door = re.search(r"the others are yours to accept: (el todo accept 1\.1 --by codex .*?\"what you checked\")",
+                         said).group(1)
+        self.assertIn("--run 'build → ok now'", door)
+        self.assertNotIn("count", door, "1.2's re-run stays with 1.2")
+        self.ok(*shlex.split(door)[1:])
+        self.assertIn("accepted: codex · another session", store.read(self.case(), "TODO.md"))
+        self.assertIn("re-run: build → ok now", store.read(self.case(), "JOURNAL.md"))
+
+    def test_more_re_runs_than_proofs_print_the_slots(self):
+        os.environ["EL_SESSION"] = "other1107"
+        self.ok("todo", "add", "1", "Count the drawer", "--expect", "[run: count]")
+        self.ok("todo", "done", "1.2", "run:count → ok", "the drawer counts")
+        said = self.refused("todo", "accept", "1.1-1.2", "--by", "codex", "--run", "a → 1", "--run", "b → 2",
+                            "--run", "c → 3", "re-ran")
+        door = re.search(r"the others are yours to accept: (el todo accept 1\.1 --by codex .*?\"what you checked\")",
+                         said).group(1)
+        self.assertIn('--run "build → <what came out now>"', door, "whose is which el does not know: the brief's slot")
+
+    def test_the_owner_and_an_open_item_keep_their_own_answers(self):
+        self.ok("todo", "accept", "1.1", "--by", "owner", "принимаю")   # the owner's word passes from any session
+        self.ok("todo", "add", "1", "Count the drawer")
+        said = self.refused("todo", "accept", "1.2", "--by", "codex", "checked")
+        self.assertIn("1.2 not done", said, "an open item is refused for being open, not for the hand")
+
+    def test_a_line_written_before_reads_as_written(self):
+        todo = store.read(self.case(), "TODO.md").replace(
+            "  - [/] 1.1 Wire the till", "  - [x] 1.1 Wire the till", 1)
+        lines = todo.split("\n")
+        at = next(i for i, ln in enumerate(lines) if ln.startswith("    - done: "))
+        lines.insert(at + 1, "    - accepted: codex · same session · 2026-11-01")
+        store.write(self.case(), "TODO.md", "\n".join(ln for ln in lines if not ln.startswith("stamp:")).rstrip("\n") + "\n")
+        out, _ = self.ok("todo")
+        self.assertIn("  - [x] 1.1 Wire the till", store.read(self.case(), "TODO.md"), "the rule lives on the door of the write")
+        self.assertIn("accepted: codex · same session · 2026-11-01", store.read(self.case(), "TODO.md"))

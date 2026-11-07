@@ -93,7 +93,8 @@ class TheVerdictsRiseAsATrustNumber(Base):
         self.assertIn(f"the spot check waits for 1 verdict(s) — {c}", run("order")[1])
         run("todo", "accept", c, "--by", "codex", "holds")
         run("todo", "done", a, "owner", "rewritten")
-        run("todo", "accept", a, "--by", "codex", "now holds")
+        os.environ["EL_SESSION"] = "acc21010"  # the rewrite is this session's: another accepts it (the doer checking itself
+        run("todo", "accept", a, "--by", "codex", "now holds")  # is refused since 1.83.0)
         code, _, err = run("phase", "close", "1", "ten digests", "--reflect", "r", "--align", "a", "--howto", "none: t")
         self.assertEqual(code, 0, err)
         digest = next((self.case / "phases").glob("1-*.md")).read_text(encoding="utf-8")

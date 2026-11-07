@@ -4786,7 +4786,8 @@ def _session_word(status: str, lang: str = "en") -> str:
 ROLE_WORDS = ("subagent", "codex", "claude", "gemini", "owner")
 
 
-def _acceptor(by: Optional[str], ref: str, verb: str, runs: Optional[List[str]] = None, text: str = "") -> str:
+def _acceptor(by: Optional[str], ref: str, verb: str, runs: Optional[List[str]] = None, text: str = "",
+              case: Optional[Path] = None) -> str:
     """The one word naming who checked — codex · claude · gemini · subagent · owner. `self` is refused at accept."""
     by = (by or "").strip()
     if not by:
@@ -4802,12 +4803,19 @@ def _acceptor(by: Optional[str], ref: str, verb: str, runs: Optional[List[str]] 
         # to the verdict — printed whole, with the role the words carry or the subagent's (Codex subagents name themselves)
         found = [w for w in ROLE_WORDS if re.search(rf"(?<![a-z]){w}(?![a-z])", by.lower())]
         role = found[0] if len(found) == 1 else "subagent"
+        # in the doer's own session a hand that names itself is not the doer — it is a subagent; `--by codex` there would be
+        # the doer checking itself, which accept refuses (Codex on the radio, 2026-11-07: the printed `--by codex` was run
+        # by the doer relaying its subagent's verdict, and el wrote «accepted: codex · same session»)
+        here = verb == "accept" and role not in ("owner", "subagent") and case is not None and _done_here(case, ref)
         name = " ".join(re.sub(rf"(?i)(?<![a-z]){role}(?![a-z])", " ", by).split()).strip(" :-") or by
+        if here:
+            role, name = "subagent", by
         words = " ".join(text.split())
         call = (f"el todo {verb} {ref} --by {role}" + "".join(f" --run {_sh(r)}" for r in runs or [])
                 + (f" {_sh(f'{name}: {words}')}" if words else ""))
-        said = f"`{by}` names {role}" if found else (f"`{by}` reads as a name — a subagent, say (another agent's main session: "
-                                                      f"--by codex · claude · gemini)")
+        said = (f"`{by}` names a hand, and {ref} was done in this session — a hand of the doer's session that is not the doer "
+                f"is a subagent" if here else f"`{by}` names {role}" if found else
+                (f"`{by}` reads as a name — a subagent, say (another agent's main session: --by codex · claude · gemini)"))
         raise StoreError(f"--by names the kind of hand in one word — subagent (a clean context, from any session) · codex · "
                          f"claude · gemini · owner; a name of its own goes into the verdict's words. {said}: {call}", 2)
     return by.lower()
@@ -4832,6 +4840,52 @@ def _doer_session(journal: grammar.Journal, phase: grammar.Phase, item: grammar.
     return ""
 
 
+def _done_here(case: Path, ref: str) -> bool:
+    """Was any done item of `ref` done in the session reading it now? False when el cannot tell."""
+    try:
+        todo = _todo(case)
+        phase, items = _select_items(todo, ref)
+        journal = _journal(case)
+    except StoreError:
+        return False
+    return any(it.done and _session_status(journal, phase, it, "") == "same" for it in items)
+
+
+def _own_hand_refusal(case: Path, out: Outcome, phase: grammar.Phase, items: List[grammar.Item], ref: str, who: str,
+                      runs: Optional[List[str]]) -> None:
+    """A verdict from the doer's own session, not said to be a subagent, is the doer checking itself — and a
+    self-acceptance is not an acceptance (F23), as `--by self` is not. el wrote it as `accepted: … · same session` and
+    rendered `[x]`: the mark said two hands over one, and «accepted … by codex» read as an independent acceptance in a long
+    case (Codex on the radio, 2026-11-07). Nothing is written; the refusal names the hands that can accept. A line written
+    so before 1.83.0 reads as written — the rule lives on the door of the write."""
+    if who in ("owner", "subagent") or any(not it.done or it.cancelled for it in items):
+        return  # the owner's word and a clean hand pass; an open or cancelled item is refused for its own reason
+    journal = _journal(case, out)
+    own = [it for it in items if _session_status(journal, phase, it, who) == "same"]
+    if not own:
+        return
+    first = own[0].ref
+    rerun = "".join(_run_slot(pr) for k, pr in own[0].evidence if k == "run")  # the brief's slots: the doer's command
+    others = [it for it in items if all(it is not o for o in own)]
+    # the others' door carries only the re-runs that fell to them — accept lays the --run words on the items' run proofs
+    # in order, one to one, when there are no more of them than proofs; else el does not know whose is which and prints
+    # the brief's slot (the second hand, 2026-11-07: the door copied every --run of the range — refused, overflowed, or
+    # recorded another item's re-run as this one's)
+    given, total = list(runs or []), sum(1 for it in items for k, _ in it.evidence if k == "run")
+    paired, slots = len(given) <= total, {}
+    for it in items:
+        proofs = [pr for k, pr in it.evidence if k == "run"]
+        mine, given = (given[:len(proofs)], given[len(proofs):]) if paired else ([], given)
+        slots[id(it)] = "".join(f" --run {_sh(r)}" for r in mine) + "".join(_run_slot(pr) for pr in proofs[len(mine):])
+    rest = (f" · the others are yours to accept: el todo accept {_refs(phase, others)} --by {who}"
+            + "".join(slots[id(it)] for it in others) + " \"what you checked\"" if others else "")
+    raise StoreError(f"{_refs(phase, own)}: same session as the doer, and not said to be a subagent — the doer checking itself "
+                     f"is not an acceptance (F23: one hand does, another accepts); nothing was written, the item still waits "
+                     f"for a second hand{rest} · a second hand: a subagent with a clean context — hand it el todo brief {first}, "
+                     f"it answers el todo accept {first} --by subagent{rerun} \"what it checked\" · the next session · or the "
+                     f"owner's word: el todo accept {_refs(phase, own)} --by owner \"…\"", 4)
+
+
 def _session_status(journal: grammar.Journal, phase: grammar.Phase, item: grammar.Item, who: str) -> str:
     if who == "owner":
         return "owner"
@@ -4847,11 +4901,12 @@ def _session_status(journal: grammar.Journal, phase: grammar.Phase, item: gramma
 
 def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Optional[List[str]] = None) -> Outcome:
     """`el todo accept N.M --by codex "what was checked and how"` — the second hand (F23). Only a done item is accepted;
-    the verdict goes under it as `accepted: <who> · <another session | same session | session not given | the owner's
-    word> · <date>` (el's line) and into the journal as `DECISION · принято N.M: …`. The return is `el todo reopen N.M
+    the verdict goes under it as `accepted: <who> · <another session | clean-context subagent | session not given | the
+    owner's word> · <date>` (el's line) and into the journal as `DECISION · принято N.M: …`; the doer's own session is
+    refused (1.83.0 — a line «same session» written before reads as written). The return is `el todo reopen N.M
     --by <who> "…"`. A range or a list takes one verdict for all."""
     out = Outcome()
-    who = _acceptor(by, ref, "accept", runs, text)
+    who = _acceptor(by, ref, "accept", runs, text, case)
     text = " ".join(text.split())
     if who == "owner":  # the owner's word is recorded as the owner's words, quoted — not the agent's account of them
         text = _unwrap_quote(text)
@@ -4863,6 +4918,7 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
                          f"these words are what the owner reads instead of re-checking", 2)
     todo = _todo(case, out)
     phase, items = _select_items(todo, ref)
+    _own_hand_refusal(case, out, phase, items, ref, who, runs)  # before the words are kept: the hand, not the version, is refused
     try:
         return _accept_selected(case, out, todo, phase, items, ref, text, who, runs)
     except _CarriedVerdict:  # the old words again: they were not given for this version, so it is not recorded as theirs
@@ -5004,11 +5060,7 @@ def _accept_selected(case: Path, out: Outcome, todo: grammar.Todo, phase: gramma
                                                           if said else ""))
     elif who != "owner":
         out.say(*_sign_ask(case))
-    if "same" in statuses:
-        out.warn(f"same session as the doer, and not said to be a subagent — recorded as the doer checking itself. A clean hand: "
-                 f"a subagent with a clean context (hand it el todo brief {ref}; it accepts --by subagent), the next session, "
-                 f"another agent, or the owner's word")
-    elif "subagent" in statuses:
+    if "subagent" in statuses:
         out.say("  a subagent of the doer's session, recorded as you say: a clean context counts as a second hand (the owner's "
                 "word, 2026-10-07) — the brief was all it knew")
     elif status == "unknown":
@@ -5397,6 +5449,8 @@ def todo_brief(case: Path, ref: str, sample: Optional[int] = None) -> Outcome:
                     f"takes a body line of {BODY_WRAP - len('re-run: ')} chars, short ones share one. The words of the verdict, "
                     f"beside the item's re-runs each on one line, words up to {VERDICT_WORD} chars (a link is one word): {budgets} — a --run longer than "
                     f"a line takes {BODY_WRAP} of them; longer words — keep them in a file and name the file in the words)")
+    # the hand stays a slot: the brief printed in the doer's session goes to a subagent or to the next session, and el
+    # cannot tell which will read it — the refusal can, it knows the session running the verdict
     for it in items:
         reruns = "".join(_run_slot(pr) for k, pr in it.evidence if k == "run")
         out.say(f"  el {_case_opt(case)} todo accept {it.ref} --by <you: codex|claude|gemini|subagent>{reruns} \"what you checked and how\"",

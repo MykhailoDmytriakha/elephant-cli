@@ -45,7 +45,7 @@ class TheHarnessNamesTheHand(Base):
         run("todo", "done", "1.1", "owner", "rewritten")
         os.environ["EL_SESSION"] = "checkpos"
         code, _, err = run("todo", "accept", "1.1", "--by", "codex", "holds")
-        self.assertEqual(code, 0, err)
+        self.assertEqual(code, 4, err)  # one hand: refused since 1.83.0, the doer checking itself is not an acceptance
         self.assertIn("same session as the doer", err)
         self.assertIn("session codexaaa", (self.case / "TODO.md").read_text(encoding="utf-8"))
 

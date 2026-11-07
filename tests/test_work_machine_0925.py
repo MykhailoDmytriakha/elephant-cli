@@ -66,9 +66,10 @@ class Accept(Base):
     def test_same_session_is_named_not_hidden(self):
         self.done("aaaaaaaa1111")
         code, out, err = run("todo", "accept", "1.1", "--by", "claude", "--run", "k6 -> p95 810 ms", "looked at it again")
-        self.assertEqual(code, 0, err)
-        self.assertIn("accepted: claude · same session", self.read("TODO.md"))
+        self.assertEqual(code, 4, err)  # named, and since 1.83.0 refused: the doer checking itself is not an acceptance (F23)
+        self.assertNotIn("accepted: claude", self.read("TODO.md"))
         self.assertIn("same session as the doer", err)
+        self.assertIn("--by subagent", err.strip().split("\n")[-1], "the door is the last line")
 
     def test_no_session_known_is_said(self):
         os.environ.pop("EL_SESSION", None)

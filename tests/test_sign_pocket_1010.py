@@ -246,11 +246,13 @@ class TheSecondReview(Base):
             run("todo", "add", "1", "original")
             run("todo", "done", "1.1", "owner", "found")
             os.environ["EL_MODEL"] = "X1"
+            os.environ["EL_SESSION"] = "bbbb1010"  # another session accepts: the doer checking itself is refused (1.83.0)
             run("todo", "accept", "1.1", "--by", "claude", "opened it")
             os.environ.pop("EL_MODEL")
-            self.assertIn("model not given: Anthropic Claude Code · X1 · session aaaa1010", self.line("1.1", "accepted"))
+            os.environ["EL_SESSION"] = "aaaa1010"
+            self.assertIn("model not given: Anthropic Claude Code · X1 · session bbbb1010", self.line("1.1", "accepted"))
             run("sign", "X1")
-            self.assertIn("same model: Anthropic Claude Code · X1 · session aaaa1010", self.line("1.1", "accepted"))
+            self.assertIn("same model: Anthropic Claude Code · X1 · session bbbb1010", self.line("1.1", "accepted"))
         finally:
             if saved is None:
                 os.environ.pop("CLAUDECODE", None)

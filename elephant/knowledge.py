@@ -982,7 +982,7 @@ records the verdict.
 - signed hands (L8, the owner's word 2026-10-05: «provider, model and number»): `done` writes under the item
   `done: Anthropic Claude Code · Opus 5.5 · session 70cc2077 · 2026-10-05`, and `accept` adds its own signature with how
   independent it is — `… · another engine: OpenAI Codex · GPT-6.1 Sol · session 3f2a91c0`: same session (it checked
-  itself) · same model (another hand of the same mind) · another model · another engine (another provider — the
+  itself — refused since 1.83.0, below) · same model (another hand of the same mind) · another model · another engine (another provider — the
   strongest check, other blind spots). The hand is the session, the mind is the model. Provider, tool and session come
   from the harness (Claude Code and Codex give them; VS Code Copilot names itself — COPILOT_AGENT — and gives no session);
   no harness names the model — say it once per session: `el sign "Opus 5.5"` (el asks for what it does not know of the hand —
@@ -1001,7 +1001,7 @@ records the verdict.
   CODEX_SESSION_ID, Claude Code CLAUDE_CODE_SESSION_ID, Copilot CLI COPILOT_AGENT_SESSION_ID; EL_SESSION only where the
   harness names none — set inside one
   that does, it changes nothing: one thread playing two hands is one hand, 2026-10-10); `accept` compares: another session · clean-context subagent
-  (`--by subagent` in the doer's session) · same session · session not given · the owner's word. Provenance, not proof:
+  (`--by subagent` in the doer's session) · session not given · the owner's word; same session is refused (below). Provenance, not proof:
   a subagent shares its parent's session id — and its signature: the model `el sign` gave the session is the parent's, so a
   subagent names its own on the verdict, `EL_MODEL='<its model>' el todo accept …` (else the line says `acceptor's model
   not given`). Not known? Leave it unsaid: a name is a family word with its version (Opus 5.5, gpt-6.1-sol, o3) in up to six
@@ -1013,7 +1013,11 @@ records the verdict.
   `el todo accept N.M --by subagent …` and the line says `clean-context subagent` — el sees the session, not the context,
   so the kind is recorded as said. The entry and the close name the hand you are: items done in another session are
   yours to accept; items done in this one go to a subagent, the next session or the owner.
-- `--by self` is refused: a self-acceptance is not an acceptance. The owner's word passes: `--by owner "the owner's
+- `--by self` is refused: a self-acceptance is not an acceptance — and so is a verdict from the doer's own session
+  not said to be a subagent (1.83.0, the radio with Codex 2026-11-07: «accepted … by codex» from the doer read as
+  an independent acceptance): nothing is written, the item stays [/], the refusal names the hands that can; a
+  hand of the doer's session that names itself is a subagent (`--by subagent`); a line written so before reads as
+  written. The owner's word passes: `--by owner "the owner's
   words, as said"` — el writes them as a quote (`слово владельца: «…»`), never as the agent's account of them; one word
   for many items is one quote over a range, and the record shows it was one word.
 - a file of the case is accepted as a version (L8, 2026-10-02): `done` wrote the content's version on the proof line;

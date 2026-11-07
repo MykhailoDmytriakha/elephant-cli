@@ -46,28 +46,36 @@ class Base(unittest.TestCase):
 class TheCountStandsBesideTheWords(Base):
     two_hands = "1"
 
-    def close_accepted(self, acceptor_session: str):
+    def close_accepted(self, acceptor_session: str, by: str = "fresh-session", closes: bool = True):
         (Path(self.tmp.name) / "notes.md").write_text("x\n")
         run("phase", "open", "1", "Probe", "--goal", "g1")
         run("phase", "agree", "1", "the owner's scope")
         run("todo", "add", "1", "first item", "--expect", "a file [file: notes.md]")
         run("todo", "done", "1.1", "file:notes.md", "wrote the note")
         os.environ["EL_SESSION"] = acceptor_session
-        run("todo", "accept", "1.1", "--by", "fresh-session", "checked the note")
+        run("todo", "accept", "1.1", "--by", by, "checked the note")
         run("log", "RESULT", "r")
         code, out, err = run("phase", "close", "1", "delivered the note — accepted by a second hand", "--reflect", "-", "--align", "-")
-        self.assertEqual(code, 0, err)
-        return out
+        self.assertEqual(code, 0 if closes else 4, out + err)
+        return out + err
 
-    def test_a_same_session_acceptance_is_said_in_the_line_people_read(self):
-        out = self.close_accepted("doer2311")
+    def test_the_count_stands_beside_the_closers_words(self):
+        out = self.close_accepted("doer2311", by="subagent")
         line = next(ln for ln in self.read("TODO.md").split("\n") if ln.startswith("- [x] 1 Probe"))
-        self.assertIn("delivered the note — accepted by a second hand · acceptance: 1 of 1 done accepted — same session 1", line,
-                      "the closer's words stay; el's count stands beside them")
-        self.assertIn("· acceptance: 1 of 1 done accepted — same session 1", out)
-        self.assertIn("result: delivered the note — accepted by a second hand · acceptance: 1 of 1 done accepted — same session 1",
-                      (self.case() / "phases" / "1-probe.md").read_text())
-        self.assertIn("acceptance: 1 of 1 done accepted — same session 1", self.read("README.md"), "Links draws the result line")
+        self.assertIn("delivered the note — accepted by a second hand · acceptance: 1 of 1 done accepted — clean-context subagent 1",
+                      line, "the closer's words stay; el's count stands beside them")
+        self.assertIn("· acceptance: 1 of 1 done accepted — clean-context subagent 1", out)
+        self.assertIn("result: delivered the note — accepted by a second hand · acceptance: 1 of 1 done accepted — "
+                      "clean-context subagent 1", (self.case() / "phases" / "1-probe.md").read_text())
+        self.assertIn("acceptance: 1 of 1 done accepted — clean-context subagent 1", self.read("README.md"),
+                      "Links draws the result line")
+
+    def test_the_doer_checking_itself_leaves_the_close_waiting(self):
+        # the radio with Codex, 2026-11-07: «accepted … by codex» from the doer's session read as an independent acceptance —
+        # it is refused now (1.83.0), so the words «accepted by a second hand» cannot close over one hand
+        out = self.close_accepted("doer2311", closes=False)
+        self.assertIn("done items not accepted — 1.1", out)
+        self.assertIn("  - [/] 1.1 first item", self.read("TODO.md"))
 
     def test_a_fresh_session_acceptance_is_said_as_such(self):
         self.close_accepted("fresh0002")
