@@ -536,6 +536,11 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   detour unwinds one at a time; work in a paused phase stays legal; `el phase resume P` by hand only when nothing is
   in flight. A detour is a stage of its own (steps, gates, a file); a single step is an item `--before`, a step of
   an item its sub-item, a branch on its own clock a nested case.
+- waiting for the second hand (two hands, 2026-11-06): a phase whose every item is done and only the acceptance is due
+  is not paused for the next one — its work is over. `el phase open K` opens the next without `--why`; the finished phase
+  stands `[~]` with `hold: every item done — waits for its second hand, then its close`, a DECISION in its story says what is due, and
+  nothing resumes it into flight. The acceptance counts as before; when its last item is accepted, `accept` names the
+  close: `el phase close P "…"`. An item still open holds the pipeline as always; one hand: an ended phase is closed.
 - out of turn: work parked under a planned phase that cannot open yet (another phase running, or a planned phase below
   it that would need `--why`) may end before its turn (it ran alongside) — `done` lets it in. A planned phase with no
   unfinished phase before it (planned below the one in flight) closes through a detour: `el phase open N --why "…"`,

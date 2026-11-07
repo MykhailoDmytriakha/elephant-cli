@@ -39,6 +39,7 @@ class RunningPhaseIsStrict(unittest.TestCase):
         store.write(self.case, "TODO.md", body)
 
     def test_the_running_phase_is_named_and_checked_the_closed_one_is_history(self):
+        run("todo", "add", "1", "b")  # work still open: an ended phase is not asked for a promise (a live report, 2026-11-06)
         self.tick_without_kind("1.1")  # an old tick, as before 1.5.0
         code, out, err = run()
         order = out.split("## Order")[1]
@@ -51,6 +52,7 @@ class RunningPhaseIsStrict(unittest.TestCase):
         run("todo", "done", "1.1", "owner", "attached")
         self.assertNotIn("without a kind", run()[1])
         self.assertEqual(run("check")[0], 0)
+        run("todo", "cancel", "1.2", "not needed after all")
         # close it the old way (no promise in the goal) — allowed: the goal promised nothing
         run("log", "RESULT", "r")
         code, out, err = run("phase", "close", "1", "closed", "--reflect", "r", "--align", "a")

@@ -90,17 +90,40 @@ def _flying(case: Path, todo: grammar.Todo) -> Optional[grammar.Phase]:
                  if not p.done and not p.held and _phase_file(case, p.n, p.name).exists()), None)
 
 
-def _resume_after(todo: grammar.Todo, n: int) -> List[grammar.Phase]:
+def _resume_after(todo: grammar.Todo, n: int, case: Optional[Path] = None) -> List[grammar.Phase]:
     """F26: the detour N ended (closed or cancelled) — the phase it paused is in flight again, by itself: the return
-    address the owner asked for (2026-10-06). Detours inside detours unwind one at a time, each to the one it paused."""
-    back = [p for p in todo.phases if not p.done and p.held_for() == n]
+    address the owner asked for (2026-10-06). Detours inside detours unwind one at a time, each to the one it paused.
+    Another phase in flight (N had stepped aside to wait for its second hand): the paused one waits for that phase now —
+    one phase in flight (P8; the second hand, 2026-11-06: closing a waiting phase put two in flight)."""
+    back = sorted((p for p in todo.phases if not p.done and p.held_for() == n), key=lambda p: p.n)
+    flying = None if case is None else next((q for q in todo.phases if not q.done and not q.held and q.n != n
+                                             and _phase_file(case, q.n, q.name).exists()), None)
+    two = case is not None and _case_two_hands(case)
     for p in back:
-        p.held, p.hold_reason = False, ""
+        if _hand_due(p, two):  # its work is over: it waits for its second hand, not for flight
+            p.hold_reason = AWAITS_HAND
+            continue
+        if flying is not None:  # one phase in flight: the others wait for it (two waited for one detour — the second hand)
+            why = p.hold_reason.split(" — ", 1)[1] if " — " in p.hold_reason else p.hold_reason
+            p.hold_reason = f"phase {flying.n} {flying.name} — {why}"
+        else:
+            p.held, p.hold_reason = False, ""
+            flying = p
     return back
 
 
 def _say_resumed(case: Path, todo: grammar.Todo, back: List[grammar.Phase], n: int, out: Outcome) -> None:
     for p in back:
+        if _awaits_hand(p):
+            due = [it for it in grammar.flat(p.items) if it.done and not it.accepted]
+            out.say(Stored(f"phase {p.n} {p.name}: the detour {n} is over, and its every item is done — it waits for its second "
+                           f"hand, not for flight" + (f": el todo brief {due[0].ref}" if due else "")))
+            continue
+        if p.held:  # another phase is in flight: it waits for that one now
+            k = p.held_for()
+            out.say(Stored(f"phase {p.n} {p.name} stays paused — the detour {n} is over, phase {k} is in flight; it resumes when "
+                           f"{k} ends"))
+            continue
         nxt = next((it for it in p.items if not it.done and not it.held), None)
         out.say(Stored(f"phase {p.n} {p.name} resumed — the detour {n} is over" + (f"; next: {nxt.ref} {nxt.text}" if nxt else "")))
 
@@ -286,9 +309,13 @@ def _derive_todo(case: Path, todo: grammar.Todo) -> bool:
 
 
 def _write_todo(case: Path, todo: grammar.Todo):
-    """The one door for TODO writes: derived lines first (F18), then the stamp door."""
+    """The one door for TODO writes: derived lines first (F18), a waiting phase that got work again settled, then the
+    stamp door."""
     _derive_todo(case, todo)
-    return store.write(case, "TODO.md", render_todo(todo, _case_two_hands(case), _is_project(case)))
+    settled = _settle_waits(case, todo)
+    report = store.write(case, "TODO.md", render_todo(todo, _case_two_hands(case), _is_project(case)))
+    report.warnings.extend(settled)
+    return report
 
 
 def _case_two_hands(case: Path) -> bool:
@@ -1011,6 +1038,17 @@ def _default_next_in_state(readme_body: str) -> bool:
 
 # ---- journal ------------------------------------------------------------------------------------
 BODY_WRAP = grammar.BODY_WRAP
+
+
+LONG_RUN = 300  # chars of one run command past which the command, not the words, is what overflows an event
+
+
+def _fits(kind: str, text: str) -> bool:
+    try:
+        _render_event(kind, text)
+        return True
+    except TooLong:
+        return False
 
 
 class TooLong(StoreError):
@@ -2148,8 +2186,19 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     shown = " · ".join(f"{k} {pr}".strip() for k, pr in proofs)
     short, expect_lines = _expect_check(phase, items)
     sid = session_id()
-    out.lines += log(case, "RESULT", f"{refs}: {shown} — {outcome}" + (f" ({short})" if short else "") + fact_note, f"p{phase.n}",
-                     trailer=f"session: {sid}" if sid else "").lines
+    event = f"{refs}: {shown} — {outcome}" + (f" ({short})" if short else "") + fact_note
+    try:
+        _render_event("RESULT", event)
+    except TooLong:  # the exact command is the long part: a door that keeps it whole (a Codex report, 2026-11-06: a Jest
+        cmd = max((pr.split(" → ", 1)[0] for k, pr in proofs if k == "run"), key=len, default="")  # call of 1 189 chars)
+        script = _shown_path(case / "artifacts" / f"{items[0].ref}-run.sh")  # run from where el runs (the second hand)
+        if len(cmd) > LONG_RUN and _fits("RESULT", event.replace(cmd, f"sh {script}")):  # only when the command overflows
+            raise TooLong(f"event text is too long even for a headline plus {grammar.EVENT_BODY_LINES} body lines (F7): the run "
+                          f"command alone is {len(cmd)} chars — save the exact command as a file of the case ({script}, or "
+                          f"the invocation JSON beside it) and prove with run:\"sh {script} → what came out\": the second "
+                          f"hand re-runs the same file, nothing of the command is lost", 3)
+        raise
+    out.lines += log(case, "RESULT", event, f"p{phase.n}", trailer=f"session: {sid}" if sid else "").lines
     out.say(*_sign_ask(case))
     for it in fresh:
         left = [f"{r} ({st})" for r, st in blocking.get(f"{it.ref}", []) if r not in done_now]  # each by its state: gone is not open
@@ -3214,7 +3263,10 @@ def _running_order_lines(case: Path, todo: grammar.Todo) -> List[str]:
     lines = []
     for p in _running_phases(case, todo):
         goal = _phase_goal(case, p)
-        if p.items and goal and not grammar.expected_kinds(goal):  # work has started under a goal that promises nothing
+        ended = all(it.done for it in p.items)  # a promise written after the work is not a promise: the line asked for one, and
+        # the close then refused the [owner] added on its advice (a live report, 2026-11-06) — an ended phase is closed by
+        # its items' proofs; what it owes is said by the «every item ended» line
+        if p.items and goal and not ended and not grammar.expected_kinds(goal):  # work has started under a goal promising nothing
             lines.append(f"phase {p.n} {p.name} (running): its goal promises no proof — what must be true when it closes? add "
                          f"[run: …] [file: …] [owner] to the goal line in phases/{_phase_file(case, p.n, p.name).name} (el help phases)")
     untyped = _untyped_running(case, todo)
@@ -4820,6 +4872,9 @@ def _accept_selected(case: Path, out: Outcome, todo: grammar.Todo, phase: gramma
     out.lines += log(case, "DECISION", event, f"p{phase.n}").lines
     engine = "" if who == "owner" else " · " + (next(iter(engines)) if len(engines) == 1 else "differs by item — see accepted: lines")
     out.say(f"accepted: {refs} by {who} ({_session_word(status)}{engine}) → TODO.md (accepted: line) · DECISION in the journal")
+    if _awaits_hand(phase) and not _hand_due(phase, True):  # the hand it waited for came: the close is the next step
+        out.say(f"phase {phase.n} {phase.name}: every item accepted — it waited for this; close it: "
+                f"{_close_command(case, phase, _journal(case))}")
     if "subagent" in statuses and not sub_sign[1]:
         said = store.clean_part(os.environ.get("EL_MODEL", ""))
         out.say(f"  model not given: {SUBAGENT_MODEL}" + (f" — EL_MODEL «{said}» does not read as a model's name: a name carries "
@@ -5345,7 +5400,15 @@ def _thread_line(case: Path, todo: grammar.Todo, readme_body: str, order_lines: 
         parts.append(f"phase {phase.n} {phase.name}" + (f" «{order._short(pgoal, 60)}»" if pgoal else "")
                      + ("" if _phase_file(case, phase.n, phase.name).exists() else " (planned)")
                      + (f" (a detour: {', '.join(f'{p.n} {p.name}' for p in waiting)} paused for it, resumes when it ends)" if waiting else ""))
-        if phase.held:  # paused, and what it was paused for is no longer in flight: the hand puts it back
+        if _awaits_hand(phase):  # its work ended: what is due is the acceptance, then the close — nothing to resume
+            due = [it for it in grammar.flat(phase.items) if it.done and not it.accepted]
+            try:
+                closing = _close_command(case, phase, _journal(case))
+            except StoreError:
+                closing = f"el phase close {phase.n} \"what came out\" (what it asks: el order)"
+            parts.append(f"waits for the second hand: el todo brief {due[0].ref}" if due
+                         else f"every item accepted: {closing}")
+        elif phase.held:  # paused, and what it was paused for is no longer in flight: the hand puts it back
             parts.append(f"paused for «{order._short(phase.hold_reason, 50)}», nothing in flight: el phase resume {phase.n}")
         blocked = _blocking(case, todo)
         open_items = [it for it in phase.items if not it.done]
@@ -6038,20 +6101,76 @@ def _parked_line(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journ
     return ("parked: " + " · ".join(parts) + " (surfaces when the phase opens)") if parts else None
 
 
-def _open_blockers(case: Path, todo: grammar.Todo, n: int, why: str = "", out: Optional[Outcome] = None) -> List[str]:
+AWAITS_HAND = "every item done — waits for its second hand, then its close"  # el's hold: the work ended before its acceptance
+
+
+def _hand_due(p: grammar.Phase, two_hands: bool) -> List[grammar.Item]:
+    """The done items of a phase whose every item ended that wait for the second hand — empty when anything is still to do.
+    Such a phase is not paused for another: its work is over, only the acceptance is due (a Codex long case, 2026-11-06:
+    opening the next bug's phase recorded it «paused for 306, resumes when it ends» — nothing was left to resume, and
+    twelve such phases stood «paused» while every item in them was done)."""
+    if not two_hands or not p.items or any(not it.done for it in p.items):
+        return []
+    return [it for it in grammar.flat(p.items) if it.done and not it.accepted]
+
+
+def _awaits_hand(p: grammar.Phase) -> bool:
+    return p.held and not p.done and p.hold_reason == AWAITS_HAND and bool(p.items) and all(it.done for it in p.items)
+
+
+def _settle_waits(case: Path, todo: grammar.Todo) -> List[str]:
+    """The hold of a phase says what it waits for, and stays true as its items change (the second hand, 2026-11-06, two
+    rounds): a phase that waited for its second hand and got work again (an item added, reopened, held) is paused for the
+    phase in flight, or flies when nothing does; one whose last item went (cancelled) waits for nothing — paused the same
+    way, to be closed or cancelled; one paused for a detour whose every item is done while its acceptance is due waits for
+    its second hand — nothing in it to resume. Said as warnings of the write."""
+    notes = []
+    two = _case_two_hands(case)
+    for p in todo.phases:
+        if p.done or not p.held:
+            continue
+        if p.hold_reason == AWAITS_HAND and _awaits_hand(p):
+            continue
+        if p.hold_reason != AWAITS_HAND:
+            if p.held_for() is not None and _hand_due(p, two):  # a detour's pause over finished work: nothing to resume
+                p.hold_reason = AWAITS_HAND
+                notes.append(f"phase {p.n} {p.name}: every item done while it was paused — it waits for its second hand "
+                             f"now, nothing in it to resume: el todo brief {_hand_due(p, two)[0].ref}")
+            continue
+        flying = next((q for q in todo.phases if not q.done and not q.held and q.n != p.n
+                       and _phase_file(case, q.n, q.name).exists()), None)
+        what = ("its last item went while it waited for its second hand — nothing waits for a hand there: close or cancel "
+                f"it (el phase cancel {p.n} \"why\")" if not p.items
+                else "work came back to it while it waited for its second hand")
+        if flying is not None:
+            p.hold_reason = f"phase {flying.n} {flying.name} — {what.split(' — ')[0]}"
+            notes.append(f"phase {p.n} {p.name}: {what} — paused for phase {flying.n} {flying.name}, it resumes when "
+                         f"{flying.n} ends")
+        else:
+            p.held, p.hold_reason = False, ""
+            notes.append(f"phase {p.n} {p.name}: {what} — in flight again")
+    return notes
+
+
+def _open_blockers(case: Path, todo: grammar.Todo, n: int, why: str = "", out: Optional[Outcome] = None,
+                   name: Optional[str] = None, goal: Optional[str] = None) -> List[str]:
     """Why `el phase open N` would be refused now — one phase in flight (P8), a planned phase below skipped only with a
     reason (F24), the gates of the last closed phase. `phase open` raises on them; `done` asks them, so its refusal names
     a command that runs (feedback 2026-10-05)."""
     below = [p for p in todo.phases if p.n < n]
     skipped = sorted((p for p in below if not p.done and not _phase_file(case, p.n, p.name).exists()), key=lambda p: p.n)
     missing: List[str] = []
+    two = _two_hands(_readme_text(case))
     for f in (p for p in todo.phases if not p.done and not p.held and p.n != n and _phase_file(case, p.n, p.name).exists()):
         # one phase in flight, wherever it stands in the numbering (P8); a reason pauses it for this one (F26)
-        if why:
+        if why or _hand_due(f, two):  # its work is over, only the second hand is due: it waits for that, not for this one
             continue
+        opener = (f"el phase open {n} --why \"what came up\"" if todo.phase(n) is not None  # a phase not planned yet needs
+                  else f"el phase open {n} {_q(name or 'Name')} --goal {_q(goal or '…')} --why \"what came up\"")  # its name and
+        # goal, as given (the second hand, 2026-11-06: the door without them was refused «phase open needs a name»)
         missing.append(f"phase {f.n} {f.name} is still open — close it first (P8): el phase close {f.n} \"…\" "
                        f"· or cancel it: el phase cancel {f.n} \"why\" · or, when something came up that goes first, "
-                       f"pause it for this one: el phase open {n} --why \"what came up\" ({f.n} resumes when {n} ends)")
+                       f"pause it for this one: {opener} ({f.n} resumes when {n} ends)")
     if skipped and not why:  # planned, never opened: phases run in order — unless something found says otherwise
         s0 = skipped[-1]
         missing.append(f"phase {s0.n} {s0.name} is planned and not opened — phases run in order: el phase open {s0.n} · or, if it is "
@@ -6087,12 +6206,15 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
         out.say(f"phase {n} {existing.name} is already open — nothing changed")
         return out
     why = " ".join((why or "").split())
-    missing = _open_blockers(case, todo, n, why, out)
+    missing = _open_blockers(case, todo, n, why, out, name=name, goal=goal)
     if missing:
         raise StoreError("cannot open phase %d:\n  " % n + "\n  ".join(missing), 4)
-    pausing = _flying(case, todo) if why else None  # F26: the phase in flight steps aside for this one, with the reason
-    if pausing is not None and pausing.n == n:
-        pausing = None
+    flying = _flying(case, todo)
+    if flying is not None and flying.n == n:
+        flying = None
+    due = _hand_due(flying, _two_hands(_readme_text(case))) if flying is not None else []
+    waiting = flying if due else None  # its work ended, the acceptance is due: it waits for the second hand, not for n
+    pausing = flying if why and waiting is None else None  # F26: the phase in flight steps aside for this one, with the reason
     below = [p for p in todo.phases if p.n < n]
     skipped = sorted((p for p in below if not p.done and not _phase_file(case, p.n, p.name).exists()), key=lambda p: p.n)
     renamed = None
@@ -6118,6 +6240,8 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
         todo.phases.append(grammar.Phase(n, name, False, 0))
     if pausing is not None:
         pausing.held, pausing.hold_reason = True, f"phase {n} {name} — {why}"
+    if waiting is not None:
+        waiting.held, waiting.hold_reason = True, AWAITS_HAND
     had_default = _default_next_in_state(_readme_text(case))
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
@@ -6128,6 +6252,9 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
         early = log(case, "DECISION", f"фаза {n} раньше запланированных {', '.join(str(p.n) for p in skipped)} — {why}", f"p{n}").lines
     if pausing is not None:  # the paused phase's own story says why it stood, and for what
         early += log(case, "DECISION", f"фаза {pausing.n} {pausing.name} на паузе ради фазы {n} {name} — {why}", f"p{pausing.n}").lines
+    if waiting is not None:  # its story: the work ended, the acceptance is due — not a detour
+        early += log(case, "DECISION", f"фаза {waiting.n} {waiting.name} ждёт второй руки: все пункты сделаны, не принято "
+                                       f"{len(due)}; работа идёт к фазе {n} {name}", f"p{waiting.n}").lines
     out.lines = early + log(case, "PHASE", opened, f"p{n}").lines + out.lines
     out.say(f"phase {n} {name} is open → TODO.md, README.md State"
             + (f" · before the planned {', '.join(str(p.n) for p in skipped)} — they stay planned; the next boundary decides their order"
@@ -6135,6 +6262,10 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
     if pausing is not None:
         out.say(f"phase {pausing.n} {pausing.name} paused: [~] hold — waiting for phase {n} {name}; it resumes by itself when {n} "
                 f"closes or is cancelled (F26) · its items stay as they are, work in it stays legal")
+    if waiting is not None:
+        out.say(f"phase {waiting.n} {waiting.name}: every item done, {len(due)} not accepted — [~] waits for the second hand, not "
+                f"a pause: nothing in it to resume · the second hand: el todo brief {due[0].ref} · once accepted, close it: "
+                f"{_close_command(case, waiting, _journal(case))}")
     if _two_hands(_readme_text(case)) and not _scope_agreed(_journal(case), n):
         out.warn(f"phase {n} opened without the owner's agreed scope (this case's rule: two hands) → el phase agree {n} \"the owner's words\"")
     _case_promise_hint(case, todo, n, out)
@@ -6225,7 +6356,12 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     unanswered = _unanswered_problems(_events_for_phase(journal, f"p{n}"))
     if unanswered and not howto_text:  # P8: the close is the archivist's moment — what was caught becomes a recipe, or «none»
         missing.append(f"phase {n} logged {len(unanswered)} PROBLEM(s) no recipe answers — «{order._short(unanswered[0].text, 60)}»: "
-                       f"{HOWTO_ASK}: el phase close {n} \"…\" --howto …")
+                       f"{HOWTO_ASK}: el phase close {n} {_q(' '.join(summary.split()))}"
+                       + (f" --reflect {_q(reflect)}" if reflect else " --reflect \"…\"" if any("reflect:" in m for m in missing)
+                          else "")  # a gate the same call answers by a flag goes into the door too (round 5)
+                       + (f" --align {_q(align)}" if align else " --align \"…\"" if any("align:" in m for m in missing) else "")
+                       + (f" --rest {_q(rest)}" if rest else "") + (f" --path {_q(path)}" if path else "")
+                       + " --howto \"none: why\" (or the recipe path) — the call as given, with what the gates ask by flag")
     goal_now = _phase_goal(case, phase)
     forks_left: Dict[str, str] = {}  # an open item that is the other side of a decided fork → the fork and its winner
     promises_now = _goal_promises(phase, goal_now)
@@ -6352,7 +6488,7 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     rel = f"phases/{pf.name}"
     phase.done, phase.items, phase.notes, phase.held, phase.hold_reason = True, [], [], False, ""
     phase.summary = f"{said} · {date} · {_phase_link(pf.name)}" if rel not in summary else said
-    back = _resume_after(todo, n)  # F26: a detour closed — what it paused is in flight again
+    back = _resume_after(todo, n, case)  # F26: a detour closed — what it paused is in flight again
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
     ran = ""
@@ -6634,7 +6770,7 @@ def phase_cancel(case: Path, n: int, why: str) -> Outcome:
     if phase.done:
         raise StoreError(f"phase {n} {phase.name} is already closed", 4)
     text = _cancel_phase(case, todo, phase, why, out)
-    back = _resume_after(todo, n)  # F26: a detour dropped — what it paused is in flight again
+    back = _resume_after(todo, n, case)  # F26: a detour dropped — what it paused is in flight again
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
     out.lines = log(case, "DECISION", text, f"p{n}").lines + out.lines
@@ -6655,6 +6791,12 @@ def phase_resume(case: Path, n: int) -> Outcome:
         out.say(f"phase {n} {phase.name} is not on hold — nothing changed")
         return out
     cur = _flying(case, todo)
+    if _awaits_hand(phase):  # its work is over: nothing in it to resume (the second hand: resumed, it flew finished)
+        due = _hand_due(phase, True)
+        raise StoreError(f"phase {n} {phase.name} waits for its second hand, not for a detour — nothing in it to resume: "
+                         + (f"the second hand: el todo brief {due[0].ref} · " if due else "")
+                         + f"once accepted, close it: {_close_command(case, phase, _journal(case))} · new work for it: "
+                         f"el todo add {n} \"…\"" + (f" (it then waits behind {cur.n})" if cur is not None else ""), 4)
     if cur is not None:
         raise StoreError(f"phase {cur.n} {cur.name} is in flight — {n} resumes by itself when {cur.n} closes (el phase close {cur.n} "
                          f"\"…\") or is cancelled (el phase cancel {cur.n} \"why\"); one phase at a time (P8)", 4)
@@ -7072,7 +7214,8 @@ def recitation(root: Path, case: Path, calls: int, last_done: int) -> List[str]:
     except StoreError:
         return []
     lines = [f"recite (every {RECITE_EVERY} el calls): {thread}" if thread else f"recite (every {RECITE_EVERY} el calls):"]
-    flight = todo.current()
+    flight = _flying(case, todo)  # the phase in flight, not the first one still open: a phase paused weeks ago named its old
+    # item as the step in hand (a Codex long case, 2026-11-06: «open in phase 279: 279.4» while the work was in 307)
     owed = [it for it in grammar.flat(flight.items) if not it.done and not it.cancelled] if flight else []
     since = calls - last_done if last_done else calls
     parts = [f"since your last done — {since} el call(s)" if last_done else f"no done yet this session — {calls} el call(s)"]
@@ -7572,20 +7715,21 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None, by: 
     words = " ".join(summary.split())
     _child_item_check(root, case, words, words, "summary", f"el done \"<the outcome in at most "
                       f"{grammar.TODO_ITEM_CHARS} chars>\"")
+    owner_closes = _owner_closes(root, case)
+    ready = _ready_value(_readme_text(case, out))
+    if by == "owner" and not owner_closes:  # before the recipe question: an answer to it would not open this door
+        raise StoreError(f"{case.name} closes by el done \"what came out\" — the owner's word closes a top case that asks "
+                         f"two hands, once its agents made it ready", 2)
+    if by == "owner" and not ready:  # (the second hand, 2026-11-06: the recipe door was printed first, then this refused)
+        raise StoreError(f"the agents' part comes first — el done \"what came out\" makes {case.name} ready; then the "
+                         f"owner's word closes it: el done --by owner \"his words\"", 4)
     journal = _journal(case, out)
     unanswered = _case_problems_unanswered(journal)
     if unanswered and not howto_text:  # P8 at the size of the case: what no phase close answered is asked once
         raise StoreError(f"cannot close the case: {len(unanswered)} PROBLEM(s) no recipe answers — «{order._short(unanswered[0].text, 60)}»: "
-                         f"{HOWTO_ASK}: el done \"{' '.join(summary.split())}\" --howto …", 4)
+                         f"{HOWTO_ASK}: el done {_q(' '.join(summary.split()))}" + (f" --by {_q(by)}" if by else "")
+                         + " --howto \"none: why\" (or the recipe path) — the call as given, with the question answered", 4)
     summary = " ".join(summary.split())
-    owner_closes = _owner_closes(root, case)
-    ready = _ready_value(_readme_text(case, out))
-    if by == "owner" and not owner_closes:
-        raise StoreError(f"{case.name} closes by el done \"what came out\" — the owner's word closes a top case that asks "
-                         f"two hands, once its agents made it ready", 2)
-    if by == "owner" and not ready:
-        raise StoreError(f"the agents' part comes first — el done \"what came out\" makes {case.name} ready; then the "
-                         f"owner's word closes it: el done --by owner \"his words\"", 4)
     if owner_closes and by is None:
         if ready:
             raise StoreError(f"{case.name} is ready since {ready.split(' · ', 1)[0]} and awaits the owner's word — tell him "
@@ -7795,6 +7939,9 @@ def feedback(title: str, expected: str, actual: str, why: str, acceptance: str, 
     return out
 
 
+WALLS_SHOWN = 20  # refusals a wall report and the wall listing show: the newest, the rest counted
+
+
 def feedback_wall(which: str, expected: str, title: Optional[str], why: str = "", onboarding: str = "") -> Outcome:
     """`el feedback --wall [K] --expected "…"` — a report from a refusal el kept this session (the polygon, 2026-10-07:
     thirty-odd walls in nineteen sessions and not one report; the agents told the owner, and a report cost a title, the
@@ -7809,13 +7956,16 @@ def feedback_wall(which: str, expected: str, title: Optional[str], why: str = ""
         raise StoreError("no refusal kept in this session — nothing to attach; " + full, 4)
     listing = [f"  {k} [exit {w.get('code')}] {_wall_head(w)}  ← {_wall_command(w)[:90]}"
                for k, w in enumerate(walls, 1)]
+    if len(listing) > WALLS_SHOWN:  # a long session keeps hundreds: the newest, and the count with the door to the rest
+        listing = ([f"  … {len(listing) - WALLS_SHOWN} earlier (1–{len(listing) - WALLS_SHOWN}) — name one by its number: "
+                    f"el feedback --wall 1 --expected \"…\""] + listing[-WALLS_SHOWN:])
     if which == "last":
         k = len(walls)
     elif re.fullmatch(r"[0-9]{1,6}", which) and 1 <= int(which) <= len(walls):  # `²` is a digit to isdigit() (Codex)
         k = int(which)
     else:
         raise StoreError(f"--wall {which}: this session kept {len(walls)} wall(s):\n" + "\n".join(listing), 2,
-                         recovery="el feedback --wall K --expected \"…\"")
+                         recovery=f"el feedback --wall {len(walls)} --expected \"…\" (any number from 1 to {len(walls)})")
     if not expected.strip():  # a question: which walls are there, and the one line el needs
         out.say(f"walls el kept this session ({len(walls)}):", *listing,
                 f"report one: el feedback --wall {k} --expected \"what you expected instead\" — el writes what it printed "
@@ -7827,9 +7977,15 @@ def feedback_wall(which: str, expected: str, title: Optional[str], why: str = ""
     actual = (f"{command}\n\n```\n{w.get('text', '').rstrip()}\n```\nexit {w.get('code')} — written by el from its own "
               f"record of the session — the refusal as el raised it, without what el printed around it (the same-wall "
               f"question, the files put back); it may carry the project's words, nothing of it goes into git as is")
+    lo, hi = 1, len(walls)
+    if len(walls) > WALLS_SHOWN + 1:  # a long session kept hundreds, and a report carried all of them (a Codex report,
+        lo, hi = max(1, k - WALLS_SHOWN), min(len(walls), k + 5)  # 2026-11-06: 224 refusals, 62 KB): what led there and
+    left = [f"{lo - 1} earlier" if lo > 1 else "", f"{len(walls) - hi} later" if hi < len(walls) else ""]  # what followed
+    left = " and ".join(x for x in left if x)
     repro = ("the refusals el kept this session, in order (el keeps refusals, not every command); the reported one is "
-             f"{k}:\n" + "\n".join(f"{i}. {_wall_command(x)}  → exit {x.get('code')}" + ("   ← reported" if i == k else "")
-                                     for i, x in enumerate(walls, 1)))
+             f"{k}" + (f" — {left} left out" if left else "") + ":\n"
+             + "\n".join(f"{i}. {_wall_command(x)}  → exit {x.get('code')}" + ("   ← reported" if i == k else "")
+                          for i, x in enumerate(walls, 1) if lo <= i <= hi))
     seen = sum(1 for x in walls if x.get("key") == w.get("key"))
     if seen > 1:
         repro += f"\n(the same wall {seen} times this session)"
@@ -8357,6 +8513,21 @@ def _refresh_readme(case: Path, out: Outcome) -> str:
     return body
 
 
+def _close_command(case: Path, p: grammar.Phase, journal: Optional[grammar.Journal]) -> str:
+    """The close of phase P as it will be taken now: with the reflect, align and howto its gates still ask in one command —
+    a printed close without them is refused (the second hand, 2026-11-06)."""
+    needs: List[str] = []
+    if journal is not None:
+        for m in _closing_checks(case, p, journal):
+            if "result:" in m or "is missing (F12)" in m:
+                continue
+            needs.append(m)
+    ask_howto = journal is not None and bool(_unanswered_problems(_events_for_phase(journal, f"p{p.n}")))
+    flags = ((" --reflect \"…\" --align \"…\"" if any("reflect:" in n or "align:" in n for n in needs) else "")
+             + (" --howto \"none: why\"" if ask_howto else ""))  # a recipe path or «none: why» — «…» was refused
+    return f"el phase close {p.n} \"what came out\"{flags}"
+
+
 def _ended_phase_lines(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal], readme_body: str = "") -> List[str]:
     """A phase whose every item ended is ready to end itself — the moment the owner decides: close it,
     or add what is still missing. The tool forces the downward rule (an open item holds its phase);
@@ -8385,7 +8556,7 @@ def _ended_phase_lines(case: Path, todo: grammar.Todo, journal: Optional[grammar
         if ask_howto:
             needs.append('the recipe question: --howto ".howto/<verb>.md" · or --howto "none: why"')
         flags = ((" --reflect \"…\" --align \"…\"" if any("reflect:" in n or "align:" in n for n in needs) else "")
-                 + (" --howto \"…\"" if ask_howto else ""))
+                 + (" --howto \"none: why\"" if ask_howto else ""))  # a placeholder that passes: «…» is refused (2026-11-06)
         one = f" · or in one command: el phase close {p.n} \"…\"{flags}" if flags else ""
         unaccepted = [it for it in grammar.flat(p.items) if it.done and not it.accepted] if _two_hands(readme_body) else []
         if unaccepted:  # two hands: the second hand before the close (feedback 2026-09-25: Order used to say «close it»)

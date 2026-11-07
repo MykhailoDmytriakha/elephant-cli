@@ -87,7 +87,9 @@ class ADetour(Base):
     def test_without_a_reason_the_refusal_names_the_pause(self):
         code, _, err = run("phase", "open", "6", "Lease", "--goal", "the lease signed [owner]")
         self.assertEqual(code, 4)
-        self.assertIn('pause it for this one: el phase open 6 --why "what came up" (5 resumes when 6 ends)', err)
+        # 6 is not planned: the door carries its name and goal, as given — without them it was refused (2026-11-06)
+        self.assertIn('pause it for this one: el phase open 6 "Lease" --goal "the lease signed [owner]" --why "what came up" '
+                      '(5 resumes when 6 ends)', err)
 
     def test_the_phase_in_flight_pauses_with_the_reason(self):
         out = self.detour()
