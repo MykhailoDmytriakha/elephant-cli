@@ -16,6 +16,7 @@ only show what is out of order, with the command that fixes it — on every entr
 """
 import math
 import posixpath
+import contextlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -144,6 +145,24 @@ def _is_case_dir(p: Path) -> bool:
     return store.is_case_dir(p)
 
 
+_SCAN: Optional[dict] = None  # the folder walks of one stretch (the entry), keyed by the folder's real path
+
+
+@contextlib.contextmanager
+def one_scan():
+    """The entry walks the case's folders once: the README's Links and Order read the same walk (a Codex long case,
+    2026-11-06: two walks of 80 000 files, 2.5 s of 4.9). Only around a stretch that writes no content file — the
+    entry writes README and TODO, which sit in the case root, not in a content folder. Kept per folder (a project case
+    reads its folders by two different lists — the second hand, 2026-11-06: a memo per call walked twice); a document
+    that is a link — to the README itself, say — is checked again on each read, so a write through it is seen."""
+    global _SCAN
+    _SCAN = {}
+    try:
+        yield
+    finally:
+        _SCAN = None
+
+
 def content_folders(case: Path, root_mode: bool, listed: Optional[set] = None) -> List[Folder]:
     """Folders of the case that hold content, each with its markdown files and their summaries.
 
@@ -160,8 +179,31 @@ def content_folders(case: Path, root_mode: bool, listed: Optional[set] = None) -
             continue
         if root_mode and d.name not in KNOWN_KINDS and d.name not in listed:
             continue
-        out.append(Folder(d.name, d) if d.is_symlink() else _scan_folder(d, d.name))  # a link to a folder: never walked
+        out.append(Folder(d.name, d) if d.is_symlink() else _scan_once(d, d.name))  # a link to a folder: never walked
     return out
+
+
+def _signature(p: Path) -> tuple:
+    try:
+        st = p.stat()
+        return st.st_size, st.st_mtime_ns
+    except OSError:
+        return None, None
+
+
+def _scan_once(d: Path, rel: str) -> Folder:
+    """`_scan_folder`, walked once inside `one_scan()`. A document that is a link is re-checked on every read: what it
+    points at may be a file the stretch writes (a README linked from docs/ grew from 4 KB to 46 KB, and the cached size
+    hid the 24 KB line — the second hand, 2026-11-06)."""
+    if _SCAN is None:
+        return _scan_folder(d, rel)
+    key = (str(d.resolve()), rel)
+    hit = _SCAN.get(key)
+    if hit is not None and all(_signature(p) == sig for p, sig in hit[1]):
+        return hit[0]
+    folder = _scan_folder(d, rel)
+    _SCAN[key] = (folder, [(doc.path, _signature(doc.path)) for doc in folder.all_docs() if doc.path.is_symlink()])
+    return folder
 
 
 def _scan_folder(d: Path, rel: str) -> Folder:

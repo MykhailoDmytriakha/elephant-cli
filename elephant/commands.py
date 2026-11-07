@@ -8866,21 +8866,22 @@ def entry(root: Path, case: Path) -> Outcome:
     others = _other_open_cases(root, case)
     if others:
         out.say("other open cases: " + " · ".join(others) + " — switch: `el case use <name>`", "")
-    readme_body = _refresh_readme(case, out)
-    todo_body, _ = stamp.split(store.read(case, "TODO.md"))
-    todo = grammar.parse_todo(todo_body)
-    # phase lines follow their files (F18); a bare `waits:` name el wrote before 1.31.0 becomes a link (F6)
-    if not todo.errors and (_derive_todo(case, todo) or BARE_WAITS_RE.search(todo_body)):
-        try:
-            fresh = render_todo(todo, _two_hands(readme_body), _is_project(case))
-            out.absorb(store.write(case, "TODO.md", fresh))
-            todo_body = fresh
-            out.say("TODO refreshed: open phase lines follow their phase files (goal · path), nested cases are links")
-        except StoreError as e:
-            out.warn(f"TODO not refreshed — {e}")
-    journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
-    aside: List[str] = []  # the files from before the work in flight: counted, not checked here (P15)
-    issues = _order_lines(case, root, readme_body, journal, scoped=True, held_back=aside)  # a debt below is a step of the thread
+    with order.one_scan():  # one walk of the case's folders for the Links and for Order (L12)
+        readme_body = _refresh_readme(case, out)
+        todo_body, _ = stamp.split(store.read(case, "TODO.md"))
+        todo = grammar.parse_todo(todo_body)
+        # phase lines follow their files (F18); a bare `waits:` name el wrote before 1.31.0 becomes a link (F6)
+        if not todo.errors and (_derive_todo(case, todo) or BARE_WAITS_RE.search(todo_body)):
+            try:
+                fresh = render_todo(todo, _two_hands(readme_body), _is_project(case))
+                out.absorb(store.write(case, "TODO.md", fresh))
+                todo_body = fresh
+                out.say("TODO refreshed: open phase lines follow their phase files (goal · path), nested cases are links")
+            except StoreError as e:
+                out.warn(f"TODO not refreshed — {e}")
+        journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
+        aside: List[str] = []  # the files from before the work in flight: counted, not checked here (P15)
+        issues = _order_lines(case, root, readme_body, journal, scoped=True, held_back=aside)  # a debt below is a step of the thread
     out.lines += _entry_head(case, root, readme_body, todo, journal, issues, aside)
     out.say(ENTRY_BODY_MARK)
     # the files below are shown as they are stored: a link in them reads from the case's folder, as in any markdown file —

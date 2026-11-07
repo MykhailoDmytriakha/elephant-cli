@@ -9,6 +9,7 @@ import os
 import re
 import shlex
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from elephant import commands, store
@@ -475,3 +476,52 @@ class OneHandOneItem(Base):
         self.ok("todo", "done", "1.1", "run:build → ok", "the till builds")
         out, _ = self.ok("phase", "close", "1", "the till builds")
         self.assertIn("closed by its result alone", out)
+
+
+class TheEntryWalksTheFoldersOnce(Base):
+    def walks(self, folder: str, *argv):
+        from elephant import order
+        calls = []
+        real = order._scan_folder
+        with mock.patch.object(order, "_scan_folder",
+                               side_effect=lambda d, rel: calls.append(rel) or real(d, rel)):
+            out, _ = self.ok(*argv)
+        return [c for c in calls if c == folder], out
+
+    def test_one_walk_for_the_links_and_for_order(self):
+        # Later L12, 2026-11-06: the entry walked a long case's folders twice — the README's Links, then Order
+        from elephant import order
+        case = next(p for p in Path(".cases").iterdir() if p.is_dir() and (p / "README.md").exists())
+        (case / "docs").mkdir()
+        (case / "docs" / "brief.md").write_text("# Brief\nsummary: what the owner asked\n", encoding="utf-8")
+        walks, out = self.walks("docs")
+        self.assertEqual(len(walks), 1, walks)
+        self.assertIn("docs/brief.md", out)
+        self.assertIsNone(order._SCAN)                              # the memo lives inside the entry only
+        (case / "docs" / "late.md").write_text("# Late\nno summary\n", encoding="utf-8")
+        full, _ = self.ok("order")                                   # a later command sees the new file
+        self.assertIn("docs/late.md", full)
+
+    def test_a_project_case_walks_once_too(self):
+        # the second hand, 2026-11-06: in a project case the Links and Order read the folders by two lists — a memo per
+        # call missed, two walks remained
+        self.ok("case", "new", "--root", "app", "--goal", "the app")
+        Path("docs").mkdir(exist_ok=True)
+        Path("docs/a.md").write_text("# A\nsummary: the first note\n", encoding="utf-8")
+        walks, out = self.walks("docs")                               # the hand is on the project case now
+        self.assertIn("docs/a.md", out)
+        self.assertLessEqual(len(walks), 1, walks)
+
+    def test_a_document_linked_to_the_readme_is_read_after_the_readme_grows(self):
+        # the second hand, 2026-11-06: docs/index.md → ../README.md; the refresh grew the README past 24 KB and the
+        # cached size hid the line HEAD prints
+        case = next(p for p in Path(".cases").iterdir() if p.is_dir() and (p / "README.md").exists())
+        (case / "docs").mkdir()
+        (case / "docs" / "index.md").symlink_to(Path("..") / "README.md")
+        for k in range(400):
+            (case / "docs" / f"note-{k:03d}.md").write_text(
+                f"# Note {k}\nsummary: what visit {k} showed, kept with the raw answer beside it for the audit\n",
+                encoding="utf-8")
+        out, _ = self.ok()
+        self.assertGreater((case / "README.md").stat().st_size, 24 * 1024)
+        self.assertRegex(out, r"docs/index\.md is \d+ KB \(limit 24\)")
