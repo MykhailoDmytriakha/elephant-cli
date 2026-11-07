@@ -221,7 +221,7 @@ class Entry(Base):
         (self.case / "JOURNAL.md").write_text(j)  # legacy v0.7 noise, written by hand → stamp mismatch is fine here
         code, out, err = run()
         self.assertEqual(code, 0, err)
-        self.assertIn("headlines; bodies in JOURNAL.md", out)
+        self.assertRegex(out, r"headlines; bodies in \S*JOURNAL\.md\)")
         self.assertIn("RESULT · короткий результат", out)
         self.assertNotIn("todo 1.1", out)
         self.assertNotIn("\n    ", out.split("# JOURNAL")[1].split("## Order")[0], "no body lines on entry")

@@ -107,7 +107,8 @@ class EntryStaysLean(Base):
         self.assertNotIn("result: did a", entry_todo, "result and proofs are history — the file keeps them")
         self.assertNotIn("- why: w\n", entry_todo)
         self.assertIn("  - [ ] 1.2 b\n    - why: w2\n    - expect: [owner]\n", entry_todo, "an open item keeps its pockets")
-        self.assertIn("(1 done item(s) collapsed here — result and proofs: TODO.md · one item in full: el todo show N.M)", out)
+        self.assertRegex(out, r"\(1 done item\(s\) collapsed here — result and proofs: \S*TODO\.md · one item in full: "
+                              r"el todo show N\.M\)")
         self.assertIn("    - result: did a\n      - owner\n    - fact: A holds\n", self.read("TODO.md"))
         self.assertIn("## Order", out, "the tail is never lost")
 

@@ -17,7 +17,7 @@ import shlex
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import grammar, hints, migrate, onboarding, order, stamp, store
 from .store import StoreError
@@ -225,7 +225,9 @@ def _later_section(todo: grammar.Todo) -> List[str]:
     return ["", grammar.LATER_HEAD] + [ln for it in todo.later for ln in _later_block(it)]
 
 
-def render_todo_entry(todo: grammar.Todo, two_hands: bool = False, root_mode: bool = False) -> Tuple[str, int]:
+def render_todo_entry(todo: grammar.Todo, two_hands: bool = False, root_mode: bool = False,
+                      closed_shown: Optional[int] = None, todo_path: str = "TODO.md",
+                      phases_path: str = "phases/") -> Tuple[str, int]:
     """TODO as the ENTRY shows it: open items with their pockets (what to do, why, what is expected), done items
     collapsed to their line and their `fact:` — the result and the proofs are history the file keeps (TODO.md), not
     what the next agent needs to continue. Found on the tool's own case (2026-09-17): 25 done items with pockets
@@ -233,7 +235,17 @@ def render_todo_entry(todo: grammar.Todo, two_hands: bool = False, root_mode: bo
     measure (≤ 3K tokens). Returns (text, number of collapsed items)."""
     out = [f"# {todo.title}", ""] + ([grammar.LEGEND, ""] if _owes_acceptance(todo, two_hands) else [])
     collapsed = 0
-    for p in sorted(todo.phases, key=lambda x: x.n):
+    phases = sorted(todo.phases, key=lambda x: x.n)
+    hidden: set = set()
+    if closed_shown is not None:  # a dosed entry: the newest closed phases by name, the rest by count
+        done = [p.n for p in phases if p.done]
+        hidden = set(done[:max(len(done) - closed_shown, 0)])
+    for p in phases:
+        if p.n in hidden:
+            if p.n == min(hidden):
+                out.append(f"- ({len(hidden)} closed phase(s) — {min(hidden)}…{max(hidden)} — not shown here: {todo_path} "
+                           f"lists each, one in full: its file in {phases_path})")
+            continue
         out.append(_phase_head(p))
         out += [f"  - note: {n}" for n in p.notes]
         for it in p.items:  # in its place, a held one too (the owner's word, 2026-10-12)
@@ -6734,8 +6746,11 @@ def readme_show(case: Path, root: Optional[Path] = None) -> Outcome:
     if root is not None:
         todo = grammar.parse_todo(stamp.split(store.read(case, "TODO.md"))[0])
         journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
-        out.lines += _entry_head(case, root, readme_body, todo, journal, _order_lines(case, root, readme_body, journal))
-        out.say(ENTRY_BODY_MARK.replace("README · TODO · journal headlines", "README (TODO and journal: el)"), "")
+        aside: List[str] = []
+        issues = _order_lines(case, root, readme_body, journal, scoped=True, held_back=aside)
+        out.lines += _entry_head(case, root, readme_body, todo, journal, issues, aside)
+        out.say(ENTRY_BODY_MARK.replace("README · TODO · journal headlines", "README (TODO and journal: el)"),
+                f"(the files of {_shown_path(case)}/ as stored — a link in them reads from that folder)", "")
     out.say(*_stored(readme_body.rstrip("\n")), "",
             "write a line: el readme set <prefix> \"…\" · add|edit|drop <section> … · touch — whole file: el readme --file x.md · "
             "el help readme")
@@ -7052,7 +7067,7 @@ def recitation(root: Path, case: Path, calls: int, last_done: int) -> List[str]:
         readme_body = _readme_text(case, Outcome())
         todo = grammar.parse_todo(stamp.split(store.read(case, "TODO.md"))[0])
         journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
-        issues = _order_lines(case, root, readme_body, journal)
+        issues = _order_lines(case, root, readme_body, journal, scoped=True)
         thread = _thread_line(case, todo, readme_body, issues) if not todo.errors else None
     except StoreError:
         return []
@@ -8303,11 +8318,11 @@ def _overdue_lines(todo: grammar.Todo, readme_body: str) -> List[str]:
 
 
 # ---- entry, order and check ---------------------------------------------------------------------
-def _journal_headlines(journal: grammar.Journal, limit: int) -> List[str]:
+def _journal_headlines(journal: grammar.Journal, limit: int, journal_path: str = "JOURNAL.md") -> List[str]:
     """The last `limit` entries as headlines only: no body lines, no legacy tool noise
     (`DECISION · todo …` written by v0.7–0.8 for every TODO edit). Bodies stay on disk."""
     total = len(journal.entries)
-    lines = [f"# JOURNAL — last {min(limit, total)} of {total} entries (headlines; bodies in JOURNAL.md)"]
+    lines = [f"# JOURNAL — last {min(limit, total)} of {total} entries (headlines; bodies in {journal_path})"]
     shown, hidden = 0, 0
     for e in journal.entries[:limit]:
         events = [ev for ev in e.events if not (ev.type == "DECISION" and ev.text.startswith("todo "))]
@@ -8437,10 +8452,63 @@ def _frozen_proofs(case: Path) -> set:
     return frozen
 
 
-def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[grammar.Journal], full: bool = False) -> List[str]:
+WORK_SINCE_MARGIN = 900  # seconds before the work in flight began that still count as it: a clock set back since then
+
+
+def _work_since(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journal]) -> Optional[float]:
+    """When the work in flight began — the moment the files it touched are counted from: the phase in flight opened (its
+    first PHASE event); with no phase in flight, the newest phase event — the end of the work before. None: no phase has
+    moved yet (or the journal cannot say), so the whole case is the work in flight."""
+    if journal is None or journal.errors or todo.errors:
+        return None
+
+    def at(e) -> Optional[float]:
+        try:
+            return dt.datetime.strptime(f"{e.date} {e.time or '00:00'}", "%Y-%m-%d %H:%M").timestamp()
+        except ValueError:
+            return None
+    flight = {f"p{p.n}" for p in _running_phases(case, todo) if not p.held}
+    if flight:
+        opened = [at(e) for e in journal.entries if e.phase in flight and any(ev.type == "PHASE" for ev in e.events)]
+        opened = [t for t in opened if t is not None]
+        began = min(opened) if opened else None
+    else:
+        moved = [at(e) for e in journal.entries if any(ev.type == "PHASE" for ev in e.events)]
+        moved = [t for t in moved if t is not None]
+        began = max(moved) if moved else None
+    if began is None:
+        return None
+    # a clock set back after the phase opened (a corrected clock; the journal keeps newest-first, so its stamps run ahead)
+    # must not make a new file look older than the work — never later than now, and a margin (a Codex acceptance,
+    # 2026-11-06: a journal stamped 19:07 at 19:02 hid a file made at 19:03). Daylight saving needs no margin: an
+    # ambiguous wall minute reads as its earlier instant, which only widens the work. A clock set back further than the
+    # margin can still hide a file from the entry; `el order` and `el check` see every file.
+    return min(began, dt.datetime.now().timestamp()) - WORK_SINCE_MARGIN
+
+
+def _held_back_line(count: int, since: float) -> str:
+    when = dt.datetime.fromtimestamp(since).strftime("%Y-%m-%d %H:%M")
+    return (f"({count} file(s) from before the work in flight — since {when} — are not checked here: history is not "
+            f"reproached; the whole case: el order)")
+
+
+def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[grammar.Journal], full: bool = False,
+                 scoped: bool = False, held_back: Optional[list] = None) -> List[str]:
+    """Order of the case. `scoped` (the entry, `el readme`, the recitation): the files are checked as far as the work in
+    flight touched them — counted into `held_back` as one aside line; `el order` and `el check` see every file."""
     parsed = grammar.parse_readme(readme_body)
     links = parsed.sections.get("Links", []) if not parsed.errors else []
-    lines = order.report(case, _is_project(case), readme_body, journal, links, frozen=_frozen_proofs(case), full=full)
+    since = None
+    if scoped:
+        try:
+            since = _work_since(case, store.todo_of(case), journal)
+        except StoreError:
+            since = None
+    held: list = []
+    lines = order.report(case, _is_project(case), readme_body, journal, links, frozen=_frozen_proofs(case), full=full,
+                         since=since, held_back=held)
+    if since is not None and held and held[0] and held_back is not None:
+        held_back.append(_held_back_line(held[0], since))
     try:
         todo_now = store.todo_of(case)
         lines.extend(_overdue_lines(todo_now, readme_body))  # a date that passed is out of order
@@ -8448,7 +8516,12 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_blind_items(todo_now, readme_body))    # an item with nowhere to go (case rule)
         lines.extend(_gone_lines(case, todo_now))              # waiting for something that no longer exists (F19)
         lines.extend(_closed_wait_lines(case, todo_now))       # waiting for a child that closed, its close cut off (L7)
-        lines.extend(_ended_phase_lines(case, todo_now, journal, readme_body))  # every item ended: accept, then close (F20, F23)
+        ended = _ended_phase_lines(case, todo_now, journal, readme_body)  # every item ended: accept, then close (F20, F23)
+        if not full and len(ended) > order.COUNTED_AFTER:  # many of one kind: the first whole, the rest by number (a Codex
+            rest = [m.group(1) for m in (re.match(r"phase (\d+) ", ln) for ln in ended[1:]) if m]  # long case: 11 lines,
+            ended = [ended[0] + f" — and {len(rest)} more phase(s) where every item ended: {', '.join(rest)} "  # 4 KB)
+                                f"(each with its own command: el order)"]
+        lines.extend(ended)
         lines.extend(_promise_lines(case, todo_now))               # a promised proof nobody works towards (F12)
         lines.extend(_fork_lines(case, todo_now))                  # a fork decided, its other side still open (F12)
         lines.extend(_spot_lines(case, todo_now, journal))         # many accepted, how far to trust them unmeasured (F23)
@@ -8487,11 +8560,11 @@ def _rules_pointer(root: Path) -> str:
     it exists (the elephant-cli clone) — `case new` ships no RULES.md into a project, and a pointer printed
     on every entry must resolve (feedback 2026-09-03: root case, `.cases/` empty, pointer dead)."""
     spec = root / "RULES.md"
-    return f"{spec.relative_to(root.parent)} · {RULES_TOPICS}" if spec.is_file() else RULES_TOPICS
+    return f"{_shown_path(spec)} · {RULES_TOPICS}" if spec.is_file() else RULES_TOPICS  # from where el ran (a subfolder too)
 
 
 def _entry_head(case: Path, root: Path, readme_body: str, todo: grammar.Todo, journal: grammar.Journal,
-                issues: List[str]) -> List[str]:
+                issues: List[str], aside: Sequence[str] = ()) -> List[str]:
     """What to do now — the thread, the counts, Order and the hint: the head of the entry, and of a bare `el readme`
     (the polygon, 2026-10-07: fresh sessions came in through `el readme`, saw the README alone and missed the line that
     told them they were the second hand). Read-only."""
@@ -8530,9 +8603,9 @@ def _entry_head(case: Path, root: Path, readme_body: str, todo: grammar.Todo, jo
     if issues:  # the entry is a dose: the first lines and the count; every line is one command away (live long case,
         shown = issues[:ORDER_SHOWN]  # 2026-11-05: 23 251 lines, 8.6 MB, the item in work buried under them)
         more = ([f"- … +{len(issues) - ORDER_SHOWN} more → el order (every line)"] if len(issues) > ORDER_SHOWN else [])
-        out.say(f"## Order — {len(issues)} thing(s) to put back", *(f"- {ln}" for ln in shown), *more, "")
+        out.say(f"## Order — {len(issues)} thing(s) to put back", *(f"- {ln}" for ln in shown), *more, *aside, "")
     else:
-        out.say("## Order", "- ✓ everything in place: files carry summaries, Links follow the files, State is current", "")
+        out.say("## Order", "- ✓ everything in place: files carry summaries, Links follow the files, State is current", *aside, "")
     if not todo.errors:  # one hint, derived from the case, right under Order: the two say what to do now
         before = len(out.lines)
         hints.attach(out, "entry", case=case, todo=todo, journal=journal if not journal.errors else None,
@@ -8606,33 +8679,88 @@ def entry(root: Path, case: Path) -> Outcome:
         except StoreError as e:
             out.warn(f"TODO not refreshed — {e}")
     journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
-    issues = _order_lines(case, root, readme_body, journal)  # before the thread: a debt below is a step of the thread
-    out.lines += _entry_head(case, root, readme_body, todo, journal, issues)
-    out.say(ENTRY_BODY_MARK, "")
-    body_from = len(out.lines)
-    out.say(*_stored(readme_body.rstrip("\n")), "")
+    aside: List[str] = []  # the files from before the work in flight: counted, not checked here (P15)
+    issues = _order_lines(case, root, readme_body, journal, scoped=True, held_back=aside)  # a debt below is a step of the thread
+    out.lines += _entry_head(case, root, readme_body, todo, journal, issues, aside)
+    out.say(ENTRY_BODY_MARK)
+    # the files below are shown as they are stored: a link in them reads from the case's folder, as in any markdown file —
+    # el says where that folder is from here instead of rewriting what the files hold (the second hand, 2026-11-06)
+    out.say(f"(the files of {_shown_path(case)}/ as stored — a link in them reads from that folder)", "")
+    head = list(out.lines)
+    foot = [f"how to work: el help start · what goes where: el help where · rules: {_rules_pointer(root)} · full check: el check"]
+    body = _entry_body(case, readme_body, todo, todo_body, journal)
+    if len("\n".join(head + body + foot)) > MAX_SCREEN:
+        # a long case: what el draws of the past — the Links catalog, the closed phases — goes by count, so the open work
+        # and the journal reach the screen (a Codex long case, 2026-11-06: 3 764 README lines, nearly all Links, filled the
+        # body; the TODO and the journal headlines were cut off every time)
+        body = _entry_body(case, readme_body, todo, todo_body, journal, dose=True)
+    if len("\n".join(head + body + foot)) > MAX_SCREEN:
+        # the head — the thread, the counts, Order, the hint — is what the entry is FOR: cut the body, keep head and footer
+        room = max(MAX_SCREEN - len("\n".join(head + foot)) - 120, 0)
+        body = [Stored("\n".join(body)[:room]), "", f"[body truncated at {room} chars — README.md, TODO.md and JOURNAL.md are "
+                                                     f"on disk in {_shown_path(case)}/]", ""]
+    out.lines = head + body + foot
+    return out
+
+
+CLOSED_SHOWN = 3  # closed phases a dosed entry still names — the newest; the rest by count
+
+
+def _shown_path(path: Path) -> str:
+    """A path as the agent's shell reaches it from where it ran el (a door printed with a bare `README.md` failed from the
+    project root — a Codex acceptance, 2026-11-06)."""
+    try:
+        return os.path.relpath(path, os.getcwd())
+    except ValueError:  # another drive (Windows): the absolute path
+        return str(path)
+
+
+def _entry_body(case: Path, readme_body: str, todo: grammar.Todo, todo_body: str, journal: grammar.Journal,
+                dose: bool = False) -> List[str]:
+    """The case on disk under the entry's head: README, TODO as the entry shows it, the parked line, journal headlines.
+    `dose`: the past el draws goes by count — the Links catalog (README.md keeps it whole) and the closed phases but the
+    newest (TODO.md lists each); the open and paused phases with their items stay whole."""
+    lines: List[str] = []
+    readme_text = _dose_links(readme_body, _shown_path(case / "README.md")) if dose else readme_body
+    lines += [*_stored(readme_text.rstrip("\n")), ""]
     if not todo.errors:
-        shown, collapsed = render_todo_entry(todo, _two_hands(readme_body), _is_project(case))
-        out.say(*_stored(shown.rstrip("\n")))
+        todo_path = _shown_path(case / "TODO.md")  # every path of the body as the agent's shell reaches it (the second
+        shown, collapsed = render_todo_entry(todo, _two_hands(readme_body), _is_project(case),  # hand, 2026-11-06:
+                                             closed_shown=CLOSED_SHOWN if dose else None,  # `cat TODO.md` → exit 1)
+                                             todo_path=todo_path, phases_path=_shown_path(case / "phases") + "/")
+        lines += _stored(shown.rstrip("\n"))
         if collapsed:
-            out.say(f"({collapsed} done item(s) collapsed here — result and proofs: TODO.md · one item in full: el todo show N.M)")
-        out.say("")
+            lines.append(f"({collapsed} done item(s) collapsed here — result and proofs: {todo_path} · one item in full: "
+                         f"el todo show N.M)")
+        lines.append("")
     else:
-        out.say(*_stored(todo_body.rstrip("\n")), "")
+        lines += [*_stored(todo_body.rstrip("\n")), ""]
     parked = _parked_line(case, todo, journal if not journal.errors else None) if not todo.errors else None
     if parked:
-        out.say(parked, "")  # knowledge parked under a planned phase has a moment of return — counted until then (F22)
+        lines += [parked, ""]  # knowledge parked under a planned phase has a moment of return — counted until then (F22)
     if journal.entries:
-        out.say(*_stored(*_journal_headlines(journal, ENTRY_LIMIT)), "")
-    body_to = len(out.lines)
-    out.say(f"how to work: el help start · what goes where: el help where · rules: {_rules_pointer(root)} · full check: el check")
-    total = "\n".join(out.lines)
-    if len(total) > MAX_SCREEN:
-        # the head — the thread, the counts, Order, the hint — is what the entry is FOR: cut the body, keep head and footer
-        head, body, foot = out.lines[:body_from], out.lines[body_from:body_to], out.lines[body_to:]
-        room = max(MAX_SCREEN - len("\n".join(head + foot)) - 120, 0)
-        out.lines = head + [Stored("\n".join(body)[:room]), "", f"[body truncated at {room} chars — README/TODO/JOURNAL are on disk]", ""] + foot
-    return out
+        lines += [*_stored(*_journal_headlines(journal, ENTRY_LIMIT, _shown_path(case / "JOURNAL.md"))), ""]
+    return lines
+
+
+def _dose_links(readme_body: str, readme_path: str = "README.md") -> str:
+    """README with its `## Links` catalog as one counted line — the README on disk keeps every line. `readme_path`: the
+    README as the agent's shell reaches it — from the project root, where it runs el."""
+    lines = readme_body.split("\n")
+    try:
+        at = lines.index("## Links")
+    except ValueError:
+        return readme_body
+    end = next((i for i in range(at + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    catalog = [ln for ln in lines[at + 1:end] if ln.strip()]
+    if not catalog:
+        return readme_body
+    docs = sum(1 for ln in catalog if order.LINK_RE.search(ln))
+    folders = sum(1 for ln in catalog if order.folder_line(ln))  # top-level folder lines, as Order reads them
+    where = shlex.quote(readme_path)
+    note = (f"- ({len(catalog)} line(s) of the files' map — {docs} linked document(s), {folders} folder(s) — "
+            f"not shown here: {readme_path} keeps them whole · find one: grep -n 'word' {where})")
+    return "\n".join(lines[:at + 1] + [note, ""] + lines[end:])
 
 
 def _legacy_entry(root: Path, case: Path, names: List[str], legacy: List[tuple]) -> Outcome:

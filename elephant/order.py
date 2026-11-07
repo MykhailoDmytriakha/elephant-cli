@@ -738,7 +738,7 @@ def newest_header(journal: grammar.Journal) -> Optional[str]:
 
 # ---- broken links: a link that points at nothing is a map that lies ---------------------------------
 def broken_links(case: Path, folders: List[Folder], readme_body: str, todo_body: str,
-                 journal: Optional[grammar.Journal] = None) -> List[Tuple[str, str]]:
+                 journal: Optional[grammar.Journal] = None, since: Optional[float] = None) -> List[Tuple[str, str]]:
     """(file, target) for every relative markdown link whose target does not exist — in README and
     TODO bodies, the journal, the phase files and the content folders. A moved file keeps its links
     alive through `el mv` (feedback 2026-09-03); moved without el, `el relink old new` mends
@@ -767,7 +767,8 @@ def broken_links(case: Path, folders: List[Folder], readme_body: str, todo_body:
         scan("JOURNAL.md", "\n".join(ev.text + "\n" + "\n".join(ev.body) for e in journal.entries for ev in e.events),
              case, files_only=True)
     ph = phases_folder(case)
-    docs = [d for f in folders for d in f.all_docs()] + (ph.docs if ph else [])
+    docs = [d for f in folders for d in f.all_docs()] + [d for d in (ph.docs if ph else [])
+                                                          if since is None or _touched(d.path, since)]  # a closed phase's file is history
     for d in docs:
         try:
             scan(d.rel, d.path.read_text(encoding="utf-8", errors="ignore"), d.path.parent)
@@ -857,16 +858,45 @@ def unreferenced(case: Path, folders: List[Folder], readme_body: str, todo_body:
 
 
 # ---- the report shown on every entry (P12) ------------------------------------------------------
+def _touched(path: Path, since: float) -> bool:
+    """Arrived or changed since: the content (mtime) or the place (ctime — a file moved in keeps its old mtime); for a
+    link, the link itself as well as what it points at (a link made today to an old file arrived today)."""
+    times = []
+    for look in (path.lstat, path.stat):
+        try:
+            st = look()
+        except OSError:
+            return True
+        times += [st.st_mtime, st.st_ctime]
+    return max(times) >= since
+
+
+def touched_since(folders: List[Folder], since: float) -> List[Folder]:
+    """The folders as the work in flight sees them: the documents that arrived or changed since it began, and the folders
+    they sit in or that took a file since (a folder's own ctime moves when a file enters it)."""
+    out = []
+    for f in folders:
+        subs = touched_since(f.subs, since)
+        docs = [d for d in f.docs if _touched(d.path, since)]
+        if docs or subs or _touched(f.path, since):
+            out.append(Folder(f.name, f.path, docs, subs, f.other, f.md_bytes))
+    return out
+
+
 def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[grammar.Journal],
            links_lines: List[str], link_violations: Optional[list] = None, frozen: Optional[set] = None,
-           full: bool = False) -> List[str]:
+           full: bool = False, since: Optional[float] = None, held_back: Optional[list] = None) -> List[str]:
     """Lines for the `## Order` block: each one names what is out of order and the command that
     puts it back. Empty list = everything in place. With `link_violations` (a list), broken links
     in README/TODO are collected there for `check` to report as violations (F16) instead. `frozen`: resolved paths of
     case files that are versioned proofs of done items — their line 2 is not asked to change (it would change the version
     an acceptance stands on); `done` says it while the edit is still cheap. `full` (an `el order` asked for): every file of
     a counted line is named — the entry keeps the count and names the door (the polygon, 2026-11-06: «8 summary lines …
-    +4» named four, nothing named the rest, and the agent rewrote every file by a script — two frozen proofs with them)."""
+    +4» named four, nothing named the rest, and the agent rewrote every file by a script — two frozen proofs with them).
+    `since` (the entry, `el readme`, the recitation): the files are checked as far as the work in flight touched them —
+    the documents from before it are history, not reproached (the law has no retroactive force, P15); their number goes
+    to `held_back`, and `el order` and `el check` still look at every file (a Codex long case, 2026-11-06: 17 s of 21 at
+    every entry compared 2 400 archived documents, and 1 617 «add a summary» lines asked to rewrite accepted proofs)."""
     out: List[str] = []
 
     def names(items: List[str], shown: int = 4) -> str:
@@ -880,6 +910,9 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
             described[folder[0]] = folder[1]
     listed = set(described)
     folders = content_folders(case, root_mode, listed)
+    work = folders if since is None else touched_since(folders, since)
+    if since is not None and held_back is not None:
+        held_back.append(sum(len(f.all_docs()) for f in folders) - sum(len(f.all_docs()) for f in work))
     closed = grammar.is_closed(readme_body)
     if journal is not None and not closed:  # a closed case has no "now" to keep current
         key = anchor(readme_body)
@@ -893,7 +926,7 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
                 out.append(f"State is behind: {n} journal entr{'y' if n == 1 else 'ies'} touched since as of {key[0]} {key[1]} "
                            f"({r} RESULT, {p} PHASE{states}) → el readme set next \"…\" · still true as it stands: el readme touch "
                            f"· or el readme --file README.md")
-    over = [d for f in folders for d in f.all_docs() if d.summary and grammar.visible_len(d.summary) > SUMMARY_CHARS]
+    over = [d for f in work for d in f.all_docs() if d.summary and grammar.visible_len(d.summary) > SUMMARY_CHARS]
     long_ = [(d.rel, grammar.visible_len(d.summary)) for d in over if d.path.resolve() not in (frozen or set())]
     if long_:  # the limit asks the source to be rephrased; Links shows the summary whole (feedback 2026-09-25)
         held = len(over) - len(long_)
@@ -902,11 +935,11 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
                    f"cut)" + (f"; {held} more {'is a proof' if held == 1 else 'are proofs'} of done items with their version, "
                               f"left out on purpose — leave {'it' if held == 1 else 'them'}: an edit changes the version an "
                               f"acceptance stands on" if held else ""))
-    missing = [d.rel for f in folders for d in f.all_docs() if not d.summary]
+    missing = [d.rel for f in work for d in f.all_docs() if not d.summary]
     if missing:
         out.append(f"{len(missing)} file(s) without `summary:` — {names(missing)} → add `summary: one line` as line 2, "
                    f"or el order --adopt (takes the descriptions from Links)")
-    bare = [f.name for f in folders if not described.get(f.name, "") or described[f.name].startswith(PLACEHOLDER_FOLDER)]
+    bare = [f.name for f in work if not described.get(f.name, "") or described[f.name].startswith(PLACEHOLDER_FOLDER)]
     if len(bare) > COUNTED_AFTER:  # many of one kind: one line with the count (the live long case, 2026-11-05)
         out.append(f"{len(bare)} folder(s) without a description — {names([n + '/' for n in bare])} → "
                    f"el readme add links \"{bare[0]}/ — что здесь\", one per folder")
@@ -918,7 +951,7 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
             out.append(f"nested case {k.name}: README unparsable — it holds this case open (F18) → el --case {k.name} check")
         elif kind == "legacy":  # a case from before el: its own name and its own fix, never "broken" (2026-09-15)
             out.append(f"nested case {k.name}: from before el (never stamped, outside the grammar) — it holds this case open (F18) → el --case {k.name} migrate")
-    pairs = duplicates(folders)
+    pairs = duplicates(work)
     if len(pairs) > COUNTED_AFTER:  # 23 038 lines of pairs on a live long case (2026-11-05): a count, the strongest first
         if full:  # every file in a pair named once, with its strongest pair — every file, not every one of 23 038 pairs
             seen, cover = set(), []
@@ -938,7 +971,7 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
             out.append(f"{small} ≈ {other}: {int(share * 100)} % of {small.rsplit('/', 1)[-1]}'s text is verbatim in "
                        f"{other.rsplit('/', 1)[-1]} → relate them: link one from the other, saying in words how it differs "
                        f"(«second run over [run 1](run-1.md): …») · or merge them")
-    big = budgets(folders)
+    big = budgets(work)
     out.extend(big if len(big) <= COUNTED_AFTER or full else
                [f"{len(big)} file(s) over {FILE_WARN_BYTES // 1024} KB — {'; '.join(b.split(' → ')[0] for b in big[:3])} … "
                 f"+{len(big) - 3} (each named: el order) → split each by summary or trim"])
@@ -947,11 +980,14 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
         todo_body = stamp.split(store.read(case, "TODO.md"))[0]
     except Exception:  # noqa: BLE001 — no TODO, no links to check there
         todo_body = ""
-    dead = unreferenced(case, folders, readme_body, todo_body, journal)
+    dead = unreferenced(case, folders, readme_body, todo_body, journal)  # alive through any document, old or new
+    if since is not None:
+        fresh = {d.rel for f in work for d in f.all_docs()}
+        dead = [rel for rel in dead if rel in fresh]
     if dead:
         out.append(f"{len(dead)} file(s) nothing in the work points at — {names(dead)} → link it from an item, a phase file or a "
                    f"decision · park it: el mv <file> archive/ · or delete it (F21)")
-    broken = broken_links(case, folders, readme_body, todo_body, journal)
+    broken = broken_links(case, work, readme_body, todo_body, journal, since=since)
     if link_violations is not None:
         link_violations.extend(dict.fromkeys((f, t) for f, t in broken if f in ("README.md", "TODO.md")))
         broken = [(f, t) for f, t in broken if f not in ("README.md", "TODO.md")]

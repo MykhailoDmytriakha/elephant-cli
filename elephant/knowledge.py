@@ -171,6 +171,9 @@ check · a second copy of the stamp.""",
     "order": """order — the case keeps itself tidy (F14, F15, S5, P12)
 Every `el` entry ends with `## Order`: each line = one thing out of place + the command that fixes it.
 Many of one kind are one line with a count on the entry; `el order`, asked for, names each file (2026-11-06).
+The entry (and a bare `el readme`, and the recitation) checks the files the work in flight touched — arrived or changed
+since the phase in flight opened; the files from before it are history, counted in one line and not reproached: raw logs,
+old runs and accepted proofs kept on purpose are not asked to change. `el order` and `el check` look at every file.
 - a `summary:` over 150 chars → rephrase line 2 of each file, one by one — a script that cuts them loses the claim.
   A file that is a proof of a done item with its version is left out on purpose and the line says so: an edit would
   change the version an acceptance stands on.
