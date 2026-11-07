@@ -781,3 +781,31 @@ class TheRerunQuestionSaysItsLimit(Base):
         self.assertIn("150 chars at most, like «to re-run: cd web, Node 18»", line)
         self.assertIn("el todo note 1.1 'to re-run: …'", line)        # the door keeps el's placeholder: a sample run
         # literally would write another project's folder into this case
+
+
+class ARefusedPhaseNameKeepsTheReason(Base):
+    def test_the_printed_command_keeps_why(self):
+        # the radio, Codex #40, 2026-11-07: a four-word name was refused; the command printed kept --goal and lost --why
+        self.ok("phase", "open", "1", "Build", "--goal", "the shop builds")
+        self.ok("todo", "add", "1", "Wire the till")
+        from tests.test_commands import run
+        code, out, err = run("phase", "open", "2", "Long queue after reconnect", "--goal", "saves survive", "--why",
+                             "the owner saw it")
+        self.assertEqual(code, 2, out + err)
+        door = re.search(r"(el phase open 2 '<English name>' .*)$", out + err, re.M).group(1)
+        self.assertIn("--why 'the owner saw it'", door)
+        self.ok(*shlex.split(door.replace("'<English name>'", "Queue"))[1:])
+        self.assertIn("hold: phase 2 Queue — the owner saw it",
+                      store.read(next(p for p in Path(".cases").iterdir() if p.is_dir() and (p / "TODO.md").exists()),
+                                 "TODO.md"))
+
+    def test_the_needs_a_name_refusal_keeps_goal_and_why(self):
+        # the second hand, 2026-11-07: «phase open needs a name» printed `--goal …` over the goal given
+        self.ok("phase", "open", "1", "Build", "--goal", "the shop builds")
+        self.ok("todo", "add", "1", "Wire the till")
+        from tests.test_commands import run
+        code, out, err = run("phase", "open", "3", "--goal", "saves survive", "--why", "the owner saw it")
+        self.assertEqual(code, 2, out + err)
+        door = re.search(r"`(el phase open 3 .*?)`", out + err).group(1)
+        self.assertIn("--goal 'saves survive' --why 'the owner saw it'", door)
+        self.ok(*shlex.split(door)[1:])

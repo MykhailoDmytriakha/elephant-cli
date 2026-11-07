@@ -6012,14 +6012,15 @@ def _closed_case_refusal(case: Path, out: Outcome, verb: str) -> None:
                          f"it again first, saying why it goes on: el case reopen \"why it goes on\" — then el phase {verb} …", 4)
 
 
-def _phase_name_refusal(verb: str, n: int, name: str, goal: Optional[str]) -> StoreError:
+def _phase_name_refusal(verb: str, n: int, name: str, goal: Optional[str], reason: Optional[str] = None) -> StoreError:
     """F13: the name names the file. A goal given stays in the printed command — the maintainer's own wall, 2026-10-20: the
     refusal of `Old Python and links --goal '…'` printed `--goal 'Old Python and links'`, and taken as printed it would
     have dropped the goal for the name. Only where no goal was given do the name's own words become it."""
     words = len(name.split())
     english = bool(re.fullmatch(r"[A-Za-z0-9 -]+", name))
     why = (f"{words} words, 1–3 fit" if english and words > 3 else "English, 1–3 words, letters, digits, hyphen")
-    keep = f"--goal {_sh(goal)}" if goal else f"--goal {_sh(name)}"
+    keep = (f"--goal {_sh(goal)}" if goal else f"--goal {_sh(name)}") + (f" --why {_sh(reason)}" if reason else "")
+    # every flag of the call stays in the printed command (the radio, Codex #40, 2026-11-07: `--why` of a detour was lost)
     where = ("the goal you gave stays" if goal else "the words in your language go into the goal") if not english or goal else \
         "a shorter name, the rest into the goal"
     return StoreError(f"phase name `{name}`: {why} (F13) — it names the file phases/N-name.md; {where}: el phase {verb} {n} "
@@ -6339,9 +6340,11 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
     if not name and existing is not None and not existing.done:
         name = existing.name  # `el phase open N` opens the planned phase under its planned name
     if not name:
-        raise StoreError(f"phase open needs a name: `el phase open {n} \"CLI core\" --goal …` — no planned phase {n} to take it from", 2)
+        raise StoreError(f"phase open needs a name: `el phase open {n} \"CLI core\" --goal "
+                         + (_sh(goal) if goal else "…") + (f" --why {_sh(why)}" if why else "")
+                         + f"` — no planned phase {n} to take it from", 2)  # the call's own flags stay (the second hand)
     if not grammar.PHASE_NAME_RE.match(name):
-        raise _phase_name_refusal("open", n, name, goal)
+        raise _phase_name_refusal("open", n, name, goal, why)
     if existing and existing.done:
         raise StoreError(f"phase {n} is already closed", 4)
     pf = _phase_file(case, n, existing.name if existing else name)
