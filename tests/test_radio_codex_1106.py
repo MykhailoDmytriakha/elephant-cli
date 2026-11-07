@@ -394,3 +394,84 @@ class AWallReportCarriesTheNewestRefusals(Base):
             self.assertIn("30. el phase close 119 x  → exit", repro)
         finally:
             os.environ.pop("EL_FEEDBACK_DIR", None)
+
+
+class AOneItemPhaseClosesByItsResult(TwoHands):
+    # the owner's word, 2026-11-06 22:25 («Беру твою рекомендацию» — (в)): a phase of one item, done and accepted, with no
+    # PROBLEM left without a recipe, closes by its result alone; reflect and align are written when there is a lesson
+    def accept(self, ref):
+        os.environ["EL_SESSION"] = "acceptor1106"
+        self.ok("todo", "accept", ref, "--by", "owner", "принимаю")
+        os.environ["EL_SESSION"] = "doer1105"
+
+    def test_the_result_alone_closes_it_and_the_next_phase_opens(self):
+        self.accept("1.1")
+        out, _ = self.ok("phase", "close", "1", "the till builds")
+        self.assertIn("closed by its result alone", out)
+        self.assertIn("- [x] 1 Build", store.read(self.case(), "TODO.md"))
+        self.assertIn(f"Build закрыта ({commands.SHORT_CLOSE}) →", store.read(self.case(), "JOURNAL.md"))
+        self.ok("phase", "open", "2")                                   # the next gate reads the mark, asks no reflect
+
+    def test_order_offers_the_short_close(self):
+        self.accept("1.1")
+        out, _ = self.ok("order")
+        line = next(ln for ln in out.split("\n") if "phase 1 Build: every item ended" in ln)
+        self.assertNotIn("reflect", line)
+
+    def test_a_lesson_is_still_taken(self):
+        self.accept("1.1")
+        self.ok("phase", "close", "1", "the till builds", "--reflect", "wire before you count", "--align", "the ledger next")
+        journal = store.read(self.case(), "JOURNAL.md")
+        self.assertIn("reflect: wire before you count", journal)
+        self.assertNotIn(commands.SHORT_CLOSE, journal)
+
+    def test_not_accepted_two_items_or_an_open_problem_ask_the_full_close(self):
+        from tests.test_commands import run
+        code, out, err = run("phase", "close", "1", "the till builds")    # not accepted yet
+        self.assertEqual(code, 4, out + err)
+        self.accept("1.1")
+        self.ok("log", "--phase", "1", "PROBLEM", "the till drifted by a cent")
+        code, out, err = run("phase", "close", "1", "the till builds")    # a PROBLEM without a recipe: the lesson is due
+        self.assertEqual(code, 4, out + err)
+        self.assertIn("reflect", out + err)
+
+    def test_a_problem_answered_in_the_same_close_closes_short(self):
+        # the second hand, 2026-11-06: one accepted item + a PROBLEM + `--howto <recipe>` in the close → «reflect missing»,
+        # while the same recipe logged beforehand closed short
+        self.accept("1.1")
+        self.ok("log", "--phase", "1", "PROBLEM", "the till drifted by a cent")
+        Path(".howto").mkdir(exist_ok=True)
+        Path(".howto/round-the-till.md").write_text("when: the till drifted by a cent\n\n# Round the till\n", encoding="utf-8")
+        out, _ = self.ok("phase", "close", "1", "the till builds", "--howto", ".howto/round-the-till.md")
+        self.assertIn("closed by its result alone", out)
+
+    def test_two_items_ask_the_full_close(self):
+        self.ok("todo", "add", "1", "Print the receipt")
+        self.ok("todo", "done", "1.2", "run:print → ok", "the receipt prints")
+        self.accept("1.1-1.2")
+        from tests.test_commands import run
+        code, out, err = run("phase", "close", "1", "the till builds")
+        self.assertEqual(code, 4, out + err)
+        self.assertIn("reflect", out + err)
+
+
+class ACancelledItemMeansTheFullClose(Base):
+    def test_one_item_left_after_a_cancel_is_not_a_one_item_phase(self):
+        self.ok("phase", "open", "1", "Build", "--goal", "the shop builds")
+        self.ok("todo", "add", "1", "Wire the till")
+        self.ok("todo", "add", "1", "Wire the scale")
+        self.ok("todo", "done", "1.1", "run:build → ok", "the till builds")
+        self.ok("todo", "cancel", "1.2", "the shop sells no weighed goods")
+        from tests.test_commands import run
+        code, out, err = run("phase", "close", "1", "the till builds")
+        self.assertEqual(code, 4, out + err)
+        self.assertIn("reflect", out + err)
+
+
+class OneHandOneItem(Base):
+    def test_one_hand_a_done_item_is_enough(self):
+        self.ok("phase", "open", "1", "Build", "--goal", "the shop builds")
+        self.ok("todo", "add", "1", "Wire the till")
+        self.ok("todo", "done", "1.1", "run:build → ok", "the till builds")
+        out, _ = self.ok("phase", "close", "1", "the till builds")
+        self.assertIn("closed by its result alone", out)

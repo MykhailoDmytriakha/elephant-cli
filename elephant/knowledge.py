@@ -502,7 +502,10 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
 - close: needs in the journal — a RESULT for pN, `DECISION · reflect: <lesson about the process>`
   and `DECISION · align: <next phase re-planned with what we now know>` — and every item of the
   phase ended: done with an outcome or cancelled with a reason (F20; an open item holds the phase
-  open). Then `el phase close 2 "what it delivered"` fills result:, collapses TODO to one line
+  open). A phase of one item — done, accepted where two hands rule, none cancelled on the way, no PROBLEM without a
+  recipe — closes by its result alone: reflect and align are written when there is a lesson (the owner's word,
+  2026-11-06; its PHASE event says «коротко: один принятый пункт», and the next phase asks nothing more of it).
+  Then `el phase close 2 "what it delivered"` fills result:, collapses TODO to one line
   `- [x] 2 Name — result · date · [phases/2-name.md](phases/2-name.md)` (the path is a link — it opens
   from the editor), lists the items under `## Items at close` in the phase file with their links
   re-based (`docs/x.md` → `../docs/x.md`, the same files as from TODO), updates State. Said wrong? The same close

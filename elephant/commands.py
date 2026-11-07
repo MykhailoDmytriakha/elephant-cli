@@ -5824,7 +5824,28 @@ ALONGSIDE_HINT = ("phases are one pipeline, in order, one in flight; work that r
                   "nested case: el spawn \"name\" --goal \"…\" (P11) — its own phases, one line at the parent when it closes")
 
 
-def _closing_checks(case: Path, prev: grammar.Phase, journal: grammar.Journal) -> List[str]:
+SHORT_CLOSE = "коротко: один принятый пункт"  # the PHASE event's mark of a close by its result alone
+
+
+def _short_close(case: Path, phase: grammar.Phase, journal: grammar.Journal, howto_given: bool = False) -> bool:
+    """A phase of one item — done, accepted where the case asks two hands — with no PROBLEM left without a recipe closes by
+    its result alone: reflect and align are written when there is a lesson (the owner's word, 2026-11-06, «(в)»: a Codex
+    long case runs one bug a phase, dozens a day, and filled both fields with one thought for the form). A larger phase,
+    an open PROBLEM, a promise not proved — the full close, as before. A closed phase's items left TODO: its PHASE event
+    carries the mark, and the next phase's gate reads it there."""
+    evs = _events_for_phase(journal, f"p{phase.n}")
+    if phase.done:
+        return any(ev.type == "PHASE" and SHORT_CLOSE in ev.text for ev in evs)
+    if len(phase.items) != 1 or not phase.items[0].done:
+        return False
+    if _case_two_hands(case) and not phase.items[0].accepted:
+        return False
+    if any(ev.type == "DECISION" and ev.text.startswith("снято ") for ev in evs):
+        return False  # an item cancelled on the way: the phase was more than one item, and a path given up is a lesson
+    return howto_given or not _unanswered_problems(evs)  # a recipe given in the same close answers them (the second hand)
+
+
+def _closing_checks(case: Path, prev: grammar.Phase, journal: grammar.Journal, howto_given: bool = False) -> List[str]:
     """What P8 demands from a phase before the next one may open."""
     missing = []
     if _cancelled(prev):
@@ -5839,10 +5860,11 @@ def _closing_checks(case: Path, prev: grammar.Phase, journal: grammar.Journal) -
     # one, and a bare `el log` would file its reflect/align under the wrong phase (feedback 2026-09-14)
     if not any(ev.type == "RESULT" for ev in evs):
         missing.append(f"phase {prev.n}: no RESULT in the journal (F9) → el log --phase {prev.n} RESULT \"what came out\"")
-    if not any(ev.text.startswith("reflect:") for ev in evs):
+    short = _short_close(case, prev, journal, howto_given)  # one accepted item, no open PROBLEM: the result alone closes it
+    if not short and not any(ev.text.startswith("reflect:") for ev in evs):
         missing.append(f"phase {prev.n}: no `DECISION · reflect: …` (P8) → el log --phase {prev.n} DECISION \"reflect: …\" "
                        f"· or close with it: el phase close {prev.n} \"…\" --reflect \"the lesson\" --align \"what changes next\"")
-    if not any(ev.text.startswith("align:") for ev in evs):
+    if not short and not any(ev.text.startswith("align:") for ev in evs):
         missing.append(f"phase {prev.n}: no `DECISION · align: …` (P8) → el log --phase {prev.n} DECISION \"align: …\" "
                        f"· or: el phase close {prev.n} \"…\" --align \"what changes in the next plan\"")
     pf = _phase_file(case, prev.n, prev.name)
@@ -6349,10 +6371,12 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     # side; `--reflect "reflect: …"` was refused, exit 2, on a long close whose meaning was plain — `--howto` took both forms)
     reflect, align = (_own_prefix(tag, " ".join((val or "").split())) for tag, val in (("reflect", reflect), ("align", align)))
     def gates(j: grammar.Journal) -> List[str]:
-        found = [m for m in _closing_checks(case, phase, j) if "result:" not in m and not (alongside and "is missing (F12)" in m)]
+        found = [m for m in _closing_checks(case, phase, j, bool(howto_text))
+                 if "result:" not in m and not (alongside and "is missing (F12)" in m)]
         # a flag stands in for the event it is about to log — everything else must already hold
         return [m for m in found if not (reflect and "reflect:" in m) and not (align and "align:" in m)]
     missing = gates(journal)
+    short = _short_close(case, phase, journal, bool(howto_text)) and not (reflect and align)  # by its result alone: marked
     unanswered = _unanswered_problems(_events_for_phase(journal, f"p{n}"))
     if unanswered and not howto_text:  # P8: the close is the archivist's moment — what was caught becomes a recipe, or «none»
         missing.append(f"phase {n} logged {len(unanswered)} PROBLEM(s) no recipe answers — «{order._short(unanswered[0].text, 60)}»: "
@@ -6495,10 +6519,15 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     if alongside:  # the journal names the phase that was running; nothing in flight = closed before its turn
         ran = (f" (шла параллельно фазе {alongside[2].n}, без открытия)" if alongside[2]
                else " (закрыта до своей очереди, без открытия)")
-    out.lines = log(case, "PHASE", f"{phase.name} закрыта{ran} → {summary}", f"p{n}").lines + out.lines
+    out.lines = log(case, "PHASE", f"{phase.name} закрыта{ran}" + (f" ({SHORT_CLOSE})" if short else "") + f" → {summary}",
+                    f"p{n}").lines + out.lines
     out.say(f"closed: phase {n} {phase.name} → TODO.md (collapsed), {rel} (result), README.md State"
             + (f" · acceptance: {tally}" if tally else "") + (f" · on the path: «{on_path}»" if on_path else "")
             + (f" · {SCOPE_UNAGREED} — the line says it; the owner sees it before his word closes the case" if unscoped else ""))
+    if short:
+        out.say("closed by its result alone: one accepted item and no open PROBLEM — reflect and align are asked when there "
+                "is a lesson (the owner's word, 2026-11-06); one learned here goes in the same way: "
+                f"el log --phase {n} DECISION \"reflect: …\"")
     if not on_path:
         _ask_path(case, todo, n, out)
     later = _later_boundary_line(todo)
