@@ -175,7 +175,7 @@ class TheClockGoesBack(Base):
         for words in ("a neutral sentence one", "a neutral sentence two", "reflect: a neutral lesson"):
             self.assertIn(words, journal)
         self.assertIn("- 2099-11-01 01:40 · p0", journal)
-        self.assertNotIn("01:28", journal, "the newest entry's time stands in for a clock gone back")
+        self.assertNotIn("2099-11-01 01:28", journal, "the newest entry's time stands in for a clock gone back")  # not the wall clock: a run at 01:28 failed
         self.ok("check")
 
     def test_the_reflect_of_a_phase_closed_before_the_clock_went_back_is_found_by_the_next_open(self):

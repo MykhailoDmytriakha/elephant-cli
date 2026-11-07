@@ -166,7 +166,7 @@ class ClosedPhaseHistory(Base):
         self._full()
         self.ok("todo", "note", "1.1", "the two hundredth line")
         out, _ = self.ok("todo", "done", "1.1", "run:make test → OK", "the first is done")
-        self.assertNotIn("? el todo note 1.1 'to re-run: …' — the brief carries it", out)
+        self.assertNotIn("? el todo note 1.1 'to re-run: …' — one line", out)  # the ready form is not printed over a full TODO
         self.assertIn("TODO holds 200 of 200 lines of your text: make room first", out)
 
 

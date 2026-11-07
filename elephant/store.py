@@ -940,6 +940,9 @@ def _atomic_write(path: Path, text: str):
     os.replace(tmp, path)
 
 
+HAND_EDITED: set = set()  # files this process found written past el (stamp mismatch) — before the rebuild renewed the stamp
+
+
 def check_stamp(case: Path, name: str) -> WriteReport:
     """S3/S4: verify the stamp before writing. Mismatch → rebuild by grammar, move the rest out."""
     path = file_path(case, name)
@@ -949,6 +952,7 @@ def check_stamp(case: Path, name: str) -> WriteReport:
     if ok or state == "missing":  # S2: no stamp yet → it will be set by this write
         return report
     report.bypassed = True
+    HAND_EDITED.add(str(path.resolve()))  # a file written past el in this process: a drawn line that differs is a hand edit
     rebuilt, removed, fatal = recover.rebuild(name, text)
     if rebuilt is None:
         details = "; ".join(str(f) for f in fatal)

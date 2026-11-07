@@ -628,3 +628,156 @@ class ANextLineWhoseStepsAreOver(Base):
         self.assertNotIn("next: names", self.ok("order")[0])       # 1.2 is open inside the range
         self.ok("todo", "done", "1.2", "run:build → ok", "wired b")
         self.assertIn("next: names 1.1-1.3 — over", self.ok("order")[0])
+
+
+class AWrongDecisionIsCorrectedWhereItLives(Base):
+    # the owner's word, 2026-11-06 («берём а»): a correction names the decision it corrects; README shows the correction,
+    # the journal keeps both (polygon pm-haiku-15, finding F: a wrong DECISION drawn into README had no door)
+    def readme(self):
+        case = next(p for p in Path(".cases").iterdir() if p.is_dir() and (p / "README.md").exists())
+        return store.read(case, "README.md"), store.read(case, "JOURNAL.md")
+
+    def test_the_correction_replaces_the_old_line_in_readme(self):
+        self.ok("log", "DECISION", "64 folders without a line still land in the index")
+        self.ok("log", "DECISION", "the index takes one folder per line")
+        out, _ = self.ok("log", "DECISION", "only one such folder lands in the index", "--corrects", "64 folders")
+        self.assertRegex(self.readme()[1], r"поправка к «64 folders without a line still land in the index» "
+                                           r"\(\d{4}-\d{2}-\d{2} \d{2}:\d{2} · p\d+, событие \d+\): only one such folder")
+        self.ok("readme", "touch")
+        readme, journal = self.readme()
+        drawn = readme.split(commands.DECISIONS_DRAWN_HEAD, 1)[1].split("\n## ", 1)[0]
+        self.assertNotIn("· 64 folders without a line still land in the index", drawn)
+        self.assertIn("only one such folder lands in the index", drawn)
+        self.assertIn("the index takes one folder per line", drawn)
+        self.assertIn("64 folders without a line still land in the index", journal)   # history stays
+
+    def test_words_that_match_none_or_many_are_refused_with_the_choices(self):
+        self.ok("log", "DECISION", "the till takes cards")
+        self.ok("log", "DECISION", "the till takes coins")
+        from tests.test_commands import run
+        code, out, err = run("log", "DECISION", "the till takes cash", "--corrects", "the till takes")
+        self.assertEqual(code, 4, out + err)
+        self.assertIn("2 decisions hold these words", out + err)
+        code, out, err = run("log", "DECISION", "the till takes cash", "--corrects", "a scale")
+        self.assertEqual(code, 4, out + err)
+        self.assertIn("no decision of the journal holds these words", out + err)
+        code, out, err = run("log", "PROBLEM", "x", "--corrects", "the till takes cards")
+        self.assertEqual(code, 2, out + err)
+
+    def test_a_drawn_line_edited_by_hand_is_kept_and_said(self):
+        self.ok("log", "DECISION", "64 folders without a line still land in the index")
+        self.ok("readme", "touch")
+        case = next(p for p in Path(".cases").iterdir() if p.is_dir() and (p / "README.md").exists())
+        path = case / "README.md"
+        text = path.read_text(encoding="utf-8").replace("· 64 folders without a line", "· one folder without a line")
+        path.write_text(text, encoding="utf-8")                          # the agent's hand edit of a drawn line
+        out, err = self.ok("readme", "touch")
+        self.assertIn("a line el draws from the journal was edited by hand", err)
+        door = re.search(r"To correct it where it lives: (el log DECISION .*?) — README then shows", err).group(1)
+        self.ok(*shlex.split(door)[1:])                                  # the door runs as printed (the second hand)
+        readme = store.read(case, "README.md")
+        self.assertIn("- one folder without a line still land in the index", readme)   # kept, not dropped
+
+    def test_a_chain_of_corrections_shows_only_the_last(self):
+        # the second hand, 2026-11-07: cards → coins → cash showed cards again
+        self.ok("log", "DECISION", "the till takes cards")
+        self.ok("log", "DECISION", "the till takes coins", "--corrects", "takes cards")
+        self.ok("log", "DECISION", "the till takes cash", "--corrects", "takes coins")
+        self.ok("readme", "touch")
+        drawn = self.readme()[0].split(commands.DECISIONS_DRAWN_HEAD, 1)[1].split("\n## ", 1)[0]
+        self.assertIn("the till takes cash", drawn)
+        self.assertNotIn("· the till takes cards", drawn)
+        self.assertNotIn(": the till takes coins\n", drawn + "\n")
+
+    def test_a_shared_opening_hides_only_the_corrected_one(self):
+        # the second hand, 2026-11-07: two decisions sharing 60 chars, one corrected — both were hidden
+        common = "the database stores the account history with complete records for"
+        self.ok("log", "DECISION", f"{common} alpha only")
+        self.ok("log", "DECISION", f"{common} beta only")
+        self.ok("log", "DECISION", "the database keeps alpha for a year", "--corrects", "alpha only")
+        self.ok("readme", "touch")
+        drawn = self.readme()[0].split(commands.DECISIONS_DRAWN_HEAD, 1)[1].split("\n## ", 1)[0]
+        self.assertIn(f"{common} beta only", drawn)
+        self.assertNotIn(f"· {common} alpha only", drawn)
+
+
+    def drawn(self):
+        self.ok("readme", "touch")
+        return self.readme()[0].split(commands.DECISIONS_DRAWN_HEAD, 1)[1].split("\n## ", 1)[0]
+
+    def test_the_place_not_the_words_says_which_one(self):
+        # the second hand, 2026-11-07, round 2: alike openings and bodies hid decisions nobody corrected
+        self.ok("log", "DECISION", "the database stores the history\nalpha only")
+        self.ok("log", "DECISION", "the database stores the history\nbeta only")
+        self.ok("log", "DECISION", "alpha is kept a year", "--corrects", "alpha only")
+        drawn = self.drawn()
+        self.assertIn("beta only", drawn)
+        self.assertNotIn("· the database stores the history alpha only", drawn)
+
+    def test_a_literal_ellipsis_and_a_shared_opening(self):
+        self.ok("log", "DECISION", "the till takes cards…")
+        self.ok("log", "DECISION", "the till takes cards and coins")
+        self.ok("log", "DECISION", "the till takes cash", "--corrects", "cards…")
+        drawn = self.drawn()
+        self.assertIn("the till takes cards and coins", drawn)
+
+    def test_a_decision_that_looks_like_a_correction_is_still_correctable(self):
+        self.ok("log", "DECISION", "the rule says «cards» от 2001-01-01: keep coins")
+        self.ok("log", "DECISION", "keep cards too", "--corrects", "keep coins")
+        self.assertNotIn("· the rule says «cards» от 2001-01-01: keep coins", self.drawn())
+
+    def test_a_relink_is_not_a_hand_edit(self):
+        # the second hand, round 3: a decision linking [old.md](old.md), then the file moved and `el relink` — the drawn
+        # line no longer matched the journal and was called «edited by hand», the old line kept beside the new
+        case = next(p for p in Path(".cases").iterdir() if p.is_dir() and (p / "README.md").exists())
+        (case / "docs").mkdir()
+        (case / "docs" / "old.md").write_text("# Old\nsummary: the plan\n", encoding="utf-8")
+        self.ok("log", "DECISION", "follow [old.md](docs/old.md) for the plan")
+        self.ok("readme", "touch")
+        (case / "docs" / "old.md").rename(case / "docs" / "new.md")
+        out, err = self.ok("relink", "docs/old.md", "docs/new.md")
+        _, err2 = self.ok("readme", "touch")
+        self.assertNotIn("a line el draws from the journal was edited by hand", err + err2)
+        drawn = self.drawn()
+        self.assertNotIn("old.md", drawn)
+        self.assertIn("new.md", drawn)
+
+    def test_a_hand_edit_elsewhere_and_a_relink_is_not_a_decision_edit(self):
+        # the second hand, round 4: a hand edit of State only, then a file moved and `el relink` — the untouched decision
+        # was called «edited by hand» and its old line kept beside the new
+        case = next(p for p in Path(".cases").iterdir() if p.is_dir() and (p / "README.md").exists())
+        (case / "docs").mkdir()
+        (case / "docs" / "old.md").write_text("# Old\nsummary: the plan\n", encoding="utf-8")
+        self.ok("log", "DECISION", "follow [old.md](docs/old.md) for the plan")
+        self.ok("readme", "touch")
+        path = case / "README.md"
+        path.write_text(path.read_text(encoding="utf-8").replace("## State\n", "## State\n- next: a hand-typed step\n", 1),
+                        encoding="utf-8")                                 # a hand edit, but of State
+        (case / "docs" / "old.md").rename(case / "docs" / "new.md")
+        _, err = self.ok("relink", "docs/old.md", "docs/new.md")
+        _, err2 = self.ok("readme", "touch")
+        self.assertNotIn("a line el draws from the journal was edited by hand", err + err2)
+        self.assertNotIn("old.md", self.drawn())
+
+    def test_a_short_decision_edited_by_hand_gets_a_door_that_runs(self):
+        # the second hand, round 5: «accept cards» edited to «accept coins» — the door was the placeholder, refused
+        self.ok("log", "DECISION", "accept cards")
+        self.ok("readme", "touch")
+        case = next(p for p in Path(".cases").iterdir() if p.is_dir() and (p / "README.md").exists())
+        path = case / "README.md"
+        path.write_text(path.read_text(encoding="utf-8").replace("· accept cards", "· accept coins"), encoding="utf-8")
+        _, err = self.ok("readme", "touch")
+        door = re.search(r"To correct it where it lives: (el log DECISION .*?) — README then shows", err).group(1)
+        self.assertIn("--corrects", door)
+        self.ok(*shlex.split(door)[1:])
+
+class TheRerunQuestionSaysItsLimit(Base):
+    def test_the_limit_and_a_short_sample_come_before_the_first_refusal(self):
+        # the radio, Codex #32, 2026-11-07: `done` asked for a `to re-run:` note; the note came at 152 chars and was refused
+        self.ok("phase", "open", "1", "Build", "--goal", "the shop builds")
+        self.ok("todo", "add", "1", "Wire the till")
+        out, _ = self.ok("todo", "done", "1.1", "run:build → ok", "wired")
+        line = next(ln for ln in out.split("\n") if "a fresh hand re-runs it" in ln)
+        self.assertIn("150 chars at most, like «to re-run: cd web, Node 18»", line)
+        self.assertIn("el todo note 1.1 'to re-run: …'", line)        # the door keeps el's placeholder: a sample run
+        # literally would write another project's folder into this case

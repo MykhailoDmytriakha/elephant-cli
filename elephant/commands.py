@@ -456,7 +456,10 @@ def _derive_readme(case: Path, body: str) -> str:
         # entries run newest first, events inside an entry are appended — the newest RESULT is the LAST one of its entry
         # (feedback 2026-10-05: two RESULTs in one minute showed the older one as `last:`)
         if not journal.errors:  # the decisions of the case, drawn from its journal (the owner's «yes», 2026-10-08)
-            text = _draw_decisions(text, journal)
+            readme_path = store.file_path(case, "README.md")
+            hand = (str(readme_path.resolve()) in store.HAND_EDITED  # written past el: a drawn line that differs is a hand
+                    or stamp.verify(store.read(case, "README.md"))[1] == "mismatch")  # edit; otherwise the journal moved (relink)
+            text = _draw_decisions(text, journal, hand=hand)
         opened = _opened_line(journal, parsed) if not journal.errors else None
         if opened:  # where the case started, first in State (the owner, 2026-10-08: «I opened the README and could not find
             text = _set_first_state_line(text, "opened: ", opened)  # what I started with»)
@@ -729,27 +732,73 @@ EL_DECISION_RE = re.compile(  # the formats el itself writes — an agent's «ф
     r"|^todo (?:\d+\.\d+|add|done|edit|move|drop)\b")  # `todo …`: v0.7–0.8 logged each TODO edit
 
 
-def _draw_decisions(readme: str, journal: grammar.Journal) -> str:
+DRAWN_EDITED: List[tuple] = []  # (words, --corrects words) of drawn lines found edited by hand — said by the write
+
+
+def _corrects_words(journal: grammar.Journal, edited: str) -> Optional[str]:
+    """The words that name, alone, the journal decision a hand-edited drawn line most likely came from — the most words
+    in common — so the printed door runs as printed (the second hand, 2026-11-07: «--corrects "words of the old one"» was
+    refused as no match). None when no one decision stands out."""
+    mine = set(edited.lower().split())
+    agents = [ev for e in journal.entries for ev in e.events if ev.type == "DECISION" and not EL_DECISION_RE.match(ev.text)]
+    scored = sorted(((len(mine & set(_event_words(ev).lower().split())), i) for i, ev in enumerate(agents)), reverse=True)
+    if not scored or scored[0][0] == 0 or (len(scored) > 1 and scored[1][0] == scored[0][0]):
+        return None
+    words = " ".join(_event_words(agents[scored[0][1]]).split()).split(" ")
+    for n in range(1, len(words) + 1):  # the shortest opening only it holds — one word may do (the second hand: a two-word
+        want = " ".join(words[:n]).lower()  # decision got the placeholder door, refused when run)
+        if sum(want in " ".join(_event_words(ev).split()).lower() for ev in agents) == 1:
+            return " ".join(words[:n])
+    return None
+
+
+def _sans_files(text: str) -> str:
+    """Words without the ones that name a file (a path, a name with an extension): a relink renames those, a hand edit of a
+    decision changes the others (the second hand, 2026-11-07: a State edit and a relink called the untouched decision
+    «edited by hand»)."""
+    return " ".join(w for w in text.split() if "/" not in w and not re.fullmatch(r"\S+\.[a-z0-9]{1,5}[),.;:]*", w))
+
+
+def _draw_decisions(readme: str, journal: grammar.Journal, hand: bool = False) -> str:
     lines = readme.rstrip("\n").split("\n")
     start = next((i for i, ln in enumerate(lines) if ln == "## Decisions"), None)
     if start is None:
         return readme
     end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
-    body, drawn_on = [], False
+    known = {" ".join(re.sub(rf"\[([^\]]+)\]\({grammar.LINK_TARGET}\)", r"\1", _event_words(ev)).split()).lower()
+             for e in journal.entries for ev in e.events if ev.type == "DECISION"}
+    known_sans = {_sans_files(k) for k in known}  # the same decision with a file moved (relink renames its link)
+    body, drawn_on, edited = [], False, []
     for ln in lines[start + 1:end]:  # what el drew before goes; the agent's own lines stay as written
         if ln == DECISIONS_DRAWN_HEAD:
             drawn_on = True
             continue
         if drawn_on and ln.startswith("  - "):
-            continue
+            words = re.sub(r"^  - \d{4}-\d{2}-\d{2} · ", "", ln)
+            plain = re.sub(rf"\[([^\]]+)\]\({grammar.LINK_TARGET}\)", r"\1", words)  # the form el draws, links as names
+            flat = " ".join(plain.split()).lower()
+            if hand and flat not in known and _sans_files(flat) not in known_sans:  # a drawn line edited by hand: its words are no decision of the
+                edited.append(words)  # journal — kept as the agent's own line, not dropped (polygon pm-haiku-15: the edit
+            continue  # vanished at the next write, with no word from el)
         drawn_on = False
         body.append(ln)
+    if edited:
+        while body and body[-1] == "":
+            body.pop()
+        body += [f"- {w}" for w in edited]
+        DRAWN_EDITED.extend((w, _corrects_words(journal, w)) for w in edited)
     own = " ".join(" ".join(ln.split()) for ln in body).lower()
-    picked = []
+    picked, corrected = [], []
     for e in journal.entries:  # newest entry first; inside an entry the newest event is the last
         for ev in reversed(e.events):
             if ev.type != "DECISION" or EL_DECISION_RE.match(ev.text):
                 continue
+            m = CORRECTION_RE.match(" ".join(_event_words(ev).split()))
+            if m:  # what it corrects counts even when a newer correction hides this one (the second hand: cards → coins
+                corrected.append((m.group(2), m.group(3), m.group(4), int(m.group(5))))  # → cash showed cards again)
+            k = next(i for i, x in enumerate(e.events, 1) if x is ev)
+            if (e.date, e.time, e.phase, k) in corrected:
+                continue  # a newer decision corrects it: the journal keeps it, README shows the correction (the owner, «а»)
             # history, not pointers: a link of the journal becomes its name — README holds its links to F16, the journal
             # does not, and an old decision must not bring a dead link into the owner's page
             words = re.sub(rf"\[([^\]]+)\]\({grammar.LINK_TARGET}\)", r"\1", _event_words(ev))
@@ -979,7 +1028,20 @@ def _write_readme(case: Path, body: str, out: Outcome, anchor: bool = False):
         if header:
             body = _set_state_line(body, "as of: ", header)
     out.absorb(store.write(case, "README.md", _derive_readme(case, body)))
+    _say_drawn_edits(out)
     _refresh_parents(case, out)
+
+
+def _say_drawn_edits(out: Outcome) -> None:
+    """A line el draws from the journal, edited by hand, is kept as the agent's own Decisions line — and said, with the
+    door that corrects a decision where it lives (the owner's word «а», 2026-11-06)."""
+    while DRAWN_EDITED:
+        words, old = DRAWN_EDITED.pop(0)
+        door = (f"el log DECISION {_q(words)} --corrects {_q(old)}" if old
+                else "el log DECISION \"what is true\" --corrects \"a few words of the old one, as the journal has them\"")
+        out.warn(f"README Decisions: a line el draws from the journal was edited by hand — «{order._short(words, 60)}» — kept "
+                 f"as your own Decisions line; the journal's decision still reads the old way. To correct it where it lives: "
+                 f"{door} — README then shows the correction")
 
 
 def _refresh_parents(case: Path, out: Outcome) -> None:
@@ -1295,7 +1357,38 @@ TYPE_DOORS = (
 )
 
 
-def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: str = "", typed: bool = False) -> Outcome:
+# el's own opening of a correcting DECISION: a quote for the reader, and the corrected event's place in the journal — its
+# entry (date, time, phase) and its number in that entry; the place, not the words, says which one (the second hand,
+# 2026-11-07: an opening shared by two decisions, bodies alike, a literal «…» hid decisions nobody corrected)
+CORRECTION_RE = re.compile(r"^поправка к «([^«»]*)» \((\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) · (p[\d.]+), событие (\d+)\): ")
+
+
+def _correction_text(case: Path, words: str, text: str) -> str:
+    """`el log DECISION "…" --corrects "words"` — the decision it corrects, found by its words, named at the front of the
+    new one; README then shows the correction alone, the journal keeps both (the owner's word, 2026-11-06, «а»: a wrong
+    decision drawn into README had no door — the agent edited the line by hand, the next write redrew the old one)."""
+    journal = _journal(case)
+    want = " ".join(words.split()).lower()
+    found = [(e, ev) for e in journal.entries for ev in reversed(e.events)
+             if ev.type == "DECISION" and not EL_DECISION_RE.match(ev.text) and want in " ".join(_event_words(ev).split()).lower()]
+    if not found:
+        newest = [f"{e.date} · {order._short(ev.text, 70)}" for e in journal.entries for ev in reversed(e.events)
+                  if ev.type == "DECISION" and not EL_DECISION_RE.match(ev.text)][:5]
+        raise StoreError(f"--corrects «{words}»: no decision of the journal holds these words — nothing written"
+                         + (": the newest are\n  " + "\n  ".join(newest) if newest else "") +
+                         "\n  take a few words from the one it corrects, as they stand", 4)
+    if len(found) > 1:
+        raise StoreError(f"--corrects «{words}»: {len(found)} decisions hold these words — nothing written; more words of "
+                         f"the one it corrects:\n  " + "\n  ".join(f"{e.date} · {order._short(ev.text, 70)}" for e, ev in found[:6]), 4)
+    e, ev = found[0]
+    old = " ".join(ev.text.split()).replace("«", '"').replace("»", '"')  # the quote is for the reader; its marks are not el's
+    quote = old if len(old) <= 60 else old[:old.rfind(" ", 0, 60) if " " in old[:60] else 60].rstrip() + "…"
+    k = next(i for i, x in enumerate(e.events, 1) if x is ev)
+    return f"поправка к «{quote}» ({e.date} {e.time} · {e.phase}, событие {k}): {text}"
+
+
+def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: str = "", typed: bool = False,
+        corrects: Optional[str] = None) -> Outcome:
     """`trailer` — a provenance body line el adds under the event (`session: 1a2b3c4d` under a RESULT, F23): kept out of
     the headline, so the entry, which shows headlines only, does not change; dropped when the body is already full.
     `typed` — the agent wrote this event itself (`el log`), not a command on its behalf: only then a RESULT that no
@@ -1305,6 +1398,10 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: s
     if typ not in grammar.JOURNAL_TYPES:
         door = next((d for words, d in TYPE_DOORS if typ in words), "")
         raise StoreError(f"unknown type `{typ}` — allowed: PHASE · DECISION · PROBLEM · RESULT (F8)" + (f"\n  {door}" if door else ""), 2)
+    if corrects is not None:
+        if typ != "DECISION":
+            raise StoreError(f"--corrects is for a DECISION: el log DECISION \"…\" --corrects \"words of the old one\"", 2)
+        text = _correction_text(case, corrects, text)
     event_lines, split = _render_event(typ, text)
     if trailer and len(event_lines) - 1 < grammar.EVENT_BODY_LINES:
         event_lines = event_lines + [f"    {trailer}"]
@@ -2087,8 +2184,10 @@ def _rerun_question(proofs: List[Tuple[str, str]], items: List[grammar.Item], ca
                 f"of the case, an ended phase folds into its file (el phase close N) — then el todo note {bare[0]} "
                 f"'{RERUN_NOTE} …'"]
     return [f"a fresh hand re-runs it from the brief alone — does it need what the command does not say (the folder, a "
-            f"setting, the input, a login)? el todo note {', '.join(bare)} '{RERUN_NOTE} …' — the brief carries it; secrets "
-            f"stay out"]
+            f"setting, the input, a login)? el todo note {', '.join(bare)} '{RERUN_NOTE} …' — one line, "
+            f"{grammar.POCKET_CHARS} chars at most, like «{RERUN_NOTE} cd web, Node 18» (a longer story: a file of the case, "
+            f"its link in the note); the brief carries it; secrets stay out"]  # the limit before the first refusal, a short sample (the radio, Codex #32:
+    # a 152-char note was refused at 150 — a count and «nothing written» helped, the limit up front would have saved it)
 
 
 def _todo_own_lines(case: Path) -> int:
@@ -8591,6 +8690,7 @@ def _refresh_readme(case: Path, out: Outcome) -> str:
     `progress:` from TODO. Written only when something changed; failures never block the entry."""
     body, _ = stamp.split(store.read(case, "README.md"))
     derived = _derive_readme(case, body)
+    _say_drawn_edits(out)
     if derived != body:
         try:
             out.absorb(store.write(case, "README.md", derived))

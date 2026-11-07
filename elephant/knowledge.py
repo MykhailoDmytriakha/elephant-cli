@@ -283,6 +283,11 @@ screen the path, the owner line and a counted progress answered the owner's ques
   the ended ones as a count, the living ones by name), `last:`, `as of:`,
   `ready:`/`closed:`; under your Decisions lines the five newest decisions of the journal (`el log DECISION`), dated,
   under «from the journal — history, not the case's rules»; a rule that holds from now on is your own Decisions line.
+  A decision that turned out wrong is corrected where it lives: `el log DECISION "what is true" --corrects "words of the
+  old one"` — el names the old one at the front of the new — a quote and its place in the journal («поправка к «…» (date time ·
+  pN, событие k): …»), README shows the correction,
+  the journal keeps both. A drawn line edited by hand is kept as your own line, and el says so — the journal still reads
+  the old way until a correction says otherwise.
 - `set` writes State only: a prefix that names a line of another section is refused with the
   edit command for that line — it never quietly opens a second line in State.
 - Order says «State is behind»: RESULT/PHASE events landed after `as of`, or el's own decisions that change the work

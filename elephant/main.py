@@ -13,6 +13,7 @@ from .store import StoreError
 EXAMPLES = """examples
   el  ·  el status                   where the case in hand stands + next step (read this first)
   el log DECISION "chose X over Y because Z"
+  el log DECISION "only one folder lands there" --corrects "64 folders"   a decision that turned out wrong: README shows the correction
   el log RESULT "p95 dropped 120 → 48 ms"  ·  el log RESULT 'what came out' 'root: …' 'fix: …'   a quoted phrase per line
   el todo add 3 "write the parser"      el todo done 3.1 run:"python3 -m unittest → 12 OK" "parser passes"   done = KIND of evidence + what came out (→ RESULT)
   el todo done 2.4 file:evidence/receipt.pdf "fee paid" · el todo done 2.5 ref:R000123-000001 "request filed" · el todo done 2.6 owner "agreed with the clerk"
@@ -318,6 +319,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("type")
     s.add_argument("text")
     s.add_argument("--phase", help="p1, 1 or a unique phase name (default: the open phase); e.g. `el log --phase p1 DECISION \"…\"`")
+    s.add_argument("--corrects", metavar="WORDS", help="DECISION only: words of an earlier decision this one corrects — README "
+                                                       "then shows the correction, the journal keeps both (F8)")
 
     s = sub.add_parser("todo", help="add · done · edit · move · drop · hold · resume items — N.M is an item's number for life: drop and move never renumber", allow_abbrev=False)
     s.add_argument("action", nargs="?", choices=["add", "done", "edit", "move", "drop", "hold", "resume", "reopen", "cancel", "due", "after", "why", "note", "expect", "fact", "show",
@@ -910,7 +913,7 @@ def _run(argv=None) -> int:
             if args.cmd is None or args.cmd == "status":
                 out = commands.entry(root, case)
             elif args.cmd == "log":
-                out = commands.log(case, args.type, args.text, args.phase, typed=True)
+                out = commands.log(case, args.type, args.text, args.phase, typed=True, corrects=args.corrects)
             elif args.cmd == "todo" and args.action is None:  # bare: the plan, as a bare `el readme` shows the README
                 out = commands.todo_show_all(case)
             elif args.cmd == "todo" and args.ref is None:
