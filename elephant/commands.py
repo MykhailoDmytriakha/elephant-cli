@@ -7672,7 +7672,9 @@ def case_use(root: Path, name: str) -> Outcome:
     case = store.resolve_case(root, name)
     if not store.is_open(case):
         arg = store.case_arg(case, root)
-        raise StoreError(f"{case.name} is closed — the hand only holds open cases; it goes on? el --case {arg} case "
+        mine = store.held(root)  # what the next plain write acts on — the refusal moved nothing (a report, 2026-11-07)
+        stays = f" and stays on {mine.name}" if mine is not None and mine.resolve() != case.resolve() else ""
+        raise StoreError(f"{case.name} is closed — the hand only holds open cases{stays}; it goes on? el --case {arg} case "
                          f"reopen \"why it goes on\", then el case use {arg}", 4)
     _os.utime(case / "JOURNAL.md")
     store.hold(root, case)  # this session's hand; the mtime still moves it for a harness without a session id

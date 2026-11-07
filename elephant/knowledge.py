@@ -625,7 +625,8 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   a look or a write, typed before the command or after it; the hand stays and the output says where, and every command
   el prints in that answer carries the same --case; the hand moves only by `el case use <name>` (and by case new,
   spawn, a plain write). A harness that gives el no session id keeps that rule: set EL_SESSION, or pass
-  --case. One agent works one case at a time. In a tree the entry names the other open cases by their top: a parent
+  --case. A write through the hand, while another case here is open, says its case first: `[<case>] logged: …`;
+  a refused `case use` says where the hand stays. One agent works one case at a time. In a tree the entry names the other open cases by their top: a parent
   with `(+K open nested)` — its own Links list its children. A fresh session that lands on a case another live session
   holds is told so under the entry's first line, with `el case use` to take its own. Where el keeps a session's hand,
   its locks and walls: the temp folder, never the project (EL_HANDS_DIR · EL_LOCK_DIR move them).

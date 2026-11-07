@@ -778,6 +778,7 @@ def _run(argv=None) -> int:
         if unused is not None:
             raise unused
         shown = False  # a bare `el readme` that shows, not writes — a look that refreshes is not a write aimed at the case
+        tag = ""  # the case a write through the hand went into, when another case is open — the output's first line says it
         trace = shell_trace(args)
         if trace:
             raise StoreError(trace, 2)
@@ -889,10 +890,12 @@ def _run(argv=None) -> int:
         if args.cmd == "case":
             if args.action == "list":
                 out = commands.case_list(root, everything=args.all)
-            elif args.action == "cancel":
-                out = commands.case_cancel(root, store.hand(root, args.case), args.name or "")
-            elif args.action == "reopen":
-                out = commands.case_reopen(root, store.hand(root, args.case), args.name or "")
+            elif args.action in ("cancel", "reopen"):
+                target = store.hand(root, args.case)
+                act = commands.case_cancel if args.action == "cancel" else commands.case_reopen
+                out = act(root, target, args.name or "")
+                if not (args.case or os.environ.get("EL_CASE")):
+                    tag = _name_the_case(out, root, target)  # a write through the hand, like any other (Codex, 2026-11-07)
             else:
                 if not args.name:
                     raise StoreError("usage: el case use <name or unique suffix>", 2)
@@ -1049,6 +1052,8 @@ def _run(argv=None) -> int:
                 out = commands.relink(case, args.old, args.new)
             elif args.cmd == "spawn":
                 out = commands.spawn(root, case, args.name, args.goal)
+                if not (args.case or os.environ.get("EL_CASE")):
+                    tag = _name_the_case(out, root, case)  # its first line is the parent's journal; the child is named below it
                 child = store.held(root)  # spawn holds the child it opened: its write, not the parent's
                 if child is not None:
                     store.mark_wrote(root, child)
@@ -1060,6 +1065,8 @@ def _run(argv=None) -> int:
             if store.touched() and args.cmd not in (None, "status", "spawn"):
                 if not (getattr(args, "case", None) or os.environ.get("EL_CASE")):
                     store.hold(root, case)  # the case this session last wrote to stays its hand (spawn holds the child)
+                    if not shown and not _looks(args):
+                        tag = _name_the_case(out, root, case)
                 else:  # a write named by --case or EL_CASE is that call's; the hand moves only by `case use` (the owner's
                     # word, 2026-10-11: «--case one call; switching the hand works explicitly, another way» — a report:
                     # `--case <nested> log …` moved the session's hand, and its next plain write landed in the nested case)
@@ -1078,6 +1085,9 @@ def _run(argv=None) -> int:
         if recital:  # the command keeps its last line — the one a `tail -1` reader takes (Codex, 2026-10-07)
             last = max((i for i, ln in enumerate(out.lines) if ln.strip()), default=len(out.lines))
             out.lines[last:last] = recital
+            first = next((i for i, ln in enumerate(out.lines) if ln.strip()), None)  # a one-line write: the recital
+            if tag and first is not None and not out.lines[first].startswith(tag):  # went above it, and `head -1` kept
+                out.lines[first] = tag + out.lines[first]  # the recital — it names the case too (Codex, 2026-11-07)
         for w in _carry_case(list(out.warnings), args):
             print(f"warning: {w}", file=sys.stderr)
         print("\n".join(_carry_case(out.lines, args)))
@@ -1128,6 +1138,25 @@ def _is_command(words: str) -> bool:
         return True
     except (SystemExit, Exception):  # el's parser refuses with StoreError: not a command line
         return False
+
+
+def _name_the_case(out, root: Path, case: Path) -> str:
+    """A write whose case el chose — the hand, not the call — names that case on its first line while another case here
+    is open (a report, 2026-11-07: `el case use A` was refused behind `| tail &&`, the next `el log` went into B, the
+    hand, and said «→ JOURNAL.md» — a file every case has; the misplaced event was seen only in git diff). The first line
+    is the one a `head -1` reader keeps and the one a whole reader reads first. One open case: nothing to tell apart.
+    Whether the line names the case already is not read from its words — a name in the agent's text, a top case's path
+    in a nested one's TODO, took the tag away (Codex, 2026-11-07); `case new` and `case use` say their case themselves
+    and never come here."""
+    if not any(c.resolve() != case.resolve() and store.is_open(c) for c in store.all_cases(root)):
+        return ""
+    first = next((i for i, ln in enumerate(out.lines) if ln.strip()), None)
+    if first is None:
+        return ""
+    tag = f"[{store.case_arg(case, root)}] "
+    line = out.lines[first]
+    out.lines[first] = commands.Stored(tag + line) if isinstance(line, commands.Stored) else tag + line
+    return tag
 
 
 def _carry_case(lines: List[str], args) -> List[str]:
