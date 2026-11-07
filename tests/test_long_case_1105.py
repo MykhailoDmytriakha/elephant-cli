@@ -330,8 +330,8 @@ class ATerminalWithoutASession(Base):
         out, _ = self.ok("case", "use", "farm")
         self.assertIn("gives el no session id", out)
         self.assertIn("export EL_SESSION=", out)
-        for _ in range(3):
-            out, err = self.ok("log", "DECISION", "a neutral sentence from the terminal")
+        for k in range(3):  # words that differ: the same event twice in a row is refused as a repeat (2026-11-06)
+            out, err = self.ok("log", "DECISION", f"a neutral sentence from the terminal, call {k}")
             self.assertNotIn("take your own", out + err)
         farm = next(Path(self.tmp.name, ".cases").glob("*-farm"))
         self.assertIn("from the terminal", (farm / "JOURNAL.md").read_text(encoding="utf-8"))

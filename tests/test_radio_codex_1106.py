@@ -525,3 +525,106 @@ class TheEntryWalksTheFoldersOnce(Base):
         out, _ = self.ok()
         self.assertGreater((case / "README.md").stat().st_size, 24 * 1024)
         self.assertRegex(out, r"docs/index\.md is \d+ KB \(limit 24\)")
+
+class AListMixesRangesAndNumbers(Base):
+    def test_a_range_inside_a_list(self):
+        # Later L10, the maintainer 2026-11-06: `49.1-49.4,49.6` refused — a range passed, a list passed, their mix did not
+        self.ok("phase", "open", "1", "Build", "--goal", "the shop builds")
+        for t in "abcdef":
+            self.ok("todo", "add", "1", f"Wire part {t}")
+        out, _ = self.ok("todo", "done", "1.1-1.3,1.5", "run:build → ok", "the parts are wired")
+        self.assertIn("1.1, 1.2, 1.3, 1.5", out)
+        out, _ = self.ok("todo", "done", "1.4,", "1.6", "run:build → ok", "the rest wired")   # typed with a space
+        self.assertIn("1.4, 1.6", out)
+
+    def test_a_spaced_part_that_is_a_list_itself_is_gathered(self):
+        # the second hand: `todo cancel 1.1, 1.2-1.3,1.4 "obsolete"` cancelled 1.1 only — the rest became the reason
+        self.ok("phase", "open", "1", "Build", "--goal", "the shop builds")
+        for t in "abcde":
+            self.ok("todo", "add", "1", f"Wire part {t}")
+        out, _ = self.ok("todo", "cancel", "1.1,", "1.2-1.3,1.4", "obsolete")
+        self.assertIn("cancelled: 1.1 «Wire part a», 1.2 «Wire part b», 1.3 «Wire part c», 1.4 «Wire part d»", out)
+        from tests.test_commands import run
+        code, out, err = run("todo", "note", ",,", "no writes")
+        self.assertEqual(code, 2, out + err)                            # names nothing: a usage refusal, not a crash
+
+    def test_typed_with_spaces_a_range_is_gathered_too(self):
+        self.ok("phase", "open", "1", "Build", "--goal", "the shop builds")
+        for t in "abcd":
+            self.ok("todo", "add", "1", f"Wire part {t}")
+        out, _ = self.ok("todo", "done", "1.1,", "1.2-1.3", "run:build → ok", "three wired")
+        self.assertIn("1.1, 1.2, 1.3", out)
+        self.assertNotIn("1.4", out.split("→")[0])
+
+
+class TheSameEventTwiceIsARepeat(Base):
+    def test_the_repeat_is_refused_and_says_the_first_went_in(self):
+        # Later L9, the maintainer 2026-11-06: a repeat of `el log PROBLEM` wrote the same PROBLEM twice, silently
+        self.ok("log", "PROBLEM", "the till drifted by a cent")
+        from tests.test_commands import run
+        code, out, err = run("log", "PROBLEM", "the till drifted by a cent")
+        self.assertEqual(code, 4, out + err)
+        self.assertIn("the newest journal entry holds this PROBLEM already", out + err)
+        case = next(p for p in Path(".cases").iterdir() if p.is_dir() and (p / "JOURNAL.md").exists())
+        self.assertEqual(store.read(case, "JOURNAL.md").count("the till drifted by a cent"), 1)
+        self.ok("log", "PROBLEM", "the till drifted by a cent again after the fix")   # what differs goes in
+
+    def test_both_ends_of_the_output_say_it_was_logged(self):
+        # Later L9: `2>&1 | head -1` showed a warning, the event looked unwritten; the second hand: answer-first made
+        # `tail -1` a warning — the write's own warning now says it went in, and the answer stays last
+        import subprocess
+        el = Path(__file__).resolve().parents[1] / "bin" / "el"
+        long = "a decision about the till " * 12                        # over the warn length: a split warning
+        r = subprocess.run(f"{el} log DECISION '{long}' 2>&1", shell=True, capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        lines = [ln for ln in r.stdout.split("\n") if ln.strip()]
+        self.assertTrue(lines[0].startswith("warning: logged — "), lines[0])
+        self.assertTrue(lines[-1].startswith("logged: DECISION"), lines[-1])
+
+    def test_an_event_that_only_starts_like_the_last_is_not_a_repeat(self):
+        # the second hand: «h / a» after «h / a / b» was refused as a repeat
+        self.ok("log", "DECISION", "the till is wired\nwith the old cable\nand a new plug")
+        self.ok("log", "DECISION", "the till is wired\nwith the old cable")
+
+
+class ANextLineWhoseStepsAreOver(Base):
+    def test_a_close_that_resumes_another_phase_names_the_stale_next(self):
+        # the radio, Codex #29, 2026-11-06: `phase close 318` resumed 315; the thread showed 315, `next:` offered 318.1, done
+        self.ok("phase", "open", "1", "Old", "--goal", "an old thread")
+        self.ok("todo", "add", "1", "The old step")
+        self.ok("phase", "plan", "2", "Bug", "--goal", "the bug of today")
+        self.ok("phase", "open", "2", "--why", "a bug came first")
+        self.ok("todo", "add", "2", "Fix the bug")
+        self.ok("readme", "set", "next", "finish 2.1, then close 2")
+        self.ok("todo", "done", "2.1", "run:fix → ok", "the bug is fixed")
+        out, _ = self.ok("phase", "close", "2", "the bug is fixed")
+        self.assertIn("next: names 2.1 — over", out)
+        self.assertIn("(in flight: 1.1 «The old step»)", out)
+        order_out, _ = self.ok("order")
+        self.assertIn("next: names 2.1 — over", order_out)
+        self.ok("readme", "set", "next", "back to 1.1")
+        order_out, _ = self.ok("order")
+        self.assertNotIn("next: names", order_out)
+
+    def test_a_version_number_is_not_a_step(self):
+        self.ok("phase", "open", "1", "Build", "--goal", "the shop builds")
+        self.ok("todo", "add", "1", "Wire the till")
+        self.ok("todo", "done", "1.1", "run:build → ok", "wired")
+        self.ok("readme", "set", "next", "ship 1.78.0 to the shop")
+        out, _ = self.ok("order")
+        self.assertNotIn("next: names", out)
+
+    def test_a_full_stop_and_a_range_are_read_as_a_sentence_writes_them(self):
+        # the second hand, round 2: «finish 1.1.» was missed; «finish 1.1-1.3» with 1.2 open was named «over»
+        self.ok("phase", "open", "1", "Build", "--goal", "the shop builds")
+        for t in "abc":
+            self.ok("todo", "add", "1", f"Wire part {t}")
+        self.ok("todo", "done", "1.1", "run:build → ok", "wired a")
+        self.ok("readme", "set", "next", "finish 1.1.")
+        self.assertIn("next: names 1.1 — over", self.ok("order")[0])
+        self.ok("todo", "done", "1.3", "run:build → ok", "wired c")
+        self.ok("readme", "set", "next", "finish 1.1-1.3")
+        self.assertNotIn("next: names", self.ok("order")[0])       # 1.2 is open inside the range
+        self.ok("todo", "done", "1.2", "run:build → ok", "wired b")
+        self.assertIn("next: names 1.1-1.3 — over", self.ok("order")[0])

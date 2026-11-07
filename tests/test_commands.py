@@ -70,7 +70,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(run("log", "WAIT", "nope")[0], 2)
         code, out, err = run("log", "RESULT", "long result " * 30)  # long text splits, not refused
         self.assertEqual(code, 0, err)
-        self.assertIn("split into headline", err)
+        self.assertIn("split into a headline", err)  # the warning says the event went in first (2026-11-06)
         self.assertEqual(run("log", "RESULT", "x" * 2000)[0], 3)  # too long even for headline + body
         j = grammar.parse_journal((case / "JOURNAL.md").read_text())
         self.assertTrue(j.ok, j.errors)

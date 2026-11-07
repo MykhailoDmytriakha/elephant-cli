@@ -923,7 +923,9 @@ def _run(argv=None) -> int:
                 # text `3.4`: the numbers are gathered back into the ref (done · reopen · cancel · note take lists) — every
                 # form of a number, a Later line too (a report, 2026-10-28: `cancel L7, L8, … "why"` gathered nothing, L8
                 # became the reason's first word, and only L7 was cancelled, exit 0)
-                while ref.endswith(",") and parts and re.fullmatch(r"(?:\d+\.\d+(?:\.\d+)?|[Ll]\d+),?", parts[0]):
+                one = r"(?:\d+\.\d+(?:\.\d+)?|[Ll]\d+)(?:\s*[-–]\s*[Ll]?(?:\d+\.)*\d+)?"  # a number or a range of them
+                while ref.endswith(",") and parts and re.fullmatch(rf"{one}(?:,\s*{one})*,?", parts[0]):  # a part may be a
+                    # list itself — `1.2-1.3,1.4` (the second hand, 2026-11-06: only 1.1 was cancelled, the rest became the reason)
                     ref += " " + parts.pop(0)
                 args.ref = ref
                 text = " ".join(parts)

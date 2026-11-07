@@ -1309,12 +1309,13 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: s
     if trailer and len(event_lines) - 1 < grammar.EVENT_BODY_LINES:
         event_lines = event_lines + [f"    {trailer}"]
     if not split and len(event_lines[0].strip()) > grammar.EVENT_WARN_CHARS:
-        out.warn(f"event line is {len(event_lines[0].strip())} chars, close to the limit {grammar.EVENT_CHARS} (F7) — "
-                 f"a line break in the text makes a body line")
+        out.warn(f"logged — its line is {len(event_lines[0].strip())} chars, close to the limit {grammar.EVENT_CHARS} (F7) — "
+                 f"a line break in the text makes a body line")  # a write's warning says the write went in: read first by
+        # `2>&1 | head -1`, it looked like a failure and the event was logged twice (the maintainer, 2026-11-06)
     if split and "\n" in text.strip():
-        out.warn(f"event written as a headline + {len(event_lines) - 1} body line(s): your line breaks are kept (F7)")
+        out.warn(f"logged — as a headline + {len(event_lines) - 1} body line(s): your line breaks are kept (F7)")
     elif split:
-        out.warn(f"event longer than {grammar.EVENT_CHARS} chars — split into headline + {len(event_lines) - 1} body line(s) (F7)")
+        out.warn(f"logged — longer than {grammar.EVENT_CHARS} chars, split into a headline + {len(event_lines) - 1} body line(s) (F7)")
     todo = _todo(case, out)
     phase = _resolve_phase(todo, phase) if phase else _phase_by_refs(todo, text, out, case)
     date, time = _now()
@@ -1328,6 +1329,23 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: s
         top = grammar.ENTRY_RE.match(lines[first]).groups()[:2]  # under an older one: the newest entry's time stands in —
         if (date, time) < top:  # order is what the journal keeps; a time an hour off is said by nothing worse (two live
             date, time = top  # reports, 2026-11-01/02: el called its own write a hand edit and moved events to .recover.md)
+    if typed and first is not None:  # the same event twice in a row is a repeat, not news (the maintainer, 2026-11-06:
+        end = first + 1  # head -1 showed a warning, the event looked unwritten, the repeat wrote a second PROBLEM)
+        while end < len(lines) and lines[end].startswith("  "):
+            end += 1
+        events, cur = [], []  # the newest entry's events, whole: a headline and its body lines
+        for ln in lines[first + 1:end]:
+            if not ln.startswith("    ") and cur:
+                events.append(cur)
+                cur = []
+            cur.append(ln)
+        if cur:
+            events.append(cur)
+        if event_lines in events:  # the whole event, not a run of its lines (the second hand: «h/a» inside «h/a/b» was
+            # taken for a repeat)
+            raise StoreError(f"the newest journal entry holds this {typ} already — «{order._short(text, 60)}» — nothing "
+                             f"written: the first one went in («logged:» was its line). A second one on purpose says what "
+                             f"differs: el log {typ} \"…\"", 4)
     header = f"- {date} {time} · {phase}"
     if first is not None and lines[first] == header:
         j = first + 1
@@ -4004,16 +4022,20 @@ def _select_items(todo: grammar.Todo, ref: str):
         if not items:
             raise StoreError(f"no items {n}.{a}–{n}.{b} in phase {n} (items: {_number_ranges(phase)})", 4)
         return phase, items
-    if "," in ref:
-        pairs = [_find_item(todo, r.strip()) for r in ref.split(",") if r.strip()]
-        if len({p.n for p, _ in pairs}) > 1:
+    if "," in ref:  # each part a number or a range (the maintainer, 2026-11-06: `49.1-49.4,49.6` was refused — a range
+        # passed, a list passed, their mix did not)
+        groups = [_select_items(todo, r.strip()) for r in ref.split(",") if r.strip()]
+        if not groups:  # `,,` names nothing (the second hand: IndexError)
+            raise StoreError(f"`{ref}` names no item — use N.M, a range N.A-N.B or a list N.A, N.B", 2)
+        if len({p.n for p, _ in groups}) > 1:
             raise StoreError("one phase per call: `el todo done 3.1, 3.4, 3.5` — items of another phase go in a second call", 2)
         seen, items = set(), []
-        for _, it in pairs:
-            if it.ref not in seen:
-                seen.add(it.ref)
-                items.append(it)
-        return pairs[0][0], items
+        for _, its in groups:
+            for it in its:
+                if it.ref not in seen:
+                    seen.add(it.ref)
+                    items.append(it)
+        return groups[0][0], items
     phase, item = _find_item(todo, ref)
     return phase, [item]
 
@@ -6524,6 +6546,9 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
     out.say(f"closed: phase {n} {phase.name} → TODO.md (collapsed), {rel} (result), README.md State"
             + (f" · acceptance: {tally}" if tally else "") + (f" · on the path: «{on_path}»" if on_path else "")
             + (f" · {SCOPE_UNAGREED} — the line says it; the owner sees it before his word closes the case" if unscoped else ""))
+    stale = _stale_next_line(case, todo, _readme_text(case))
+    if stale:  # at the moment it went stale: the close may have resumed another phase (the radio, Codex #29)
+        out.say(stale)
     if short:
         out.say("closed by its result alone: one accepted item and no open PROBLEM — reflect and align are asked when there "
                 "is a lesson (the owner's word, 2026-11-06); one learned here goes in the same way: "
@@ -7662,6 +7687,41 @@ def _owner_closes(root: Path, case: Path) -> bool:
     return store.parent_case(case, root) is None and _case_two_hands(case)
 
 
+# N.M in a sentence, or a range N.A-N.B / N.A-B — a full stop after it is the sentence's, a version like 1.78.0 is no step
+NEXT_REF_RE = re.compile(r"(?<!\d)(?<!\d\.)(\d+)\.(\d+)(?:\s*[-–]\s*(?:(\d+)\.)?(\d+))?(?!\.?\d)")
+
+
+def _stale_next_line(case: Path, todo: grammar.Todo, readme_body: str) -> Optional[str]:
+    """`next:` is the agent's words, and el does not rewrite them; but when every step it names is over — its phase closed,
+    or the item done — el says so (the radio, Codex #29, 2026-11-06: a close resumed phase 315 by itself, the thread showed
+    315, and `next:` still offered the finished 318.1)."""
+    parsed = grammar.parse_readme(readme_body)
+    line = next((ln for ln in parsed.sections.get("State", []) if ln.startswith("- next: ")), "") if not parsed.errors else ""
+    named = []  # (phase, item number or None for every item of a range)
+    for n, a, n2, b in NEXT_REF_RE.findall(line[len("- next: "):]):
+        if n2 and n2 != n:
+            return None  # a range across phases is not a step el reads
+        named.append((int(n), int(a), int(b) if b else int(a)))  # a range names every item between (the second hand:
+    if not named:  # «1.1-1.3» was read as 1.1 and 1.3, and 1.2 still open was skipped)
+        return None
+    over = []
+    for n, a, b in named:
+        phase = todo.phase(n)
+        if phase is None:
+            return None  # a number el cannot place: not a step it can judge
+        if phase.done:
+            over.append(f"{n}.{a}" if a == b else f"{n}.{a}-{n}.{b}")
+            continue
+        its = [x for x in phase.items if a <= x.m <= b]
+        if not its or any(not x.done for x in its):
+            return None  # a named step still open, or one el cannot find: the line stands
+        over.append(f"{n}.{a}" if a == b else f"{n}.{a}-{n}.{b}")
+    flight = _flying(case, todo)
+    step = next((it for it in (flight.items if flight else []) if not it.done and not it.held), None)
+    return (f"next: names {', '.join(dict.fromkeys(over))} — over (done, or its phase closed); the step it names is behind "
+            f"you → el readme set next \"…\"" + (f" (in flight: {step.ref} «{order._short(step.text, 50)}»)" if step else ""))
+
+
 def _ready_value(readme_body: str) -> str:
     parsed = grammar.parse_readme(readme_body)
     line = next((ln for ln in parsed.sections.get("State", []) if ln.startswith(f"- {READY_PREFIX}")), "") if not parsed.errors else ""
@@ -8735,6 +8795,9 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         lines.extend(_off_path_lines(case, todo_now, readme_body))          # a closed phase no line of the path holds (H11)
         lines.extend(_unaccepted_lines(case, todo_now, readme_body))  # done by one hand, not yet accepted by another (F23)
         lines.extend(_unready_lines(case, root, todo_now, readme_body))  # the owner's case ended below, not said ready
+        stale = _stale_next_line(case, todo_now, readme_body)  # `next:` names only steps that are over (Codex #29)
+        if stale:
+            lines.append(stale)
     except StoreError:
         pass
     lines.extend(onboarding.order_lines(_project_root(case)))  # S6: a block el cannot keep current (edited or pasted by hand)

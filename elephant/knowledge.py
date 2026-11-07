@@ -177,6 +177,8 @@ old runs and accepted proofs kept on purpose are not asked to change. `el order`
 - a `summary:` over 150 chars → rephrase line 2 of each file, one by one — a script that cuts them loses the claim.
   A file that is a proof of a done item with its version is left out on purpose and the line says so: an edit would
   change the version an acceptance stands on.
+- `next:` that names only steps that are over (their items done, their phase closed — a close that resumed another phase
+  leaves it behind) → el names it, never rewrites it: el readme set next "…".
 - files without `summary:` → add `summary: one line` as line 2 of the file (under its title);
   descriptions already written in README Links → `el order --adopt` moves them into the files
   (markdown only — a file with no body keeps its description in the Links line).
@@ -366,7 +368,7 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   mark: `[/]` done, awaiting acceptance · `[x]` accepted — the legend under the TODO title says so while one is owed.
 - the general list (F24): `el todo add later "…"` → `## Later`, `Lk` · `el todo move Lk N` takes it into a phase ·
   `el todo move N.M later` puts an open item there with its pockets — el help later.
-- a block at once: done, reopen and cancel take a range `3.1-3.5` or a list `3.1, 3.4` (one phase
+- a block at once: done, reopen and cancel take a range `3.1-3.5`, a list `3.1, 3.4`, or both `3.1-3.3, 3.5` (one phase
   per call) — one journal line names every number, so nothing is reused by mistake.
 - numbers are for life: drop, hold and move never renumber; a new item takes the next free number
   above everything still referred to (an `after`, a journal line), gaps are normal. `move N.M N.K`
