@@ -181,7 +181,10 @@ old runs and accepted proofs kept on purpose are not asked to change. `el order`
   leaves it behind) → el names it, never rewrites it: el readme set next "…".
 - files without `summary:` → add `summary: one line` as line 2 of the file (under its title);
   descriptions already written in README Links → `el order --adopt` moves them into the files
-  (markdown only — a file with no body keeps its description in the Links line).
+  (markdown only — a file with no body keeps its description in the Links line). A proof of a done item with its version:
+  describe it in Links, and `--adopt` writes line 2 and keeps the version — an edit by hand changes the version an
+  acceptance stands on. A proof of a closed phase is history: left as it is, by Order and by `--adopt`. The Order line
+  names the door each file has.
 - folder without a description → `el readme add links "docs/ — что здесь"` (the folder line is
   yours; the file lines under it are rendered by el from the summaries).
 - two files sharing their text (≥ 50 % of the smaller one's phrasing appears verbatim in the other)

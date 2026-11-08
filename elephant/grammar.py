@@ -91,6 +91,19 @@ LINK_RE = re.compile(LINK_PATTERN)
 # brief and in check — a dozen patterns read `[^)]+` while LINK_PATTERN above knew the parentheses)
 LINK_TARGET = r"(?:[^()\s]|\([^()\s]*\))+"
 LINK_TARGET_SPACED = r"(?:[^()]|\([^()]*\))+"  # the same, where el reads its own links back: a file name may hold a space
+# What a shell substitution leaves in a text argument — a write with one is refused (main.shell_trace), and a door el prints
+# is printed only when its text has none (order.links_door, 2026-11-07: a folder `two  spaces/` got a door that was refused).
+SHELL_TRACES = (
+    (re.compile(r"\S  +\S"), "a double space"),
+    # what a swallowed `$150.72` or `$12.345` leaves; a measure written `.0878` (WER, a ratio) is not money (the live
+    # map, 2026-10-08: a digest line «WER .0878» was refused)
+    (re.compile(r"(?:^|\s)\.\d{1,3}(?!\d)"), "an orphan decimal like `.72`"),  # `$12.345` leaves `.345` (Codex)
+    # what a swallowed `$2–2,5` or `$2,5` leaves (a report, 2026-11-03: «дали $2–2,5 тыс.» landed as «дали –2,5 тыс.» in a
+    # journal line no one can edit). Measured on 235 012 lines of live cases, 2026-11-05: a space, then `,` or `–` right
+    # before a digit — 0 times; a hyphen there — 342 (`tail -4`, `-1px`), so a hyphen stays out: a trace el cannot tell
+    (re.compile(r"(?:^|\s)[,–]\d"), "a dash or comma glued to a number like `–2,5`"),
+    (re.compile(r"^\s"), "a leading space"),  # a trailing one is too often innocent (`"x " * n`) to refuse
+)
 EVIDENCE_RE = re.compile(r"^(.*) — (file|ref|run|owner)(?:: (.+))?$")  # the evidence suffix of a done item
 # the 1.5.0–1.9.0 order: evidence after the date or dependency suffix → (line up to the suffix, the evidence tail)
 OLD_TAIL_RE = re.compile(r"^(.* — (?:due: \d{4}-\d{2}-\d{2}|after: [^—]+?))( — (?:file|ref|run|owner)(?:: .+)?)$")

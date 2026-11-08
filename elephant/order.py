@@ -343,6 +343,14 @@ def _is_cases_line(stripped: str, case: Path, root_mode: bool) -> bool:
 
 
 # ---- README Links rendering (F3: folder and file lines come from the files themselves) -----------
+def _pointer_match(line: str):
+    """The first pointer in `line` that names a target (a link, a code span, a bare path) — its match, or None."""
+    for m in POINTER_RE.finditer(line):
+        if m.group(1) or m.group(2) or m.group(3):
+            return m
+    return None
+
+
 def _pointer_target(line: str) -> Optional[str]:
     for m in POINTER_RE.finditer(line):
         target = m.group(1) or m.group(2) or m.group(3)
@@ -358,8 +366,9 @@ def _classify(line: str, case: Path):
     folder = folder_line(line)
     if folder and (case / folder[0]).is_dir():
         return ("folder", *folder)
-    target = _pointer_target(line[2:])
-    if target:
+    m = _pointer_match(line[2:])
+    if m:
+        target = (m.group(1) or m.group(2) or m.group(3)).strip()
         t = target.split("#")[0].rstrip("/")
         p = case / t
         # any kind of file, not only markdown: a pdf/html/png under work is material of the case and
@@ -367,10 +376,13 @@ def _classify(line: str, case: Path):
         # description comes from (md: `summary:` in the body · other: this line), not whether the
         # file may have a line of its own.
         if t and "/" in t and p.is_file() and not t.startswith("..") and t.split("/")[0] not in (".cases",):
-            desc = line[2:]
-            # description = what follows the pointer: `- [x](y) — desc` / `- `y` — desc`
-            k = desc.find(" — ")
-            return ("file", t, desc[k + 3:].strip() if k >= 0 else "")
+            # description = what follows the pointer: `- [x](y) — desc` / `- `y` — desc` — searched after it, never inside
+            # it (Codex, 2026-11-07: `[a — b.md](docs/a — b.md)` el drew for a file without a summary read back as
+            # described by «b.md](docs/a — b.md)», and --adopt wrote that into the file)
+            rest = line[2:][m.end():]
+            masked = POINTER_RE.sub(lambda x: "x" * len(x.group(0)), rest)  # a « — » inside a later link or code span is
+            k = masked.find(" — ")                                         # that pointer's name (Codex, round 8)
+            return ("file", t, rest[k + 3:].strip() if k >= 0 else "")
     return ("manual", line, None)
 
 
@@ -489,6 +501,23 @@ def summary_from_case(summary: str, rel: str) -> str:
     return "".join(seg if code else LINK_RE.sub(fix, seg) for seg, code in outside_code(summary))
 
 
+def summary_into_file(desc: str, rel: str) -> str:
+    """A Links description as the file's own `summary:` — the inverse of summary_from_case: README's links point from the
+    case root, the file's from its folder, so each relative target is re-based into the file's folder (Codex, 2026-11-07:
+    `see [source](docs/source.md)` adopted into docs/x.md as it was named docs/docs/source.md, and check refused F16)."""
+    folder = posixpath.dirname(rel)
+    if not folder:
+        return desc
+
+    def fix(m):
+        target = m.group(2)
+        if re.match(r"^[a-z][a-z0-9+.-]*:", target) or target.startswith(("#", "/", "~")):
+            return m.group(0)
+        return f"{m.group(1)}{posixpath.relpath(posixpath.normpath(target), folder)}{m.group(3)}"
+
+    return "".join(seg if code else LINK_RE.sub(fix, seg) for seg, code in outside_code(desc))
+
+
 def _render_folder(f: Folder, depth: int, folder_desc: Dict[str, str], fallback: Dict[str, str],
                    rendered: set, out: List[str]):
     """Under a folder line: its files by their summaries, then each sub-folder one level deeper
@@ -536,6 +565,69 @@ def _holds_own(f: Folder, folder_desc: Dict[str, str], fallback: Dict[str, str])
     return any(_holds_own(s, folder_desc, fallback) for s in f.subs)
 
 
+def _shell_arg(text: str) -> str:
+    """One shell argument handed back whole: in double quotes when nothing in it is the shell's, else in single quotes with
+    a `'` inside kept as typed."""
+    return f'"{text}"' if re.fullmatch(r"[\w./ —–,:+@-]+", text) else "'" + text.replace("'", "'\\''") + "'"
+
+
+def links_door(case: Path, rel: str) -> Optional[str]:
+    """The command that describes a file in Links so that Links reads it back as this very file — asked of the reader
+    itself (`_classify`), never of a pattern of its own (Codex, 2026-11-07: `evidence/scale "heat".md` printed in double
+    quotes came back from the shell as another path, and --adopt then had nothing to adopt). The first form that reads
+    back — a bare path, el's own link, a code span; None when none does: no command rather than one that does another
+    thing."""
+    name = rel.rsplit("/", 1)[-1]
+    for form in (rel, f"[{name}]({rel})", f"`{rel}`"):
+        line = f"{form} — что это"
+        if _classify("- " + as_written(line), case) == ("file", rel, "что это") and _writable(line):
+            return "el readme add links " + _shell_arg(line)
+    return None
+
+
+def as_written(text: str) -> str:
+    """A README list line as `el readme add` stores it: every run of whitespace one space — the doors el prints are checked
+    against this very function (Codex, 2026-11-07: a name holding a TAB got a door whose line came back with a space)."""
+    return " ".join(text.split())
+
+
+def _writable(text: str) -> bool:
+    """The write door takes this text: no trace of a shell substitution in it, which it refuses (a double space, `.72` …)."""
+    return not any(rx.search(text) for rx, _ in grammar.SHELL_TRACES)
+
+
+NO_FOLDER_DOOR = ("no Links line el takes can name it (a double space, a sign the Links reader cannot carry) — rename the "
+                  "folder to a plain name")
+
+
+def folder_door(name: str) -> Optional[str]:
+    """The command that describes a folder in Links, printed only when its line reads back as this folder."""
+    line = f"{name}/ — что здесь"
+    ok = folder_line("- " + as_written(line)) == (name, "что здесь") and _writable(line)
+    return "el readme add links " + _shell_arg(line) if ok else None
+
+
+def described_in_links(case: Path, root_mode: bool, links_lines: List[str]) -> set:
+    """Files the agent described in README Links (paths from the case) — what `el order --adopt` writes into a file as its
+    summary. Read the way render_links reads them: the cases block is not the agent's, a nested line counts by its content,
+    a placeholder is no description, a phase file describes itself."""
+    out = set()
+    for raw in links_lines:
+        stripped = raw.lstrip()
+        if _is_cases_line(stripped, case, root_mode):
+            continue
+        kind, a, b = _classify(stripped if stripped.startswith("- ") else raw, case)
+        if kind == "file" and b and not b.startswith(PLACEHOLDER_FILE) and not a.startswith("phases/"):
+            out.add(a)
+    return out
+
+
+def without_summary(case: Path, root_mode: bool, links_lines: List[str]) -> List[str]:
+    """Every markdown file of the case's folders that has no `summary:` line yet (paths from the case)."""
+    listed = {fl[0] for ln in links_lines for fl in [folder_line(ln)] if fl}
+    return [d.rel for f in content_folders(case, root_mode, listed) for d in f.all_docs() if not d.summary]
+
+
 def adopt(case: Path, fallback: Dict[str, str]) -> List[str]:
     """Write `summary: <description>` into files that lack one, taking the text the agent had
     written for them in README Links. Returns the files changed."""
@@ -545,8 +637,12 @@ def adopt(case: Path, fallback: Dict[str, str]) -> List[str]:
         if rel.startswith("phases/") or not p.is_file() or p.suffix.lower() != ".md" or read_summary(p):
             continue  # a phase file describes itself by goal:/result: (F12) — never touched
         lines = p.read_text(encoding="utf-8").split("\n")
-        at = next((i + 1 for i, ln in enumerate(lines[:SUMMARY_SCAN_LINES]) if ln.startswith("# ")), 0)
-        lines.insert(at, f"summary: {' '.join(desc.split())}")  # the owner's words, whole; over the limit → an Order line asks to rephrase
+        head = next((i for i, ln in enumerate(lines[:SUMMARY_SCAN_LINES]) if ln.startswith("# ")), None)
+        # under the title, but always where the reader looks — the first SUMMARY_SCAN_LINES lines (Codex, 2026-11-07: a
+        # title on line 5 got its summary on line 6, unseen; Order stayed and every --adopt added one more): a title on
+        # the last scanned line takes its summary just above it
+        at = 0 if head is None else head + 1 if head + 1 < SUMMARY_SCAN_LINES else head
+        lines.insert(at, f"summary: {summary_into_file(' '.join(desc.split()), rel)}")  # the owner's words, whole; over the limit → an Order line asks to rephrase
         store.write_file(p, "\n".join(lines))
         changed.append(rel)
     return changed
@@ -823,6 +919,7 @@ def broken_links(case: Path, folders: List[Folder], readme_body: str, todo_body:
 UNREF_SKIP = {"archive", "legacy"}
 
 
+SPACED_LINK_RE = re.compile(rf"\]\(({grammar.LINK_TARGET_SPACED})\)")  # a link target that may hold a space
 BARE_MD_RE = re.compile(r"(?<![\w/(])((?:[\w.-]+/)+[\w.-]+\.md)\b")
 
 
@@ -837,6 +934,13 @@ def _link_targets(text: str, base: Path, case: Optional[Path] = None) -> List[Pa
         target = m.group(2)
         if re.match(r"^[a-z][a-z0-9+.-]*:", target) or target.startswith("#"):
             continue
+        path = target.partition("#")[0]
+        if path:
+            out.append((base / path).resolve())
+    for m in SPACED_LINK_RE.finditer(text):  # a name with a space: el writes its own links to such a file as they are
+        target = m.group(1)                    # (`[a b.md](evidence/a b.md)` on a proof line), and a link el wrote is a
+        if " " not in target or re.match(r"^[a-z][a-z0-9+.-]*:", target) or target.startswith("#"):  # reference —
+            continue                           # F21 named proofs of done items «nothing points at» (2026-11-07)
         path = target.partition("#")[0]
         if path:
             out.append((base / path).resolve())
@@ -927,12 +1031,15 @@ def touched_since(folders: List[Folder], since: float) -> List[Folder]:
 
 def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[grammar.Journal],
            links_lines: List[str], link_violations: Optional[list] = None, frozen: Optional[set] = None,
-           full: bool = False, since: Optional[float] = None, held_back: Optional[list] = None) -> List[str]:
+           full: bool = False, since: Optional[float] = None, held_back: Optional[list] = None,
+           history: Optional[set] = None) -> List[str]:
     """Lines for the `## Order` block: each one names what is out of order and the command that
     puts it back. Empty list = everything in place. With `link_violations` (a list), broken links
     in README/TODO are collected there for `check` to report as violations (F16) instead. `frozen`: resolved paths of
     case files that are versioned proofs of done items — their line 2 is not asked to change (it would change the version
-    an acceptance stands on); `done` says it while the edit is still cheap. `full` (an `el order` asked for): every file of
+    an acceptance stands on); `done` says it while the edit is still cheap. `history`: those of them that are proofs of closed
+phases — a file without a summary among them is left out on purpose, as `--adopt` leaves it (el carries a version only in
+running phases). `full` (an `el order` asked for): every file of
     a counted line is named — the entry keeps the count and names the door (the polygon, 2026-11-06: «8 summary lines …
     +4» named four, nothing named the rest, and the agent rewrote every file by a script — two frozen proofs with them).
     `since` (the entry, `el readme`, the recitation): the files are checked as far as the work in flight touched them —
@@ -977,16 +1084,49 @@ def report(case: Path, root_mode: bool, readme_body: str, journal: Optional[gram
                    f"cut)" + (f"; {held} more {'is a proof' if held == 1 else 'are proofs'} of done items with their version, "
                               f"left out on purpose — leave {'it' if held == 1 else 'them'}: an edit changes the version an "
                               f"acceptance stands on" if held else ""))
-    missing = [d.rel for f in work for d in f.all_docs() if not d.summary]
-    if missing:
-        out.append(f"{len(missing)} file(s) without `summary:` — {names(missing)} → add `summary: one line` as line 2, "
-                   f"or el order --adopt (takes the descriptions from Links)")
+    missing = [d for f in work for d in f.all_docs() if not d.summary]
+    kept = [d.rel for d in missing if d.path.resolve() in (history or set())]
+    missing = [d for d in missing if d.path.resolve() not in (history or set())]
+    links_has = described_in_links(case, root_mode, links_lines) if missing else set()
+    held = {d.rel: links_door(case, d.rel) for d in missing
+            if d.rel not in links_has and d.path.resolve() in (frozen or set())}
+    unnamed = [rel for rel, door in held.items() if door is None]  # a running proof no Links line can name: its own
+    missing = [d for d in missing if d.rel not in unnamed]          # aside, like history — no door that breaks the record
+    if missing:  # each file gets the door that fixes it (feedback 2026-11-07: --adopt was offered for a file Links never
+        #          described — «nothing to adopt», and the line stayed; a proof with its version was asked to edit line 2)
+        adopt_ = [d.rel for d in missing if d.rel in links_has]
+        named = [rel for rel, door in held.items() if door]
+        plain = [d.rel for d in missing if d.rel not in links_has and d.rel not in held]
+        doors = []
+        if plain:
+            doors.append(f"{names(plain)} → add `summary: one line` as line 2")
+        if adopt_:
+            doors.append(f"{names(adopt_)} → el order --adopt (writes the description Links has for "
+                         f"{'it' if len(adopt_) == 1 else 'each'} as line 2)")
+        if named:
+            one = len(named) == 1
+            doors.append(f"{names(named)} — {'a proof of a done item with its' if one else 'proofs of done items with their'} "
+                         f"version, an edit by hand changes the version an acceptance stands on → describe "
+                         f"{'it' if one else 'each'} in Links, then el order --adopt writes line 2 and keeps the version: "
+                         f"{held[named[0]]}")
+        if unnamed:  # Codex, 2026-11-07, round 4: the door «el mv it to a plain name» lost the proof — el's own links to such
+            #          names are not read by every door yet; nothing is better than a door that breaks the record
+            one = len(unnamed) == 1
+            doors.append(f"{len(unnamed)} more {'is a proof' if one else 'are proofs'} of done items whose name no Links "
+                         f"line el takes can carry ({names(unnamed)}), left as {'it is' if one else 'they are'} — a summary "
+                         f"written by hand changes the version an acceptance stands on")
+        if kept:  # history: the same aside the summary-length line has — said only beside a line that has a door
+            doors.append(f"{len(kept)} more {'is a proof of a closed phase' if len(kept) == 1 else 'are proofs of closed phases'} with "
+                         f"{'its' if len(kept) == 1 else 'their'} version, left out on purpose — leave "
+                         f"{'it' if len(kept) == 1 else 'them'}: a summary written now changes the bytes an acceptance stood on")
+        out.append(f"{len(missing)} file(s) without `summary:` — " + "; ".join(doors))
     bare = [f.name for f in work if not described.get(f.name, "") or described[f.name].startswith(PLACEHOLDER_FOLDER)]
     if len(bare) > COUNTED_AFTER:  # many of one kind: one line with the count (the live long case, 2026-11-05)
+        door = next((d for d in map(folder_door, bare) if d), None)
         out.append(f"{len(bare)} folder(s) without a description — {names([n + '/' for n in bare])} → "
-                   f"el readme add links \"{bare[0]}/ — что здесь\", one per folder")
+                   + (f"{door}, one per folder" if door else NO_FOLDER_DOOR))
     else:
-        out += [f"folder {n}/ has no description → el readme add links \"{n}/ — что здесь\"" for n in bare]
+        out += [f"folder {n}/ has no description → " + (folder_door(n) or NO_FOLDER_DOOR) for n in bare]
     for k in child_cases(case, root_mode):
         kind = child_status(k)[0]
         if kind == "broken":

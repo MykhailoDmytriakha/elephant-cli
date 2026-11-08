@@ -7232,7 +7232,7 @@ def readme_add(case: Path, section: str, line: str, phases: Optional[str] = None
     if phases is not None and name != "Path":
         raise StoreError(f"--phases puts phases on a line of the path: el readme add path \"Name — what became true\" "
                          f"--phases 3,4 — {name} lines hold no phases", 2)
-    line = _context_text(line) if name == "Context" else _path_line(line) if name == "Path" else " ".join(line.split())
+    line = _context_text(line) if name == "Context" else _path_line(line) if name == "Path" else order.as_written(line)
     line = _readme_links(case, line, name, out)
     parsed = _readme_sections(case, out)
     if name == "Path":
@@ -8856,19 +8856,31 @@ def _frozen_proofs(case: Path) -> set:
     files: a file an acceptance stands on is frozen, and no Order line asks to edit it (feedback 2026-10-14: 14 accepted
     reports and pre-registered protocols asked to rephrase their summary — the edit would change the version under the
     acceptance, or erase the «written before the data» a protocol's file time proves)."""
-    try:
-        todo = store.todo_of(case)
-    except StoreError:
-        return set()
-    frozen = set()
-    for p in todo.phases:
-        base = _phase_file(case, p.n, p.name).parent if p.done else case  # a phase file links from phases/
-        for it in grammar.flat(_closed_phase_items(case, p) if p.done else p.items):  # sub-items too (Codex, 2026-10-14)
-            for kind, proof in (it.evidence if it.done else []):
-                link, was = grammar.split_fingerprint(proof)
-                if kind == "file" and was:
-                    frozen.add((base / _link_path(link)).resolve())
-    return frozen
+    running, closed = _versioned_proofs(case)
+    return running | closed
+
+
+def _versioned_proofs(case: Path) -> Tuple[set, set]:
+    """(running, closed): resolved paths of files that are versioned proofs of done items in this case and the cases above
+    it (a parent may prove by a document inside its child) — of running phases, read from TODO, and of closed ones, read
+    from their files. el carries the version of a running proof along with its own rewrites (`mv`, `relink`,
+    `order --adopt`); a closed phase is history — the bytes its acceptance stood on are not rewritten by el, so a file it
+    holds gets no summary from `--adopt` (Codex's acceptance of 2026-11-07: --adopt wrote line 2 into a closed phase's
+    proof, the phase file kept the old version, and nothing said so — a closed phase is not re-checked)."""
+    running, closed = set(), set()
+    for owner in _proof_owners(case):
+        try:
+            todo = store.todo_of(owner)
+        except StoreError:
+            continue
+        for p in todo.phases:
+            base = _phase_file(owner, p.n, p.name).parent if p.done else owner  # a phase file links from phases/
+            for it in grammar.flat(_closed_phase_items(owner, p) if p.done else p.items):  # sub-items too (Codex, 2026-10-14)
+                for kind, proof in (it.evidence if it.done else []):
+                    link, was = grammar.split_fingerprint(proof)
+                    if kind == "file" and was:
+                        (closed if p.done else running).add((base / _link_path(link)).resolve())
+    return running, closed
 
 
 WORK_SINCE_MARGIN = 900  # seconds before the work in flight began that still count as it: a clock set back since then
@@ -8924,8 +8936,9 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         except StoreError:
             since = None
     held: list = []
-    lines = order.report(case, _is_project(case), readme_body, journal, links, frozen=_frozen_proofs(case), full=full,
-                         since=since, held_back=held)
+    running, closed = _versioned_proofs(case)
+    lines = order.report(case, _is_project(case), readme_body, journal, links, frozen=running | closed, history=closed,
+                         full=full, since=since, held_back=held)
     if since is not None and held and held[0] and held_back is not None:
         held_back.append(_held_back_line(held[0], since))
     try:
@@ -9492,13 +9505,38 @@ def order_cmd(root: Path, case: Path, adopt: bool = False) -> Outcome:
         if parsed.errors:
             raise StoreError("README.md is not parsable — run `el check`", 3)
         _, fallback = order.render_links(case, _is_project(case), parsed.sections.get("Links", []))
+        running, closed = _versioned_proofs(case)  # history: the bytes a closed phase was accepted on are not rewritten
         fresh = _fresh_proofs(case)  # L8: a summary line el writes into a document is not the author's change
-        changed = order.adopt(case, fallback)
+        changed = order.adopt(case, {rel: d for rel, d in fallback.items() if (case / rel).resolve() not in closed})
         _carry_versions(fresh, out)
-        for rel in changed:
-            out.say(f"summary written into {rel} (from its Links description)")
+        said = [f"summary written into {rel} (from its Links description)" for rel in changed]
+        bare = order.without_summary(case, _is_project(case), parsed.sections.get("Links", []))
+        kept = [rel for rel in bare if (case / rel).resolve() in closed]
+        unnamed = [rel for rel in bare if rel not in kept and (case / rel).resolve() in running
+                   and order.links_door(case, rel) is None]  # Order leaves it aside too: no door that breaks the record
+        left = [rel for rel in bare if rel not in kept and rel not in unnamed]
+
+        def few(rels: List[str]) -> str:
+            return ", ".join(rels[:4]) + (f" … +{len(rels) - 4}" if len(rels) > 4 else "")
+        # what it skipped and why — «nothing to adopt» over a file Order still named read as a broken door (feedback
+        # 2026-11-07); adopt writes only what Links describes, and never into a closed phase's proof
+        if kept:
+            said.append(f"left as {'it is' if len(kept) == 1 else 'they are'}: {few(kept)} — "
+                        f"{'a proof of a closed phase' if len(kept) == 1 else 'proofs of closed phases'} with "
+                        f"{'its' if len(kept) == 1 else 'their'} version: a summary written now would change the bytes "
+                        f"{'its' if len(kept) == 1 else 'their'} acceptance stood on — history, not asked again")
+        if unnamed:
+            said.append(f"left as {'it is' if len(unnamed) == 1 else 'they are'}: {few(unnamed)} — "
+                        f"{'a proof' if len(unnamed) == 1 else 'proofs'} of done items whose name no Links line el takes "
+                        f"can carry: a summary written by hand would change the version an acceptance stands on")
+        if left:
+            said.append(f"README Links has no description for the {len(left)} file(s) still without `summary:` — "
+                        f"{few(left)} — the order below names the door for each")
+        if not said:
+            said.append("every file carries its own summary")
         if not changed:
-            out.say("nothing to adopt: every described file already carries its own summary")
+            said[0] = "nothing to adopt: " + said[0]
+        out.say(*said)
     readme_body = _refresh_readme(case, out)
     journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
     issues = _order_lines(case, root, readme_body, journal, full=True)  # asked for: every file named (the entry counts)
@@ -9798,8 +9836,9 @@ def check(root: Path, only: Optional[Path] = None, everything: bool = False) -> 
             jr = grammar.parse_journal(store.read(case, "JOURNAL.md"))
             links = grammar.parse_readme(rb).sections.get("Links", [])
             dead: list = []
+            running, closed = _versioned_proofs(case)
             for ln in order.report(case, _is_project(case), rb, jr if not jr.errors else None, links, link_violations=dead,
-                                   frozen=_frozen_proofs(case)):
+                                   frozen=running | closed, history=closed):
                 out.warn(f"{case.name}: order · {ln}")
             # a dead link in the files el holds is a violation, not a warning: the owner clicks and
             # nothing opens, and `violations: 0` is what gets read (feedback 2026-09-03)
