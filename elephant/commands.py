@@ -49,6 +49,9 @@ class Outcome:
             self.warnings.append(
                 f"{report.path.name}: written bypassing Elephant — rebuilt by grammar, {report.recovered_lines} line(s) moved to "
                 f"{report.recovered.name}: re-enter them with el, then run: rm '{report.recovered}' (S4)")
+        elif report.rebuilt is not None:
+            self.warnings.append(f"{report.path.name}: written bypassing Elephant — not rebuilt here, the system lets nothing "
+                                 f"be written; read as el would rebuild it (S4)")
         elif report.bypassed:
             self.warnings.append(f"{report.path.name}: written bypassing Elephant — content was valid, stamp renewed (S4)")
         if report.bypassed and HAND_EDIT_REPORT not in self.warnings:  # once per command, however many files it wrote
@@ -901,6 +904,8 @@ def sync_owner_waits(case: Path, out: Outcome) -> None:
         try:
             out.absorb(store.write(case, "README.md", new))
         except StoreError as e:
+            if getattr(e, "denied", False):  # the system denied it: the command is refused whole, never «done» beside it
+                raise
             out.warn(f"README `waits for the owner:` not refreshed — {e}")  # the command is done; the line waits for the next write
 
 
@@ -1072,7 +1077,9 @@ def _refresh_parents(case: Path, out: Outcome) -> None:
             return
         try:
             store.write(parent, "README.md", derived)  # the parent's own warnings are its own, said at its own entry
-        except StoreError:
+        except StoreError as e:
+            if getattr(e, "denied", False):  # the system let the parent's line not follow: the write is refused whole
+                raise                         # and put back, a look says it in its own line (the second hand, 2026-11-08)
             return
         child = parent
 
@@ -1470,6 +1477,8 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: s
         try:
             _write_readme(case, _readme_text(case), out)
         except StoreError as e:
+            if getattr(e, "denied", False):  # the system denied it: the command is refused whole and put back
+                raise
             out.warn(f"README `last:` not refreshed — {e}")
         if typed:
             hints.attach(out, "log", typ=typ, text=text, item=_item_beside(case, todo, phase, text))
@@ -6426,7 +6435,7 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
         goal = _goal_text(goal) if goal else (existing.summary if existing else None)  # a planned phase carries its intent
         if not goal:
             raise StoreError("a new phase needs `--goal \"one line\"` (F12)", 2)
-        pf.parent.mkdir(exist_ok=True)
+        store.make_dirs(pf.parent)
         parked = _parked_events(_journal(case, out), n)  # what was said about this phase before it opened
         before = ""
         if parked:
@@ -6662,7 +6671,7 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
                              f"not the result again (el help practice)")
                     break
     if alongside:  # every gate passed — only now is the file born (a refused close writes nothing)
-        pf.parent.mkdir(exist_ok=True)
+        store.make_dirs(pf.parent)
         store.write_file(pf, f"# Phase {n} — {phase.name}\ngoal: {phase.summary or '—'}\nresult:\n\n## Notes\n")
         out.say(f"created: {pf.relative_to(case)} (from the plan)")
     # el's own count of how the phase was accepted stands beside the closer's words wherever the phase is read in one line —
@@ -6946,7 +6955,7 @@ def _cancel_phase(case: Path, todo: grammar.Todo, phase: grammar.Phase, why: str
     date, _ = _now()
     pf = _phase_file(case, phase.n, phase.name)
     if not pf.exists():  # a planned phase: the file is born closed, so the collapsed line has somewhere to point
-        pf.parent.mkdir(exist_ok=True)
+        store.make_dirs(pf.parent)
         store.write_file(pf, f"# Phase {phase.n} — {phase.name}\ngoal: {phase.summary or '—'}\nresult:\n\n## Notes\n")
     lines = pf.read_text(encoding="utf-8").split("\n")
     lines[2] = f"result: снято: {why}"
@@ -7568,7 +7577,7 @@ def case_new(root: Path, name: str, goal: str, parent: Optional[Path] = None) ->
     if case.exists():
         raise StoreError(f"{case} already exists", 4)
     goal = _context_text(goal)  # before the folder exists: a promise in the goal names a kind from the closed list (L6)
-    case.mkdir()
+    store.make_dirs(case)  # a refused creation leaves no half-made case behind
     title = name.strip()
     back = Path(os.path.relpath(store.file_path(parent, "README.md"), case)).as_posix() if parent else ""
     links = [f"- parent: [{parent.name}]({back}) · фаза {_phase_of(store.todo_of(parent))[1:]}"] if parent else []
@@ -7676,8 +7685,13 @@ def case_use(root: Path, name: str) -> Outcome:
         stays = f" and stays on {mine.name}" if mine is not None and mine.resolve() != case.resolve() else ""
         raise StoreError(f"{case.name} is closed — the hand only holds open cases{stays}; it goes on? el --case {arg} case "
                          f"reopen \"why it goes on\", then el case use {arg}", 4)
-    _os.utime(case / "JOURNAL.md")
-    store.hold(root, case)  # this session's hand; the mtime still moves it for a harness without a session id
+    hand = store._hand_file(root)
+    if hand is not None:
+        store.remember(hand)  # a refusal below gives the old hand back
+    unkept = store.hold(root, case)  # this session's hand; the mtime still moves it for a harness without a session id
+    if unkept is not None and unkept.errno in store.DENIED:  # the command is the hand: unkept, it is refused (round 16)
+        raise store.denied(hand, unkept)
+    _os.utime(case / "JOURNAL.md")  # after the hand is kept: a refused `case use` moves no mark
     out.say(f"current case: {' › '.join(store.chain(case, root))}")
     if not store.session_id():  # said once, where the hand is taken: what el cannot see here, and what holds it
         out.say(f"  {store.harness() or 'this terminal'} gives el no session id — the hand here is the case a write was last "
@@ -7731,8 +7745,12 @@ def spawn(root: Path, parent: Path, name: str, goal: str) -> Outcome:
     out.lines = log(parent, "PROBLEM", f"{goal} · open → {child_name}/").lines + out.lines
     child = case_new(root, name, goal, parent=parent)
     _write_readme(parent, _readme_text(parent, out), out)  # the cases block of Links draws the child now, not next time
-    store.hold(root, child)
-    out.say(f"spawned: {child.relative_to(root)} — hand moves to the child; parent waits in phase {cur.n}")
+    unkept = store.hold_said(root, child)
+    out.child = child
+    elsewhere = not store.bare_reaches(root, child)  # the old hand, or EL_CASE (rounds 18–20)
+    out.unkept_from = len(out.lines) if elsewhere else None  # main names the child in every door from here on
+    out.say(f"spawned: {child.relative_to(root)} — " + ("" if elsewhere else "hand moves to the child; ")
+            + f"parent waits in phase {cur.n}", *unkept, *(store.env_case_said(child) if elsewhere else []))
     hints.attach(out, "case_new", root=root)
     return out
 
@@ -8161,12 +8179,13 @@ def feedback(title: str, expected: str, actual: str, why: str, acceptance: str, 
     # titles in one minute both became `…-feedback.md`, the second silently erased the first)
     slug = _slug(title)[:60].strip("-") or "feedback"
     folder = feedback_dir()
-    folder.mkdir(parents=True, exist_ok=True)
+    store.make_dirs(folder)  # a refused report leaves no folder it made
     stem, n = f"{d}-{t.replace(':', '')}-{slug}", 1
     while True:
         path = folder / (f"{stem}.md" if n == 1 else f"{stem}-{n}.md")
         try:
             with path.open("x", encoding="utf-8"):
+                store.remember_created(path)  # ours now: a refusal below takes it away
                 break
         except FileExistsError:
             n += 1
@@ -8362,7 +8381,7 @@ def mv(case: Path, old: str, new: str) -> Outcome:
     # 1. the moved file's own links follow it — when it is markdown; a pdf, an image, a script moves
     #    as bytes, its body is never read (feedback 2026-09-09: `mv X.pdf outbox/` died decoding it,
     #    nothing moved). Links TO it are rewritten like for any file (step 2).
-    dst.parent.mkdir(parents=True, exist_ok=True)
+    store.make_dirs(dst.parent)  # a refusal takes the folders it made away again
     body = None
     if src.suffix.lower() == ".md":
         try:
@@ -8371,14 +8390,20 @@ def mv(case: Path, old: str, new: str) -> Outcome:
             out.warn(f"{old_rel} is not UTF-8 text — moved as is, links inside it (if any) untouched")
     store.remember(src)
     store.remember(dst)
-    if body is None:
-        src.replace(dst)
-    else:
-        body, n = _rewrite_links(body, src.parent, src, dst, new_base=dst.parent)
-        dst.write_text(body, encoding="utf-8")
-        src.unlink()
-        if n:
-            touched.append(f"{new_rel} ({n} of its own)")
+    n = 0
+    try:
+        if body is None:
+            src.replace(dst)
+        else:
+            body, n = _rewrite_links(body, src.parent, src, dst, new_base=dst.parent)
+            dst.write_text(body, encoding="utf-8")
+            src.unlink()
+    except OSError as e:  # a rename does not say which side the system refused: the move is named whole
+        if e.errno in store.DENIED:
+            raise store.denied(src, e, to=dst) from None
+        raise
+    if n:
+        touched.append(f"{new_rel} ({n} of its own)")
     touched += _follow_links(case, src, dst, out, skip=dst)
     _carry_versions(fresh, out)
     if "README.md" not in " ".join(touched):
@@ -8744,9 +8769,18 @@ def _journal_headlines(journal: grammar.Journal, limit: int, journal_path: str =
     return lines
 
 
-def _refresh_readme(case: Path, out: Outcome) -> str:
+def _read_only_note(shown: str) -> str:
+    """A look where the system lets nothing be written (Codex, 2026-11-08): what el could not refresh, and that what it
+    shows is still true — drawn now from the files as they are."""
+    return (f"read-only here ({store.READ_ONLY}): not refreshed — {', '.join(store.READ_ONLY_FILES) or 'the files el redraws'}; "
+            f"{shown} — a session that may write here refreshes them with el")
+
+
+def _refresh_readme(case: Path, out: Outcome, look: bool = False) -> str:
     """On entry the README follows the folder: Links from the files, `last:` from the journal,
-    `progress:` from TODO. Written only when something changed; failures never block the entry."""
+    `progress:` from TODO. Written only when something changed; failures never block the entry.
+    `look` — the entry and `el order`, which say a denied write once in their own line (_read_only_note); every other
+    caller is a write and warns."""
     body, _ = stamp.split(store.read(case, "README.md"))
     derived = _derive_readme(case, body)
     _say_drawn_edits(out)
@@ -8757,7 +8791,11 @@ def _refresh_readme(case: Path, out: Outcome) -> str:
             _refresh_parents(case, out)
             return derived
         except StoreError as e:
-            out.warn(f"README not refreshed — {e}")
+            if getattr(e, "denied", False):  # the system let nothing be written: a look says it once in its own line,
+                if not look:                 # a write command is refused whole and put back (not a warning after «moved»)
+                    raise
+            else:
+                out.warn(f"README not refreshed — {e}")
     return body
 
 
@@ -9102,7 +9140,7 @@ def entry(root: Path, case: Path) -> Outcome:
     if others:
         out.say("other open cases: " + " · ".join(others) + " — switch: `el case use <name>`", "")
     with order.one_scan():  # one walk of the case's folders for the Links and for Order (L12)
-        readme_body = _refresh_readme(case, out)
+        readme_body = _refresh_readme(case, out, look=True)
         todo_body, _ = stamp.split(store.read(case, "TODO.md"))
         todo = grammar.parse_todo(todo_body)
         # phase lines follow their files (F18); a bare `waits:` name el wrote before 1.31.0 becomes a link (F6)
@@ -9113,7 +9151,10 @@ def entry(root: Path, case: Path) -> Outcome:
                 todo_body = fresh
                 out.say("TODO refreshed: open phase lines follow their phase files (goal · path), nested cases are links")
             except StoreError as e:
-                out.warn(f"TODO not refreshed — {e}")
+                if not getattr(e, "denied", False):
+                    out.warn(f"TODO not refreshed — {e}")
+        if store.READ_ONLY:  # a look where nothing may be written: the case is shown, and what was not refreshed is said
+            out.say(_read_only_note("the thread and Order below are drawn now, the files below are as last written"), "")
         journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
         aside: List[str] = []  # the files from before the work in flight: counted, not checked here (P15)
         issues = _order_lines(case, root, readme_body, journal, scoped=True, held_back=aside)  # a debt below is a step of the thread
@@ -9537,7 +9578,9 @@ def order_cmd(root: Path, case: Path, adopt: bool = False) -> Outcome:
         if not changed:
             said[0] = "nothing to adopt: " + said[0]
         out.say(*said)
-    readme_body = _refresh_readme(case, out)
+    readme_body = _refresh_readme(case, out, look=not adopt)  # `--adopt` is a write: a denial refuses it whole (r7)
+    if store.READ_ONLY:
+        out.say(_read_only_note("the order below is drawn now from the files as they are"))
     journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
     issues = _order_lines(case, root, readme_body, journal, full=True)  # asked for: every file named (the entry counts)
     if issues:

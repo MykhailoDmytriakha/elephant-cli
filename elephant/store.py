@@ -7,6 +7,7 @@ holds — outside the project, keyed by the session id the harness gives (see `h
 """
 import datetime
 import difflib
+import errno
 import hashlib
 import json
 import math
@@ -68,6 +69,7 @@ class WriteReport:
     recovered: Optional[Path] = None  # set when a mismatched file was rebuilt (S4)
     recovered_lines: int = 0
     bypassed: bool = False  # the file had been written bypassing `el` (stamp mismatch)
+    rebuilt: Optional[str] = None  # the rebuild the system did not let el write: what a read takes instead of the file
 
 
 # ---- root and cases ------------------------------------------------------------------------------
@@ -208,7 +210,7 @@ def is_open(case: Path) -> bool:
 def load(case: Path, name: str):
     """Read one of the three files through the stamp door: verify (rebuild on mismatch), return (body, report)."""
     report = check_stamp(case, name)
-    body, _ = stamp.split(read(case, name))
+    body, _ = stamp.split(report.rebuilt if report.rebuilt is not None else read(case, name))
     return body, report
 
 
@@ -313,13 +315,26 @@ def harness() -> str:
     return next((name for key, name in HARNESSES if os.environ.get(key)), "")
 
 
+def _hands_base() -> Optional[Path]:
+    """The folder of the session's own memory — hand, signature, walls, asks: EL_HANDS_DIR or the temp folder; None where
+    no temp folder can be written (a read-only sandbox — Codex, 2026-11-08: the entry died in `tempfile` before it read a
+    line). Memory that cannot be kept is not kept: the hand falls back to the case a write was last aimed at."""
+    env = os.environ.get("EL_HANDS_DIR")
+    if env:
+        return Path(env)
+    try:
+        return Path(tempfile.gettempdir()) / "elephant-hands"
+    except OSError:
+        return None
+
+
 def _sign_file() -> Optional[Path]:
     """The session's signature lives by the session, not by the project: one session is one model wherever it works."""
     key = next((f"{k}={os.environ[k]}" for k in SESSION_ENVS if re.sub(r"[^A-Za-z0-9]", "", os.environ.get(k) or "")), "")
     if not key:  # the exact id, hashed: `shared01-A` and `shared01-B`, `abc-def01` and `abcdef01` are two sessions (Codex, 2026-10-05)
         return None
-    base = os.environ.get("EL_HANDS_DIR") or os.path.join(tempfile.gettempdir(), "elephant-hands")
-    return Path(base) / f"{hashlib.sha256(key.encode('utf-8')).hexdigest()[:24]}-sign"
+    base = _hands_base()
+    return base / f"{hashlib.sha256(key.encode('utf-8')).hexdigest()[:24]}-sign" if base is not None else None
 
 
 def _walls_file() -> Optional[Path]:
@@ -462,7 +477,9 @@ def mark_walls_asked(n: int) -> None:
     try:
         f = _walls_file()
         if f is not None and n > walls_asked():
-            f.with_name(f.name + ".asked").write_text(str(n))
+            a = f.with_name(f.name + ".asked")
+            remember(a)  # asked in the output of a command that went through — a refused one gives the question back
+            a.write_text(str(n))
     except OSError:
         pass
 
@@ -585,7 +602,8 @@ def sign(model: str, who: str = "") -> None:
     if f is None:
         raise StoreError("el keeps a signature per session and sees no session here — name it once in the terminal you keep: "
                          "export EL_SESSION=<8 letters or digits> && el sign \"…\" (Claude Code and Codex give theirs on their own)", 4)
-    f.parent.mkdir(parents=True, exist_ok=True)
+    make_dirs(f.parent)
+    remember(f)  # the command's own write: a refused `el sign` (a fill denied on the way) keeps the old one (round 11)
     f.write_text(clean_part(model) + "\n" + clean_part(who) + "\n", encoding="utf-8")
 
 
@@ -611,13 +629,16 @@ def take_ask(case: Path, sign: Tuple[str, str, str], limit: int) -> int:
     session `abc` spend the asks of `abcdefgh`). Returns the number of this ask, 1…limit, or 0 once the limit is spent;
     a folder el cannot write asks once more rather than never."""
     try:
-        base = Path(os.environ.get("EL_HANDS_DIR") or os.path.join(tempfile.gettempdir(), "elephant-hands"))
+        base = _hands_base()
+        if base is None:
+            return 1
         key = hashlib.sha256(json.dumps([str(case.resolve()), *sign]).encode("utf-8")).hexdigest()[:24]
         f = base / f"{key}-asks"
         n = int(f.read_text(encoding="utf-8") or 0) if f.is_file() else 0
         if n >= limit:
             return 0
-        f.parent.mkdir(parents=True, exist_ok=True)
+        make_dirs(f.parent)
+        remember(f)  # an ask shown only by a command that went through: a refused one gives it back (round 13)
         f.write_text(str(n + 1), encoding="utf-8")
         return n + 1
     except (OSError, ValueError):
@@ -638,23 +659,75 @@ def _hand_file(root: Path, legacy: bool = False) -> Optional[Path]:
     full = _session_key()
     if not full:
         return None
-    base = os.environ.get("EL_HANDS_DIR") or os.path.join(tempfile.gettempdir(), "elephant-hands")
+    base = _hands_base()
+    if base is None:
+        return None
     key = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:12]
     if legacy:
         return Path(base) / f"{session_id()}-{key}"
     return Path(base) / f"{hashlib.sha256(full.encode('utf-8')).hexdigest()[:24]}-{key}"
 
 
-def hold(root: Path, case: Path):
-    """This session takes `case` in hand: its next bare command acts on it, whatever another session writes."""
+def hold(root: Path, case: Path) -> Optional[OSError]:
+    """This session takes `case` in hand: its next bare command acts on it, whatever another session writes. Returns the
+    error of a hand the system would not let el keep — a command that announces the hand says so (case use refuses; spawn
+    and case new name the old hand; the second hand, round 16: `case use beta` said beta, the next `log` wrote to alpha)."""
     f = _hand_file(root)
     if f is None:
-        return
+        return None
     try:
         f.parent.mkdir(parents=True, exist_ok=True)
+        remember(f)  # a command refused after it — a spawn whose child was put back — gives the old hand back (round 22)
         f.write_text(os.path.relpath(case.resolve(), root.resolve().parent), encoding="utf-8")
-    except (OSError, ValueError):
-        pass  # a hand that cannot be kept falls back to the case a write was last aimed at, as before
+    except (OSError, ValueError) as e:
+        return e if isinstance(e, OSError) else None  # unkept: the hand falls back to where a write was last aimed
+    return None
+
+
+def bare_reaches(root: Path, case: Path) -> bool:
+    """Does this session's next bare command act on `case`? Read without moving anything: EL_CASE, else the hand it holds,
+    else where a write was last aimed (after a create, the case just made). An EL_CASE that no longer picks one case is
+    not «here» (the second hand, round 20: a new case made the name ambiguous, and the printed door failed exit 2)."""
+    name = os.environ.get("EL_CASE")
+    if name:
+        try:
+            return resolve_case(root, name).resolve() == case.resolve()
+        except StoreError:
+            return False
+    was = held(root) or last_aimed(root)  # the same pick as `hand` — never an assumption (round 25: a journal with a
+    return was is not None and was.resolve() == case.resolve()  # clock ahead was «last aimed», not the new case)
+
+
+def last_aimed(root: Path) -> Optional[Path]:
+    """The open case a write was last aimed at — its JOURNAL.md mtime, as `hand` picks it for a session with no hand."""
+    def freshness(c: Path):
+        j = file_path(c, "JOURNAL.md")
+        return j.stat().st_mtime if j.exists() else 0
+    try:
+        open_cases = [c for c in all_cases(root) if is_open(c)]
+    except (StoreError, OSError):
+        return None
+    return max(open_cases, key=freshness) if open_cases else None
+
+
+def env_case_said(case: Path) -> List[str]:
+    """EL_CASE holds this shell's bare commands elsewhere: said where a new case is made, with the doors that reach it."""
+    name = os.environ.get("EL_CASE")
+    if not name:
+        return []
+    return [f"EL_CASE={name} is set in this shell: bare commands go to {name}, not {case.name} — the doors here name it"]
+
+
+def hold_said(root: Path, case: Path) -> List[str]:
+    """`hold` for a command that creates work and moves the hand with it: the work stands, an unkept hand is said."""
+    e = hold(root, case)
+    if e is None:
+        return []
+    was = held(root)
+    if was is None or was.resolve() == case.resolve():  # no hand of its own: bare commands go where a write was last aimed
+        return []                                         # — this very case (the second hand, round 17)
+    return [f"hand not kept ({e.strerror or e}) — this session's bare commands still go to {was.name}, not {case.name}; "
+            f"name it on each call: el --case {case_arg(case, root)} …"]
 
 
 def mark_aimed(case: Path):
@@ -713,14 +786,10 @@ def hand(root: Path, explicit: Optional[str] = None, look: bool = False) -> Path
                          f"opened again, as a new phase", 4,
                          recovery=f"continue one: el --case {top} case reopen \"why it goes on\", then el --case {top} phase plan N "
                                   f"\"Name\" --goal \"…\" · the cases: el case list · a new one: el case new \"name\" --goal \"…\"")
-    def freshness(c: Path):  # the journal's mtime marks the case a command was last aimed at (`mark_aimed`)
-        j = file_path(c, "JOURNAL.md")
-        return j.stat().st_mtime if j.exists() else 0
-
     mine = held(root)
     if mine is not None:
         return mine
-    picked = max(open_cases, key=freshness)
+    picked = last_aimed(root) or open_cases[0]  # the journal's mtime marks the case a command was last aimed at (`mark_aimed`)
     global HAND_NOTE
     # a harness with no session id cannot tell this session from another: every writer looks «other», and the door the
     # note gives (`el case use`) cannot hold here (a report, 2026-11-05: six writes in one VS Code Copilot terminal, the
@@ -751,6 +820,7 @@ def mark_wrote(root: Path, case: Path):
         return
     try:
         f.parent.mkdir(parents=True, exist_ok=True)
+        remember(f)  # a mark of a write: a command refused after it gives the old mark back (the second hand, round 22)
         shown = re.sub(r"[^A-Za-z0-9-]", "", _session_key().partition("=")[2])[:16]  # 8 chars read as one session for two
         f.write_text(f"{os.path.relpath(case.resolve(), root.resolve().parent)}\n{shown}", encoding="utf-8")
     except (OSError, ValueError):
@@ -760,7 +830,9 @@ def mark_wrote(root: Path, case: Path):
 def _other_writer(root: Path, case: Path) -> Optional[Tuple[str, str]]:
     """Another session that wrote to `case` in this space lately: (its id, «HH:MM» of its last write) — the newest one."""
     mine = _wrote_file(root)
-    base = Path(os.environ.get("EL_HANDS_DIR") or os.path.join(tempfile.gettempdir(), "elephant-hands"))
+    base = _hands_base()
+    if base is None:
+        return None
     key = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:12]
     best = None
     try:
@@ -922,14 +994,48 @@ def unlock_space() -> None:
 _UNDO: Optional[dict] = None
 
 
+class _Link(NamedTuple):
+    target: str  # what a link pointed at before the command: a refusal makes it that link again
+
+
+_TIMES: dict = {}  # the (atime, mtime) of each remembered file, put back with its bytes
+_MODES: dict = {}  # its permission bits, put back with them
+_MADE: List[Path] = []  # folders this command created — a refusal takes them away again, deepest first
+STUCK: List[Path] = []  # files a rollback could not put back — the refusal names them instead of «nothing was written»
+
+
 def begin():
-    global _UNDO
+    global _UNDO, READ_ONLY
     _UNDO = {}
+    _TIMES.clear()
+    _MODES.clear()
+    _MADE.clear()
+    STUCK.clear()
+    READ_ONLY = ""  # a denied write is said by the command that met it
+    READ_ONLY_FILES.clear()
+    global LAST_DENIED
+    LAST_DENIED = None
 
 
 def commit():
     global _UNDO
     _UNDO = None
+    _TIMES.clear()
+    _MODES.clear()
+    _MADE.clear()
+
+
+def make_dirs(path: Path):
+    """`mkdir -p` that a refusal undoes: every folder created here is taken away again if the command is refused (the
+    second hand, 2026-11-08: a refused `mv` left `target/new/deep/` behind under «nothing was written»)."""
+    missing, p = [], Path(path)
+    while not p.exists():
+        missing.append(p)
+        p = p.parent
+    for d in reversed(missing):
+        d.mkdir()
+        if _UNDO is not None:
+            _MADE.append(d)
 
 
 def touched() -> bool:
@@ -937,51 +1043,212 @@ def touched() -> bool:
     return bool(_UNDO)
 
 
+def remember_created(path: Path):
+    """A file this command has just created itself (an exclusive open): a refusal takes it away. Said after the creation,
+    never before — a name taken by someone else is not this command's to remove (the second hand, round 15: a refused
+    `el feedback` left its empty report behind)."""
+    if _UNDO is not None and Path(path) not in _UNDO:
+        _UNDO[Path(path)] = None
+
+
 def remember(path: Path):
-    """Keep the bytes `path` had before this command first touched it (None — it did not exist)."""
+    """Keep the bytes `path` had before this command first touched it (None — it did not exist). A link is remembered
+    as the file it points at — what a write through it changes, and what a refusal puts back (the second hand,
+    2026-11-08: a phase file that was a link was «put back» as a plain file, its target left changed)."""
     if _UNDO is None:
         return
     path = Path(path)
+    if path.is_symlink():  # the link itself — a move takes the link, not its target — and then the file it points at
+        if path not in _UNDO:
+            _UNDO[path] = _Link(os.readlink(path))
+        path = path.resolve()
     if path not in _UNDO:
         _UNDO[path] = path.read_bytes() if path.exists() else None
+        if path.exists():  # the time too: a journal's mtime says where a write was last aimed (the second hand, round 23)
+            st = path.stat()
+            _TIMES[path] = (st.st_atime_ns, st.st_mtime_ns)
+            _MODES[path] = st.st_mode & 0o7777  # and the mode: a script put back must still run (round 24)
 
 
 def rollback() -> List[Path]:
-    """Put every file this command touched back as it was; returns the files that changed back."""
+    """Put every file this command touched back as it was; returns the files that changed back. A file el could rewrite
+    in place in a folder it may not write (the second hand, 2026-11-08: a phase file rewritten, then TODO denied) is
+    put back in place the same way; one that cannot be put back at all is kept in STUCK for the refusal to name."""
     global _UNDO
     saved, _UNDO = _UNDO or {}, None
+    made = list(_MADE)
+    _MADE.clear()
+    times_kept, modes_kept = dict(_TIMES), dict(_MODES)
+    _TIMES.clear()
+    _MODES.clear()
     restored = []
     for path, data in saved.items():
         try:
-            if data is None:
-                if path.exists():
+            if isinstance(data, _Link):
+                if not (path.is_symlink() and os.readlink(path) == data.target):
+                    if path.is_symlink() or path.exists():
+                        path.unlink()
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    os.symlink(data.target, path)
+                    restored.append(path)
+            elif data is None:
+                if path.is_symlink() or path.exists():
                     path.unlink()
                     restored.append(path)
-            elif not path.exists() or path.read_bytes() != data:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-                with os.fdopen(fd, "wb") as fh:
-                    fh.write(data)
-                os.replace(tmp, path)
-                restored.append(path)
+            else:
+                if not path.exists() or path.read_bytes() != data:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    _put_back(path, data)
+                    restored.append(path)
+                mode = modes_kept.get(path)
+                if mode is not None and (path.stat().st_mode & 0o7777) != mode:
+                    try:
+                        os.chmod(path, mode)
+                    except OSError:
+                        pass
+                times = times_kept.get(path)
+                if times is not None and path.stat().st_mtime_ns != times[1]:
+                    try:
+                        os.utime(path, ns=times)  # as it was: «nothing was written» holds for the clock el reads too
+                    except OSError:
+                        pass  # the bytes are back; a clock el may not set is not a write left behind
+        except OSError:
+            STUCK.append(path)
+    for d in reversed(made):  # the folders this command created, deepest first — only if nothing else lives there now
+        try:
+            d.rmdir()
         except OSError:
             pass
     return restored
 
 
+def _keep_mode(real: Path, tmp: str):
+    """A file el rewrites through a temp file keeps its permission bits — a temp file is born 0600 (round 24: an
+    executable put back by a rollback no longer ran; every README el wrote turned 0600)."""
+    try:
+        os.chmod(tmp, real.stat().st_mode & 0o7777)
+    except OSError:
+        pass
+
+
+def _put_back(path: Path, data: bytes):
+    tmp = None
+    try:
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        _keep_mode(path, tmp)
+        os.replace(tmp, path)
+    except OSError:
+        if tmp is not None and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        with open(path, "wb") as fh:  # a folder el may not write, a file it may: in place, as it was written
+            fh.write(data)
+
+
+# A write the system does not allow — a read-only sandbox, a folder without write access (Codex, 2026-11-08: the entry, a
+# look, died in a Python traceback when it went to redraw README). Said as el's own refusal at the door every write
+# passes; the entry, a read, shows the case anyway and says once what it could not refresh.
+DENIED = (errno.EPERM, errno.EACCES, errno.EROFS)
+READ_ONLY = ""  # what the system said, once a write of this process was denied — the entry names it in one line
+READ_ONLY_FILES: List[str] = []  # the files it was denied for, by name
+LAST_DENIED: Optional["StoreError"] = None  # the refusal of the last denied write — a write command that went on past it
+                                             # (a handler on the way swallowed it) is refused with it at its end
+
+
+def denied(path: Optional[Path], e: OSError, to: Optional[Path] = None) -> StoreError:
+    """The refusal of a write the system did not allow: what, why, and the doors that need no write. `to` — a move:
+    which side the system refused is not said by a rename, so both are named (the second hand, 2026-11-08: a binary
+    `mv` into a protected folder was refused naming only the source)."""
+    global READ_ONLY
+    READ_ONLY = e.strerror or "write not permitted"
+    if path is not None and Path(path).name not in READ_ONLY_FILES:
+        READ_ONLY_FILES.append(Path(path).name)
+    what = (f"move {_shown_from_cwd(Path(path))} → {_shown_from_cwd(Path(to))}" if path and to
+            else f"write {_shown_from_cwd(Path(path))}" if path else "write a file")
+    look = ("a look needs no write: el status · el todo · el order — each shows the case without refreshing its files; "
+            if _a_case_to_look_at() else "")  # no case yet: those doors would refuse (the second hand, 2026-11-08)
+    err = StoreError(f"cannot {what}: {READ_ONLY} — this session may not write here (a read-only sandbox, or a "
+                     f"folder without write access); nothing was written\n"
+                     f"  {look}the write itself: the same command where this session may write", 4)
+    err.denied = True  # a look shows the case anyway; a write is refused whole
+    global LAST_DENIED
+    LAST_DENIED = err
+    return err
+
+
+def _a_case_to_look_at() -> bool:
+    """A case a bare look reaches — over none (a first case refused, every case closed, an EL_CASE that picks no single
+    case: the second hand, round 21) the look doors refuse too, so they are not printed."""
+    try:
+        root = find_root()
+        name = os.environ.get("EL_CASE")
+        if name:
+            return is_open(resolve_case(root, name))
+        return any(is_open(c) for c in all_cases(root))
+    except Exception:  # noqa: BLE001 — a half-made case mid-refusal: no door is promised
+        return False
+
+
+def _shown_from_cwd(path: Path) -> str:
+    try:
+        return os.path.relpath(path, Path.cwd())
+    except ValueError:
+        return str(path)
+
+
 def write_file(path: Path, text: str):
     """A file of the case other than the three (a phase file, a recover file, a document whose links follow a move)."""
     remember(path)
-    path.write_text(text, encoding="utf-8")
+    try:
+        path.write_text(text, encoding="utf-8")
+    except OSError as e:
+        if e.errno in DENIED:
+            raise denied(path, e) from None
+        raise
+
+
+def _append_file(path: Path, text: str):
+    """Lines added after what a file holds (a recover file: lines a rebuild moved out wait there until re-entered)."""
+    remember(path)
+    try:
+        before = path.read_bytes() if path.exists() else b""
+        with open(path, "ab") as fh:
+            fh.write((b"" if not before or before.endswith(b"\n") else b"\n") + text.encode("utf-8"))
+    except OSError as e:
+        if e.errno in DENIED:
+            raise denied(path, e) from None
+        raise
 
 
 # ---- writing with stamp discipline ---------------------------------------------------------------
+def _real(path: Path) -> Path:
+    """A link stays a link: el writes, and puts back, the file it points at."""
+    return path.resolve() if path.is_symlink() else path
+
+
 def _atomic_write(path: Path, text: str):
     remember(path)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(text)
-    os.replace(tmp, path)
+    real = _real(path)
+    tmp = None
+    try:
+        fd, tmp = tempfile.mkstemp(dir=real.parent, prefix=f".{real.name}.", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        _keep_mode(real, tmp)
+        os.replace(tmp, real)
+    except OSError as e:
+        if tmp is not None and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        if e.errno in DENIED:
+            raise denied(path, e) from None
+        raise
 
 
 HAND_EDITED: set = set()  # files this process found written past el (stamp mismatch) — before the rebuild renewed the stamp
@@ -1001,10 +1268,29 @@ def check_stamp(case: Path, name: str) -> WriteReport:
     if rebuilt is None:
         details = "; ".join(str(f) for f in fatal)
         raise StoreError(f"{name}: stamp {state} and the file cannot be rebuilt — {details}", 3)
-    _atomic_write(path, rebuilt)
+    rec = case / f"{path.name}.recover.md"
+    rec_before = rec.read_bytes() if rec.exists() else None
+    rec_stat = rec.stat() if rec.exists() else None
+    try:
+        if removed:  # the lines moved out are kept first — a rebuild written before them would lose them; added after
+            _append_file(rec, "\n".join(removed) + "\n")  # lines a rebuild before moved there, never over them (r10)
+        _atomic_write(path, rebuilt)
+    except StoreError as e:  # the system lets nothing be written here (the second hand, round 9: a hand-edited TODO
+        if not getattr(e, "denied", False):  # made `todo show`, `facts` refuse) — a read takes the rebuild in memory;
+            raise                            # a write meets the denial at its own write or at the end of the command
+        if removed:  # the recover file as it was: a look leaves no trace (round 10: an older recover file was lost)
+            try:
+                if rec_before is None:
+                    if rec.exists():
+                        rec.unlink()
+                elif rec.read_bytes() != rec_before:
+                    rec.write_bytes(rec_before)
+                    os.utime(rec, ns=(rec_stat.st_atime_ns, rec_stat.st_mtime_ns))  # a look leaves no trace (round 24)
+            except OSError:
+                STUCK.append(rec)
+        report.rebuilt = rebuilt
+        return report
     if removed:
-        rec = case / f"{path.name}.recover.md"
-        write_file(rec, "\n".join(removed) + "\n")
         report.recovered, report.recovered_lines = rec, len(removed)
     return report
 

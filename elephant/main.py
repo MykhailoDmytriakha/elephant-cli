@@ -459,6 +459,15 @@ def _looks(args) -> bool:
     return args.cmd in ("facts", "check", "doctor", "help")
 
 
+def _a_write(args, shown: bool) -> bool:
+    """A command whose writes are its work — refused whole when the system denied one of them on the way. A look's
+    refresh is not (it shows the case anyway); a brief with --sample records its draw in the journal, so it is (the
+    second hand, round 26: the denied rebuild was swallowed, the draw stayed, exit 0)."""
+    if args.cmd == "todo" and args.action == "brief" and getattr(args, "sample", None):
+        return True
+    return not (args.cmd in (None, "status") or _looks(args) or shown)
+
+
 def _recite(args, root: Optional[Path], case: Optional[Path], calls) -> List[str]:
     """Every RECITE_EVERY el calls of a session, the next command that works on the case says where the agent stands
     (the owner's idea, 2026-10-07). Every call counts; the entry, the doses and the root-wide commands do not recite."""
@@ -661,6 +670,15 @@ def run(argv=None) -> int:
             print(f"el: {store.HAND_NOTE}", file=sys.stderr)  # lately (the entry says it under its first line itself)
             store.HAND_NOTE = ""
         return code
+    except OSError as e:  # a write the system did not allow, at a door that is not el's write door (a folder, a move)
+        if e.errno not in store.DENIED:
+            store.rollback()
+            raise
+        restored = store.rollback()
+        lines = _refusal_lines(store.denied(Path(e.filename) if e.filename else None, e), restored)
+        called = list(argv) if argv is not None else sys.argv[1:]
+        print("\n".join(lines), file=sys.stdout if _invoked(called) in ("", "status") else sys.stderr)
+        return 4
     except BaseException:
         store.rollback()
         raise
@@ -845,33 +863,42 @@ def _run(argv=None) -> int:
                 args.name = root.parent.name  # report, 2026-10-30: help showed [name], and the call asked for it)
             if args.root:
                 out = commands.project_new(root, args.name, args.goal)
-                store.hold(root, root.parent)
+                if store.LAST_DENIED is not None:  # a write denied on the way: no «created» over it
+                    raise store.LAST_DENIED
+                out.say(*store.hold_said(root, root.parent))
                 store.mark_wrote(root, root.parent)  # the session that opened the case wrote it
                 print("\n".join(out.lines))
                 if commands._default_rules():  # said in root mode too (feedback 2026-10-08: unsaid, the agent added the line again)
                     print(TWO_HANDS_SAID)
                 if onboarding.enabled() and not onboarding.scan(root.parent):
-                    print(*onboarding.write(root.parent), sep="\n")
+                    print(*_first_onboarding(root.parent), sep="\n")
                 return 0
             case = commands.case_new(root, args.name, args.goal)
-            store.hold(root, case)  # the session that opened the case holds it (feedback 2026-09-27)
+            if store.LAST_DENIED is not None:  # a write denied on the way (a parent's line): no «created» over it
+                raise store.LAST_DENIED
+            unkept = store.hold_said(root, case)  # the session that opened the case holds it (feedback 2026-09-27)
             store.mark_wrote(root, case)  # and wrote it — what another session's note may say
-            print(f"created: {case.relative_to(root.parent)} — now `el phase open 1 <Name> --goal \"…\"`")
+            said = [f"created: {case.relative_to(root.parent)} — now `el phase open 1 <Name> --goal \"…\"`", *unkept]
             known = commands.knowledge_line(root)
             if known:  # the moment a task starts: what the project already knows (the polygon, 2026-10-08)
-                print(known)
+                said.append(known)
             if commands._default_rules():  # the case was born with two hands: said at the moment it begins
-                print(TWO_HANDS_SAID)
+                said.append(TWO_HANDS_SAID)
             if onboarding.enabled() and not onboarding.scan(root.parent):  # the first case: the agent's file learns the rhythm
-                print(*onboarding.write(root.parent), sep="\n")
+                said += _first_onboarding(root.parent)
             if hints.enabled():  # something to imitate: a model imitates the form it sees (2026-09-16)
-                print("", knowledge.EXEMPLAR, sep="\n")
+                said += ["", knowledge.EXEMPLAR]
                 tip = hints.pick("case_new", root=root)
                 if tip:
-                    print(f"hint: {tip}")
+                    said.append(f"hint: {tip}")
+            if not store.bare_reaches(root, case):  # bare commands go elsewhere — the old hand, or EL_CASE
+                said = _carry_to(said[:1] + store.env_case_said(case) + said[1:], store.case_arg(case, root))  # (r18–19)
+            print(*said, sep="\n")
             return 0
         if args.cmd == "sign":  # by the session, not the project: it works before the first case
             out = commands.sign(args.model, args.who)
+            if store.LAST_DENIED is not None:  # a fill the system denied on the way is not «signed» (the second hand, r9)
+                raise store.LAST_DENIED
             for w in out.warnings:  # a fill goes through the TODO door, and what the door repaired is said (Codex, 2026-10-10)
                 print(f"warning: {w}", file=sys.stderr)
             print("\n".join(out.lines))
@@ -1025,7 +1052,7 @@ def _run(argv=None) -> int:
                     if args.file is None:  # bare `el readme`: piped text is a write, nothing piped is a question
                         text = "" if show_only else _piped_text()  # `readme show` only shows
                     else:
-                        text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
+                        text = sys.stdin.read() if args.file == "-" else _read_given_file(args.file, case)
                     # nothing to write is not a broken README (feedback 2026-09-22: «F1 · sections … got none» read
                     # as damage): the bare call shows the README and the ways to write it
                     shown = not (text.strip() or args.file is not None)
@@ -1044,15 +1071,26 @@ def _run(argv=None) -> int:
                 out = commands.spawn(root, case, args.name, args.goal)
                 if not (args.case or os.environ.get("EL_CASE")):
                     tag = _name_the_case(out, root, case)  # its first line is the parent's journal; the child is named below it
-                child = store.held(root)  # spawn holds the child it opened: its write, not the parent's
+                child = getattr(out, "child", None)  # spawn holds the child it opened: its write, not the parent's
                 if child is not None:
                     store.mark_wrote(root, child)
+                    if getattr(out, "unkept_from", None) is not None:  # the hand stayed on the parent: the child's doors name it
+                        k = out.unkept_from
+                        out.lines[k:] = _carry_to(out.lines[k:], store.case_arg(child, root))
             elif args.cmd == "done":
                 out = commands.done(root, case, args.summary, howto=args.howto, by=args.by)
             else:  # pragma: no cover
                 parser.print_usage()
                 return 2
-            if store.touched() and args.cmd not in (None, "status", "spawn"):
+            wrote = store.touched() and args.cmd not in (None, "status", "spawn")
+            if wrote and store.is_open(case) and not shown and not _looks(args):
+                commands.sync_owner_waits(case, out)  # what waits for the owner, true at the write that changed it
+            if store.LAST_DENIED is not None and _a_write(args, shown):
+                # a write the system denied on the way, wherever a handler swallowed it (the second hand, round 8: `readme
+                # --file` met a denied TODO rebuild, warned, wrote README and answered exit 0): the write is refused whole —
+                # before the session's marks below, which say «this session wrote here» (round 12)
+                raise store.LAST_DENIED
+            if wrote:
                 if not (getattr(args, "case", None) or os.environ.get("EL_CASE")):
                     store.hold(root, case)  # the case this session last wrote to stays its hand (spawn holds the child)
                     if not shown and not _looks(args):
@@ -1067,7 +1105,8 @@ def _run(argv=None) -> int:
                 if store.is_open(case) and not shown and not _looks(args):
                     store.mark_aimed(case)  # and a fresh session without a hand starts there (2026-10-07)
                     store.mark_wrote(root, case)  # this session works here — what another session's note may say
-                    commands.sync_owner_waits(case, out)  # what waits for the owner, true at the write that changed it
+        if store.LAST_DENIED is not None and _a_write(args, shown):
+            raise store.LAST_DENIED  # the same door for a command that came here another way
         nudge = commands.acceptance_as_text(locals().get("case"), _written_text(args))
         if nudge:
             out.say(nudge)  # last: the line a `tail -1` reader keeps
@@ -1082,7 +1121,14 @@ def _run(argv=None) -> int:
             print(f"warning: {w}", file=sys.stderr)
         print("\n".join(_carry_case(out.lines, args)))
         return 0
-    except StoreError as e:
+    except (StoreError, OSError) as caught:
+        if isinstance(caught, OSError):  # a write the system denied outside el's write door (a folder, a move): the same
+            if caught.errno not in store.DENIED:  # refusal, through the same carry of --case (the second hand, round 19)
+                raise
+            e = store.denied(Path(caught.filename) if caught.filename else None, caught,
+                             to=Path(caught.filename2) if getattr(caught, "filename2", None) else None)
+        else:
+            e = caught
         restored = store.rollback()  # the refusal is whole: what this command wrote before it is put back
         lines = _refusal_lines(e, restored)
         called = list(argv) if argv is not None else sys.argv[1:]
@@ -1181,6 +1227,8 @@ def _refusal_lines(e: StoreError, restored, seen: Optional["store.WallCount"] = 
     reader saw)."""
     head, *rest = f"el: ERROR [exit {e.code}] {str(e).rstrip()}".split("\n")
     put_back = ["  put back as it was: " + " · ".join(_shown(p) for p in restored)] if restored else []
+    if store.STUCK:  # a write el could not take back: said, never covered by «nothing was written» (the second hand, 2026-11-08)
+        put_back.append("  NOT put back — still holds this command's write: " + " · ".join(_shown(p) for p in store.STUCK))
     legend = f"  exit {e.code} = {getattr(e, 'meaning', '') or store.EXIT_MEANING.get(e.code, '?')} — `el help errors`"
     # asked of the circling only: the same refusal with its numbers, or its kind within minutes — not the kind met once
     # per item over a long session (the radio with Codex, 2026-11-07: «the same wall 31 times» on the first brief of 330.9)
@@ -1213,8 +1261,42 @@ def _root_or_create() -> Path:
         return store.find_root()
     except StoreError:
         root = Path.cwd() / store.CASES_DIR
-        root.mkdir()
+        store.make_dirs(root)  # a refused first case leaves no empty `.cases/` behind (the second hand, 2026-11-08)
         return root
+
+
+def _carry_to(lines: List[str], name: str) -> List[str]:
+    """Every el command in `lines` names the case `name` — the doors of a case this session's bare commands do not reach."""
+    return [ln if isinstance(ln, commands.Stored) else commands.carry_case(ln, name, [], _is_command) for ln in lines]
+
+
+def _read_given_file(name: str, case: Path) -> str:
+    """The file `--file` names, read from where el runs — a refusal with the path that works, never a traceback (the second
+    hand, round 15: Order's printed `el readme --file README.md` died from the project root)."""
+    readme = shlex.quote(os.path.relpath(store.file_path(case, "README.md"), os.getcwd()))
+    try:
+        return Path(name).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise StoreError(f"no file {name} from here ({os.getcwd()}) — a path is read from where el runs; this case's README "
+                         f"is {readme}: el readme --file {readme}", 2) from None
+    except IsADirectoryError:
+        raise StoreError(f"{name} is a folder — --file takes a file: el readme --file {readme}", 2) from None
+    except UnicodeDecodeError as e:
+        raise StoreError(f"{name} is not UTF-8 text (byte {e.start}) — el reads UTF-8 only", 2) from None
+    except OSError as e:
+        raise StoreError(f"cannot read {name}: {e.strerror}", 4) from None
+
+
+def _first_onboarding(project: Path) -> List[str]:
+    """The block written at the first case — the agent's file learns the rhythm. A convenience beside the work, never the
+    work: where the system denies it (the second hand, 2026-11-08: AGENTS.md a link into a protected folder refused the
+    whole first case and left an empty `.cases/`), the case stands and el says what it did not write."""
+    try:
+        return onboarding.write(project)
+    except StoreError:
+        store.LAST_DENIED = None  # taken on purpose: the case stands, the line below says what was not written
+        return [f"onboarding block not written — {', '.join(store.READ_ONLY_FILES) or 'the agent file'}: {store.READ_ONLY}; "
+                f"the case stands — where el may write that file: el onboarding"]
 
 
 def main():  # pragma: no cover

@@ -15,9 +15,11 @@ Nothing here refuses a write: the lower layer is written by the agent directly, 
 only show what is out of order, with the command that fixes it — on every entry (P12).
 """
 import math
+import os
 import posixpath
 import contextlib
 import re
+import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -1074,7 +1076,7 @@ running phases). `full` (an `el order` asked for): every file of
                 states = f", {s} accepted, sent back or cancelled" if s else ""
                 out.append(f"State is behind: {n} journal entr{'y' if n == 1 else 'ies'} touched since as of {key[0]} {key[1]} "
                            f"({r} RESULT, {p} PHASE{states}) → el readme set next \"…\" · still true as it stands: el readme touch "
-                           f"· or el readme --file README.md")
+                           f"· or el readme --file {shlex.quote(os.path.relpath(case / 'README.md', os.getcwd()))}")  # from where el runs (r15)
     over = [d for f in work for d in f.all_docs() if d.summary and grammar.visible_len(d.summary) > SUMMARY_CHARS]
     long_ = [(d.rel, grammar.visible_len(d.summary)) for d in over if d.path.resolve() not in (frozen or set())]
     if long_:  # the limit asks the source to be rephrased; Links shows the summary whole (feedback 2026-09-25)

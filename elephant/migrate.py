@@ -293,26 +293,49 @@ def apply(plan: Plan) -> List[str]:
     problems = validate(plan)
     if problems:
         raise store.StoreError("migration plan does not pass the grammars — nothing touched:\n  " + "\n  ".join(problems), 1)
-    plan.archive.mkdir(parents=True, exist_ok=False)
-    originals: Dict[str, Path] = {}
-    for name in plan.legacy:
-        src = store.file_path(plan.case, name)
-        dst = plan.archive / src.name
-        shutil.copy2(src, dst)
-        if dst.read_bytes() != src.read_bytes():
-            raise store.StoreError(f"archive copy of {name} differs from the original — aborted before any change", 1)
-        originals[name] = src
+    if plan.archive.exists():
+        raise store.StoreError(f"{plan.archive.relative_to(plan.case)}/ already exists — a migration never overwrites its "
+                               f"archive: move it away, then el migrate --apply", 4)
+    archived: List[Path] = []
+    try:  # a write the system denies is el's refusal, and the archive this command made goes too (the second hand, r14)
+        store.make_dirs(plan.archive)
+        originals: Dict[str, Path] = {}
+        for name in plan.legacy:
+            src = store.file_path(plan.case, name)
+            dst = plan.archive / src.name
+            store.remember(dst)  # made by this command: a refusal anywhere after it — a parent's README too — takes it away (r15)
+            try:
+                shutil.copy2(src, dst)
+            except OSError as e:
+                if e.errno in store.DENIED:
+                    raise store.denied(dst, e) from None
+                raise
+            archived.append(dst)
+            if dst.read_bytes() != src.read_bytes():
+                raise store.StoreError(f"archive copy of {name} differs from the original — aborted before any change", 1)
+            originals[name] = src
+    except store.StoreError as e:
+        if getattr(e, "denied", False):
+            for f in archived:
+                f.unlink(missing_ok=True)
+        raise
     done.append(f"archived: {plan.archive.relative_to(plan.case)}/ — {', '.join(p.name for p in originals.values())}")
     written: List[Path] = []
     try:
         for pf, text in plan.phase_files.items():
-            pf.parent.mkdir(exist_ok=True)
-            pf.write_text(text, encoding="utf-8")
+            store.make_dirs(pf.parent)
+            store.write_file(pf, text)
             written.append(pf)
             done.append(f"created: {pf.relative_to(plan.case)}")
         for name, body in plan.bodies.items():
             store._atomic_write(originals[name], stamp.apply(body))
             done.append(f"written: {originals[name].name} (canonical, stamped)")
+    except store.StoreError as e:
+        if not getattr(e, "denied", False):
+            raise
+        for f in archived:  # the command's rollback puts the case files back; the archive it made goes with them
+            f.unlink(missing_ok=True)
+        raise
     except Exception as e:  # put everything back from the archive, then say so
         for name, src in originals.items():
             shutil.copy2(plan.archive / src.name, src)
@@ -320,8 +343,8 @@ def apply(plan: Plan) -> List[str]:
             pf.unlink(missing_ok=True)
             if pf.parent.exists() and not any(pf.parent.iterdir()):
                 pf.parent.rmdir()
-        raise store.StoreError(f"migration failed and was rolled back — the originals are back in place, the archive "
-                               f"{plan.archive.relative_to(plan.case)}/ is kept: {e}", 1) from e
+        raise store.StoreError(f"migration failed and was rolled back — the originals are back in place and the archive "
+                               f"{plan.archive.relative_to(plan.case)}/ goes with the command: {e}", 1) from e
     return done
 
 

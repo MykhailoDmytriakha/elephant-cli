@@ -16,6 +16,7 @@ text no longer matches its own mark was edited by hand and is named, not overwri
 heading without marks) is named with the command that takes it under marks. Only the lines between the marks are
 ever written — the rest of the file stays byte for byte. `EL_ONBOARDING=0` switches the automatic part off.
 """
+import errno
 import hashlib
 import os
 import re
@@ -24,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from . import __version__, knowledge
+from . import __version__, knowledge, store
 
 END = "<!-- /elephant onboarding -->"
 BEGIN_RE = re.compile(r"^<!-- elephant onboarding (\S+) · ([0-9a-f]{12})\b.*-->$")
@@ -124,10 +125,24 @@ def choose(project: Path) -> str:
 
 def _write(path: Path, text: str):
     real = path.resolve()  # a link stays a link: the file it points at is written
-    fd, tmp = tempfile.mkstemp(dir=real.parent, prefix=f".{real.name}.", suffix=".tmp")
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(text)
-    os.replace(tmp, real)
+    store.remember(real)  # one command, one change: a refusal after this write puts it back (the second hand, 2026-11-08:
+    tmp = None            # CLAUDE.md written, AGENTS.md denied, and the refusal said «nothing was written»)
+    try:
+        fd, tmp = tempfile.mkstemp(dir=real.parent, prefix=f".{real.name}.", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        if real.exists():
+            store._keep_mode(real, tmp)  # the agent's file keeps its mode (a temp file is born 0600)
+        os.replace(tmp, real)
+    except OSError as e:
+        if tmp is not None and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        if e.errno in (errno.EPERM, errno.EACCES, errno.EROFS):  # named by the file meant, never by el's temp file
+            raise store.denied(path, e) from None  # (the second hand, 2026-11-08: «not refreshed — .AGENTS.md.k3x9.tmp»)
+        raise
 
 
 def _replace(f: Found):
@@ -178,6 +193,8 @@ def refresh(project: Path) -> List[str]:
                             f"only the lines between the marks")
     except OSError as e:
         said.append(f"onboarding not refreshed — {e}")
+    except store.StoreError:  # a denied write (store.denied): the entry says it once, with the file meant
+        pass
     return said
 
 

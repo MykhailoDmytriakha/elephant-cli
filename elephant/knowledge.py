@@ -1168,7 +1168,10 @@ A refusal reads from both ends: its first line is what is wrong (`el: ERROR [exi
     "outside Elephant's grammar and was never stamped" = a legacy file → `el migrate` (see `el help migrate`).
 4 — precondition not met: no .cases/ from here upwards · every case closed · a case file missing ·
     a phase not ready to open/close · another el command has held the space past the wait (one writer at a time:
-    run the same command again). The message names the check and a recovery command.
+    run the same command again) · the system lets nothing be written here (a read-only sandbox): `cannot write <file>`,
+    nothing was written. The message names the check and a recovery command.
+A look needs no write: where nothing may be written, `el`, `el todo` and `el order` still show the case — drawn now from
+    the files as they are — and say in one line what they could not refresh (`read-only here: not refreshed — README.md`).
 Warnings: a write warns only about what it introduced (an old long line is not your business today); `check` shows
     the soft layer once per rule with the line numbers. `violations: N` is what to read; warnings are the lower layer.
 Diagnostics without any writes: `el doctor`. Facts that save an investigation:
