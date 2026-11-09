@@ -5576,7 +5576,8 @@ def _stalled_lines(todo: grammar.Todo, journal: Optional[grammar.Journal]) -> Li
 LATER_BOUNDARIES = 3  # three closes passed it by: take it or let it go (F24) — shown, never refused
 
 
-def _thread_line(case: Path, todo: grammar.Todo, readme_body: str, order_lines: Optional[List[str]] = None) -> Optional[str]:
+def _thread_line(case: Path, todo: grammar.Todo, readme_body: str, order_lines: Optional[List[str]] = None,
+                 journal: Optional[grammar.Journal] = None) -> Optional[str]:
     """`thread: goal «…» → phase N Name «goal» → item N.M «…» (why: …) → next: «…»` — the first line of the entry (the
     owner's word, 2026-09-25: an agent with no memory reads everything and must see what is subordinate to what — the big
     goal, the stage, where it stands, what it works on, and that its result moves the goal). Rendered from the case,
@@ -5647,13 +5648,32 @@ def _thread_line(case: Path, todo: grammar.Todo, readme_body: str, order_lines: 
             parts.append(_waiting_step(phase, open_items, blocked))
         else:
             parts.append(f"no items: el todo add {phase.n} \"…\"")
+    m = re.search(r"^- next: (.+)$", readme_body, re.M)
+    behind = _next_behind(readme_body, journal) if m else None
+    if behind:  # the Order line «State is behind» is about this very line: said beside it, not as a step of its own
+        order_lines = [ln for ln in (order_lines or []) if not ln.startswith("State is behind:")]
     if order_lines:
         more = f" (+{len(order_lines) - 1} more)" if len(order_lines) > 1 else ""
         parts.append(f"first: Order «{order._short(order_lines[0], 70)}»{more}")
-    m = re.search(r"^- next: (.+)$", readme_body, re.M)
     if m:
-        parts.append(f"next: «{order._short(m.group(1).strip(), 70)}»")
+        words = f"«{order._short(m.group(1).strip(), 70)}»"
+        parts.append(f"next, written before {behind}: {words} — still the step? el readme set next \"…\" "
+                     f"· still true as it stands: el readme touch" if behind else f"next: {words}")
     return "thread: " + " → ".join(parts) if parts else None
+
+
+def _next_behind(readme_body: str, journal: Optional[grammar.Journal]) -> Optional[str]:
+    """What landed after the State was last confirmed, said beside `next:` (the radio with Codex, #178, 2026-11-09: the
+    recitation ended with a `next:` written before 16 RESULTs — a step done four hours ago — while Order said «State is
+    behind» as a step of its own, cut before its door; the agent took the last step of the thread). `next:` is the
+    agent's words: el does not judge whether they are still the step, it says how old they are and the door."""
+    key = order.anchor(readme_body)
+    if journal is None or key is None:
+        return None
+    _, r, p, s = order.stale(journal, key)
+    what = [x for x in (f"{r} RESULT" if r else "", f"{p} PHASE" if p else "",
+                        f"{s} accepted, sent back or cancelled" if s else "") if x]
+    return f"{', '.join(what)} (as of {key[0]} {key[1]})" if what else None
 
 
 def _waiting_step(phase: grammar.Phase, open_items: List[grammar.Item], blocked: Dict[str, List[Tuple[str, str]]]) -> str:
@@ -7458,7 +7478,7 @@ def recitation(root: Path, case: Path, calls: int, last_done: int) -> List[str]:
         todo = grammar.parse_todo(stamp.split(store.read(case, "TODO.md"))[0])
         journal = grammar.parse_journal(store.read(case, "JOURNAL.md"))
         issues = _order_lines(case, root, readme_body, journal, scoped=True)
-        thread = _thread_line(case, todo, readme_body, issues) if not todo.errors else None
+        thread = _thread_line(case, todo, readme_body, issues, journal) if not todo.errors else None
     except StoreError:
         return []
     lines = [f"recite (every {RECITE_EVERY} el calls): {thread}" if thread else f"recite (every {RECITE_EVERY} el calls):"]
@@ -9071,7 +9091,7 @@ def _entry_head(case: Path, root: Path, readme_body: str, todo: grammar.Todo, jo
     (the polygon, 2026-10-07: fresh sessions came in through `el readme`, saw the README alone and missed the line that
     told them they were the second hand). Read-only."""
     out = Outcome()
-    thread = _thread_line(case, todo, readme_body, issues) if not todo.errors else None
+    thread = _thread_line(case, todo, readme_body, issues, journal) if not todo.errors else None
     if thread:
         out.say(thread, "")  # what is subordinate to what — the goal, the phase, the item and why, the next step (F24)
     if todo.errors:  # silence is not «nothing due»: what could not be counted says so (feedback 2026-09-22)

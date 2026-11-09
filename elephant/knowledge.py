@@ -134,7 +134,9 @@ check · a second copy of the stamp.""",
   closed; from any state, cancelled with a reason. Three roles: the owner sets the direction and agrees the scope,
   the agent decomposes and delivers, el keeps the order — and what one hand did, a fresh session accepts. The entry
   opens with `thread:` — goal → phase → item (why) → first: the Order debt it has not named → next: what is
-  subordinate to what, and one direction: a debt below is a step of the thread, not a second voice.""",
+  subordinate to what, and one direction: a debt below is a step of the thread, not a second voice. A `next:` written
+  before work that landed since carries its age beside it — «next, written before 16 RESULT (as of …)» — and the door:
+  your words, el does not judge them; it says how old they are.""",
 
     "start": """a day with el
 1. `el` (or `el status`) — prints the case in hand, what to do now first: `thread:`, the counts (`dates:`,
@@ -297,7 +299,7 @@ screen the path, the owner line and a counted progress answered the owner's ques
   (an item accepted, sent back, cancelled). Read State: something changed → `el readme set next "…"`; still true as it
   stands → `el readme touch` (moves the anchor only). Only these two read State whole and put `as of` on the newest
   journal entry; another State line set (`owner`, your own prefixes) is that line, and the anchor stays. el cannot
-  tell truth, only freshness.
+  tell truth, only freshness — the thread and the recitation say it beside `next:`, the line it is about.
 - `el readme --file README.md` rewrites the whole file — rare; el re-renders what it owns.
   Bare `el readme` (nothing piped) prints the entry's head — thread, counts, Order, hint — then the README and these
   doors; it writes nothing. A stdin left open and empty is not a write: after half a second it is a question.
