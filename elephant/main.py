@@ -318,7 +318,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("log", help="add a journal event: PHASE · DECISION · PROBLEM · RESULT", allow_abbrev=False)
     s.add_argument("type")
     s.add_argument("text")
-    s.add_argument("--phase", help="p1, 1 or a unique phase name (default: the open phase); e.g. `el log --phase p1 DECISION \"…\"`")
+    s.add_argument("--phase", help="p1, 1, an item number like 3.2 or 3.2.1 (its phase) or a unique phase name (default: the open phase); e.g. `el log --phase p1 DECISION \"…\"`")
     s.add_argument("--corrects", metavar="WORDS", help="DECISION only: words of an earlier decision this one corrects — README "
                                                        "then shows the correction, the journal keeps both (F8)")
 

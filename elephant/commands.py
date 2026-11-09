@@ -1278,19 +1278,47 @@ def _rewrap_events(text: str) -> str:
     return "\n".join(out)
 
 
-def _resolve_phase(todo: grammar.Todo, ref: str) -> str:
-    """Accept what the user sees — `p1`, `1`, `4.1` or a unique phase name — and return canonical `pN`."""
+PHASES_NAMED = 5  # a refusal names this many phases near the one asked, never the whole list (Codex #139: 356 of them)
+
+
+def _resolve_phase(todo: grammar.Todo, ref: str, out: Optional[Outcome] = None, case: Optional[Path] = None) -> str:
+    """Accept what the user sees — `p1`, `1`, an item `356.3` or a sub-item `356.3.2` (the phase it belongs to: phase
+    numbers are whole), or a unique phase name — and return canonical `pN` of a phase that exists (`p0` — the case
+    itself). An item number once made a tag `p356.3` no phase ever counts, `002` a tag `p002`, `999` a tag of no phase;
+    a sub-item number met a refusal listing every phase of a long case (Codex #139 and its acceptance, 2026-11-08)."""
     ref = ref.strip()
-    if re.fullmatch(r"p\d+(\.\d+)?", ref):
-        return ref
-    if re.fullmatch(r"\d+(\.\d+)?", ref):
-        return f"p{ref}"
+    m = re.fullmatch(r"p?(\d+)((?:\.\d+){1,2})?", ref)
+    if m:
+        n = int(m.group(1))
+        if (n or m.group(2)) and not any(p.n == n for p in todo.phases):  # an item of phase 0 needs a phase 0 (a real
+            # phase, batch 24); a bare `0` is the case itself and stays
+            raise StoreError(f"--phase {ref}: there is no phase {n}{' for that item' if m.group(2) else ''} — "
+                             f"{_phases_near(todo, n, case)} · a phase to come: el phase plan {n} \"Name\" --goal \"…\"", 2)
+        if m.group(2) and out is not None:
+            out.say(f"filed under p{n}: {ref.lstrip('p')} is an item of phase {n} — --phase takes the phase")
+        return f"p{n}"
     named = [p for p in todo.phases if p.name.lower() == ref.lower()]
     if len(named) == 1:
         return f"p{named[0].n}"
-    known = " · ".join(f"p{p.n} {p.name}" for p in sorted(todo.phases, key=lambda x: x.n)) or "none yet"
-    raise StoreError(f"cannot resolve phase `{ref}` — use the canonical form, e.g. `el log --phase p1 DECISION \"…\"`; "
-                     f"phases here: {known}", 2)
+    flying = _flying(case, todo) if case is not None else None
+    real = flying or (max(todo.phases, key=lambda x: x.n) if todo.phases else None)  # an example that runs as printed
+    raise StoreError(f"cannot resolve phase `{ref}` — --phase takes a phase number or its name, e.g. "
+                     f"`el log --phase p{real.n if real else 0} DECISION \"…\"`; {_phases_near(todo, None, case)}", 2)
+
+
+def _phases_near(todo: grammar.Todo, n: Optional[int], case: Optional[Path] = None) -> str:
+    """A few phases to choose from — the one in flight first, then those nearest the number asked — and the door to the
+    rest: never the whole list of a long case."""
+    ordered = sorted(todo.phases, key=lambda x: x.n)
+    if not ordered:
+        return "no phases yet"
+    current = _flying(case, todo) if case is not None else None
+    near = sorted(ordered, key=lambda p: (abs(p.n - n), p.n)) if n is not None else ordered[::-1]
+    rest = sorted([p for p in near if p is not current][:PHASES_NAMED - (1 if current is not None else 0)], key=lambda x: x.n)
+    shown = ([current] if current is not None else []) + rest
+    more = len(ordered) - len(shown)
+    return ("phases: " + " · ".join(f"p{p.n} {p.name}" + (" (in flight)" if p is current else "") for p in shown)
+            + (f" (+{more} more — the plan: el todo)" if more > 0 else ""))
 
 
 ITEM_REF_RE = re.compile(r"(?<![\d.])(\d+)\.(\d+)(?:\.(\d+))?(?![\d.]*\d)")  # N.M or N.M.K (F25), not a version 1.20.0.1
@@ -1421,7 +1449,8 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: s
     elif split:
         out.warn(f"logged — longer than {grammar.EVENT_CHARS} chars, split into a headline + {len(event_lines) - 1} body line(s) (F7)")
     todo = _todo(case, out)
-    phase = _resolve_phase(todo, phase) if phase else _phase_by_refs(todo, text, out, case)
+    # an explicit `--phase ""` is a phase asked for and not named — refused, never the default (the second hand, round 3)
+    phase = _resolve_phase(todo, phase, out, case) if phase is not None else _phase_by_refs(todo, text, out, case)
     date, time = _now()
     if migrate.legacy_reason(case, "JOURNAL.md"):
         raise _unparsable(case, "JOURNAL.md")
