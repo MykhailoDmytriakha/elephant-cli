@@ -660,8 +660,64 @@ def _piped_text() -> str:
     return sys.stdin.read() if ready else ""
 
 
+class _Outlet:
+    """A standard stream whose reader may leave early — `el | head -60`, `grep -q`: the ordinary way agents read el.
+    What is not read is dropped: no traceback, and never a rollback — the receipt is not the record, and a closed
+    pipe used to undo a write while the pipeline answered with the reader's exit 0 (the radio with Codex, #209,
+    2026-11-10). The command's work and its exit code stay its own."""
+
+    def __init__(self, stream):
+        self._stream = stream
+        self.gone = stream is None  # a stream closed before el started (`1>&-`): Python gives None, and argparse
+        # of 3.9 wrote `--help` into it — exit 1 instead of 0 (the second hand, 2026-11-10)
+
+    def _left(self):
+        self.gone = True
+        try:  # what the stream still holds goes nowhere at exit, not into a second BrokenPipeError there
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            try:
+                os.dup2(devnull, self._stream.fileno())
+            finally:
+                os.close(devnull)
+        except (OSError, ValueError, AttributeError):  # not a file (a test's stream): nothing is held at exit
+            pass
+
+    def write(self, text):
+        if self.gone:
+            return len(text)
+        try:
+            return self._stream.write(text)
+        except BrokenPipeError:
+            self._left()
+            return len(text)
+
+    def flush(self):
+        if self.gone:
+            return
+        try:
+            self._stream.flush()
+        except BrokenPipeError:
+            self._left()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
 def run(argv=None) -> int:
-    """One command, one change: what a refused or crashed command touched is put back (store.begin/rollback)."""
+    """One command, one change: what a refused or crashed command touched is put back (store.begin/rollback) — and
+    what it printed goes out through outlets, so a reader that left never turns a done command into a crashed one."""
+    streams = sys.stdout, sys.stderr
+    outlets = [_Outlet(s) for s in streams]
+    sys.stdout, sys.stderr = outlets
+    try:
+        return _run_once(argv)
+    finally:
+        for s in outlets:
+            s.flush()  # the last bytes leave now, under the guard — not at exit, where a closed pipe is a traceback
+        sys.stdout, sys.stderr = streams
+
+
+def _run_once(argv=None) -> int:
     commands._FINGERPRINTS.clear()  # a file is hashed once per command, never trusted from an earlier one
     store.begin()
     try:
