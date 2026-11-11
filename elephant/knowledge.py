@@ -368,7 +368,9 @@ PROBLEM (problem → root cause → fix) · RESULT (measurement, number, verdict
   is over (a probe, a status call)? `--check '<command>'` — the next agent comes without memory and tests the wall
   instead of guessing; el never runs it, the thread names it; a hold again keeps it, `--check none` takes it away.
   A wait on an item of this case is
-  `el todo after N.M "N.K"` instead — el lifts it by itself when N.K is done.
+  `el todo after N.M "N.K"` instead — el lifts it by itself when N.K is done. A wait that leaves the phase nothing
+  else to do — a check that comes later — is the inspector rule (`el help phases`): an item of the phase where it
+  happens, and this phase closes on what it proved.
 - a tick taken back: `el todo reopen N.M "why the result no longer holds"` — the item is open
   again (the phase cannot close over it, its dependents are blocked again), the journal gets a
   DECISION and the old RESULT stays as history. `resume` only lifts a hold.
@@ -556,6 +558,15 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   stands `[~]` with `hold: every item done — waits for its second hand, then its close`, a DECISION in its story says what is due, and
   nothing resumes it into flight. The acceptance counts as before; when its last item is accepted, `accept` names the
   close: `el phase close P "…"`. An item still open holds the pipeline as always; one hand: an ended phase is closed.
+- the inspector rule (the owner's word, 2026-11-09: «like building a house: we built what we could; the inspector
+  came and said do this and this; a crew was sent, finished it, and we moved on»): a phase promises what it can prove
+  now and closes on it. A check that comes later — on deploy, in someone else's acceptance, when a bug may repeat — is
+  not a wait of this phase: it is an item of the phase where it happens (`el todo move 1.4 5`; `el todo after 5.1 "1.2"`
+  points back at the work it checks). One someone else makes, or a repeat that may come, returns as a new phase when it
+  comes — the waiting item ends `el todo cancel 1.4 "the acceptance in main checks it; a return comes as a new phase"`.
+  What the inspector finds is new work where it is found; the closed phase keeps what it proved. No state «waits»:
+  where a phase is left with nothing but waiting — a hold, a pause with `--why`, the return from a detour, the close,
+  an `after` into a phase that has not run — el names these doors.
 - out of turn: work parked under a planned phase that cannot open yet (another phase running, or a planned phase below
   it that would need `--why`) may end before its turn (it ran alongside) — `done` lets it in. A planned phase with no
   unfinished phase before it (planned below the one in flight) closes through a detour: `el phase open N --why "…"`,
@@ -1085,7 +1096,9 @@ every boundary is a moment of return, and a counter names what the boundaries ke
   `  - [ ] L3 cache warm-up on deploy — since: 2026-09-25`, pockets under it like an item; the number is for life.
 - at the boundary `el phase close N "…"` prints the list; each line gets a decision — into a phase: `el todo move L3 5`
   (it becomes 5.k; the phase may be planned or open) · not needed: `el todo cancel L3 "why"` (several: `el todo cancel L3, L5 "why"` — a list, not a range) · kept: nothing to do,
-  it counts the boundaries. A line three closes passed by → an Order line asking by name.
+  it counts the boundaries. A line three closes passed by → an Order line asking by name. A line that is a check made
+  elsewhere, or a repeat that may come, is not kept waiting: what it finds returns as a new phase when it comes — cancel
+  it with that reason (the inspector rule, `el help phases`).
 - the other way: an open item not for this phase → `el todo move 4.7 later` (with its pockets; a date or a dependency
   stays behind — they belong to an item of a phase); a done item stays where it was done.
 - a Later line takes words and pockets only (edit · why · note · cancel · drop · show); done, dates, dependencies and

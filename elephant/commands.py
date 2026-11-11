@@ -129,6 +129,9 @@ def _say_resumed(case: Path, todo: grammar.Todo, back: List[grammar.Phase], n: i
             continue
         nxt = next((it for it in p.items if not it.done and not it.held), None)
         out.say(Stored(f"phase {p.n} {p.name} resumed — the detour {n} is over" + (f"; next: {nxt.ref} {nxt.text}" if nxt else "")))
+        line = _inspector_line(case, todo, p)
+        if line:  # back in flight with nothing to do: the next pause would be the same wait again
+            out.say(Stored(line))
 
 
 # ---- TODO rendering (machine-owned text) ---------------------------------------------------------
@@ -2810,6 +2813,13 @@ def todo_after(case: Path, ref: str, refs: str) -> Outcome:
     _set_after(case, todo, item, [x.strip() for x in refs.split(",") if x.strip()])
     out.absorb(_write_todo(case, todo))
     out.say(f"after: {ref} waits for {', '.join(item.after)} → TODO.md")
+    later = [r for r in item.after if phase.n and re.fullmatch(r"\d+\.\d+(?:\.\d+)?", r)
+             and _runs_later(case, todo, phase, int(r.split(".")[0]))]
+    if later:  # the owner's word, 2026-11-09: a check that comes later is an item of its phase, not a wait of this one
+        q = int(later[0].split(".")[0])
+        out.say(f"{later[0]} is in phase {q}, which has not run — {ref} cannot end before it, and phase {phase.n} cannot close "
+                f"over it. The inspector rule: a check that comes later is an item of the phase where it happens — "
+                f"el todo move {ref} {q} (its after stays), then phase {phase.n} closes on what it proved (el help phases)")
     return out
 
 
@@ -4422,6 +4432,9 @@ def todo_hold(case: Path, ref: str, reason: str, check: Optional[str] = None) ->
     test = (f"; is it over? «{item.hold_check}» — el never runs it, you do" if item.hold_check
             else f"; a command that tells it is over: el todo hold {ref} \"…\" --check '…'")
     out.say(f"on hold: {ref} — «{reason}»{test}; the entry's thread names the wait; it came → el todo resume {ref}")
+    line = None if item.k else _inspector_line(case, todo, phase)
+    if line:  # the whole phase now only waits: the hold is legal, and so is closing on what it proved
+        out.say(line)
     return out
 
 
@@ -5645,7 +5658,7 @@ def _thread_line(case: Path, todo: grammar.Todo, readme_body: str, order_lines: 
                          else f"every item ended: el phase close {phase.n} \"…\"")
             order_lines = [ln for ln in (order_lines or []) if not ln.startswith(f"phase {phase.n} ")]  # named just now
         elif open_items:
-            parts.append(_waiting_step(phase, open_items, blocked))
+            parts.append(_waiting_step(phase, open_items, blocked, case, todo))
         else:
             parts.append(f"no items: el todo add {phase.n} \"…\"")
     m = re.search(r"^- next: (.+)$", readme_body, re.M)
@@ -5676,19 +5689,92 @@ def _next_behind(readme_body: str, journal: Optional[grammar.Journal]) -> Option
     return f"{', '.join(what)} (as of {key[0]} {key[1]})" if what else None
 
 
-def _waiting_step(phase: grammar.Phase, open_items: List[grammar.Item], blocked: Dict[str, List[Tuple[str, str]]]) -> str:
+def _waits_only(case: Path, todo: grammar.Todo, p: grammar.Phase,
+                blocking: Optional[Dict[str, List[Tuple[str, str]]]] = None) -> Optional[List[grammar.Item]]:
+    """The open items of phase P when each of them only waits — held, or after something not done — so nothing in P can
+    be worked now; [] when every item ended; None when something can be taken (or P is closed or empty)."""
+    if p.done or not p.items:
+        return None
+    left = [it for it in p.items if not it.done]
+    if not left:
+        return []
+    blocking = _blocking(case, todo) if blocking is None else blocking
+    return left if all(it.held or f"{it.ref}" in blocking for it in left) else None
+
+
+def _runs_later(case: Path, todo: grammar.Todo, p: grammar.Phase, n: int) -> bool:
+    """Phase N has not run and comes after P: planned (no file yet), and P is open or N comes after it in order."""
+    q = todo.phase(n)
+    return (q is not None and not q.done and q.n != p.n and not _phase_file(case, q.n, q.name).exists()
+            and (_phase_file(case, p.n, p.name).exists() or q.n > p.n))
+
+
+def _inspector_doors(case: Path, todo: grammar.Todo, p: grammar.Phase, it: grammar.Item, short: bool = False) -> str:
+    """The inspector rule (the owner's word, 2026-11-09: «like building a house: we built what we could; the inspector
+    came and said do this and this; a crew was sent, finished it, and we moved on»): a phase promises what it can prove
+    now and closes on it. A check that comes later is not a wait of this phase — it is an item of the phase where it
+    happens; one someone else makes, or a repeat that may come, returns as a new phase when it comes. No new state:
+    move, cancel and close are the doors (a Codex long case, 2026-11-09: 20 phases paused, 11 with every item done and
+    accepted, waiting for an acceptance elsewhere; one paused 29 times in a day for a repeat that may come)."""
+    ref = f"{it.ref}"
+    planned = sorted(q.n for q in todo.phases if _runs_later(case, todo, p, q.n))
+    target = next((int(r.split(".")[0]) for r in it.after
+                   if re.fullmatch(r"\d+\.\d+(?:\.\d+)?", r) and int(r.split(".")[0]) in planned), None)
+    move = (f"el todo move {ref} {target}" if target is not None
+            else f"el todo move {ref} <phase> (planned: {', '.join(map(str, planned[:4]))}{' …' if len(planned) > 4 else ''})"
+            if planned else "")
+    cancel = f"el todo cancel {ref} \"…\""
+    if short:
+        return " · ".join(x for x in (move, cancel) if x)
+    if not move:
+        return f"a check someone else makes, or a repeat that may come, returns as a new phase when it comes: {cancel}"
+    return (f"a check that comes later is an item of the phase where it happens: {move} · one someone else makes, or a "
+            f"repeat that may come, returns as a new phase when it comes: {cancel}")
+
+
+def _inspector_line(case: Path, todo: grammar.Todo, p: grammar.Phase, journal: Optional[grammar.Journal] = None,
+                    blocking: Optional[Dict[str, List[Tuple[str, str]]]] = None) -> Optional[str]:
+    """Said where a phase is left with nothing but waiting — a pause, a hold, a return from a detour: the way to close
+    on what it proved. None when something in it can be worked, or its acceptance is due (that wait has its own line)."""
+    waiting = _waits_only(case, todo, p, blocking)
+    if waiting is None or _hand_due(p, _case_two_hands(case)):
+        return None
+    if not waiting:
+        close = _close_command(case, p, journal if journal is not None else _journal(case))
+        return (f"the inspector rule: every item of phase {p.n} ended — a check that comes later is not a wait of this "
+                f"phase; close it on what it proved: {close} — what a later check finds returns as a new phase (el help phases)")
+    more = f" +{len(waiting) - 1} more" if len(waiting) > 1 else ""
+    return (f"the inspector rule: phase {p.n} has nothing left but waiting ({waiting[0].ref}{more}) — it closes on what it "
+            f"proved: {_inspector_doors(case, todo, p, waiting[0])} (el help phases)")
+
+
+def _waiting_step(phase: grammar.Phase, open_items: List[grammar.Item], blocked: Dict[str, List[Tuple[str, str]]],
+                  case: Optional[Path] = None, todo: Optional[grammar.Todo] = None) -> str:
     """The thread's step when no open item can be taken: WHAT the phase waits for, with the move that ends the wait
     (feedback 2026-09-30: an item waiting for another team's ticket was left `[ ]`, reading «do me now», because the
-    thread said «held or blocked: see unblocked:» — and `unblocked:` never lists either, so the pointer led nowhere)."""
+    thread said «held or blocked: see unblocked:» — and `unblocked:` never lists either, so the pointer led nowhere).
+    Given the case (items of the phase, not sub-items), the step also names the inspector rule: a phase left with
+    nothing but waiting closes on what it proved (the owner's word, 2026-11-09) — and an item after an item of a phase
+    that has not run is not told «finish that first»: that work comes later by its nature."""
+    inspector = case is not None and todo is not None
     held = [it for it in open_items if it.held]
     if held:
         it = held[0]
         more = f" (+{len(held) - 1} more held)" if len(held) > 1 else ""
         why = f" «{order._short(it.hold_reason, 60)}»" if it.hold_reason else ""
         check = f" — is it over? «{it.hold_check}»" if it.hold_check else ""  # the agent's words: it runs them, el never (L4)
-        return f"waiting: {it.ref}{why}{more}{check} — it came: el todo resume {it.ref}"
+        tail = (f" · or close on what it proved: {_inspector_doors(case, todo, phase, it, short=True)} (the inspector rule "
+                f"— el help phases)" if inspector else "")
+        return f"waiting: {it.ref}{why}{more}{check} — it came: el todo resume {it.ref}{tail}"
     ref = next(f"{it.ref}" for it in open_items if f"{it.ref}" in blocked)
     on = ", ".join(r + ("" if st == "open" else f" ({st})") for r, st in blocked[ref])
+    later = sorted({int(r.split(".")[0]) for r, st in blocked[ref] if st == "open" and re.fullmatch(r"\d+\.\d+(?:\.\d+)?", r)
+                    and inspector and _runs_later(case, todo, phase, int(r.split(".")[0]))})
+    if later:
+        it = next(x for x in open_items if f"{x.ref}" == ref)
+        return (f"blocked: {ref} after {on} — phase {', '.join(map(str, later))} has not run, it comes later: "
+                f"{_inspector_doors(case, todo, phase, it, short=True)} (the inspector rule — el help phases) "
+                f"· or rewire: el todo after {ref} none")
     return f"blocked: {ref} after {on} — finish that first, or rewire: el todo after {ref} none"
 
 
@@ -5704,7 +5790,8 @@ def _later_lines(todo: grammar.Todo, journal: Optional[grammar.Journal]) -> List
         k = sum(1 for d in closes if it.since and d > it.since)
         if k >= LATER_BOUNDARIES:
             lines.append(f"L{it.m} «{order._short(it.text, 50)}» lay through {k} phase closes — take it into a phase: el todo move L{it.m} N "
-                         f"· or cancel it with the reason: el todo cancel L{it.m} \"why\"")
+                         f"· or cancel it with the reason: el todo cancel L{it.m} \"why\" — a check made elsewhere, or a repeat "
+                         f"that may come, returns as a new phase when it comes (the inspector rule — el help later)")
     return lines
 
 
@@ -6520,6 +6607,9 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
     if pausing is not None:
         out.say(f"phase {pausing.n} {pausing.name} paused: [~] hold — waiting for phase {n} {name}; it resumes by itself when {n} "
                 f"closes or is cancelled (F26) · its items stay as they are, work in it stays legal")
+        line = _inspector_line(case, todo, pausing)
+        if line:  # nothing in it to resume (a Codex long case: paused for every next bug, 29 times a day)
+            out.say(line)
     if waiting is not None:
         out.say(f"phase {waiting.n} {waiting.name}: every item done, {len(due)} not accepted — [~] waits for the second hand, not "
                 f"a pause: nothing in it to resume · the second hand: el todo brief {due[0].ref} · once accepted, close it: "
@@ -6670,9 +6760,11 @@ def phase_close(case: Path, n: int, summary: str, reflect: Optional[str] = None,
                                f"correct the promise: {where}")
     if open_items:  # F20: a phase closes only when every item ended — done with evidence, or cancelled with a reason
         fork = next((r for r in open_items if r in forks_left), None)
+        waits = None if rest_items else _inspector_line(case, todo, phase, journal)  # nothing left but waiting (2026-11-09)
         missing.append(f"phase {n}: open items {', '.join(open_items)} — each must end one of two ways: "
                        f"el todo done N.M <kind> \"what came out\" · el todo cancel N.M \"why\" (or cancel the phase: el phase cancel {n} \"why\")"
-                       + (f" · {fork} is the other side of the fork {forks_left[fork]}: el todo cancel {fork} \"why\"" if fork else ""))
+                       + (f" · {fork} is the other side of the fork {forks_left[fork]}: el todo cancel {fork} \"why\"" if fork else "")
+                       + (f" · {waits}" if waits else ""))
     unaccepted = [f"{it.ref}" for it in grammar.flat(phase.items) if it.done and not it.accepted]
     if unaccepted and _two_hands(_readme_text(case)):  # F23: this case asked for two hands — the close waits for the second
         owed = [it for it in grammar.flat(phase.items) if it.done and not it.accepted]
