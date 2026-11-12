@@ -376,6 +376,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("old", help="the path the links still name (docs/x.md) — must not exist any more")
     s.add_argument("new", help="where the file is now (docs/notes/x.md) — must exist; or `none` (gone for good / an example)")
 
+    s = sub.add_parser("someday", help="the ideas closed cases did not get to, a file each in .someday/ beside .howto/; "
+                                       "`el someday gather` files those an older el left in closed cases", allow_abbrev=False)
+    s.add_argument("action", nargs="?", help="gather — file the open Later lines of closed cases into .someday/, once each")
+
     s = sub.add_parser("spawn", help="open a nested case inside the case in hand (P11)", allow_abbrev=False)
     s.add_argument("name")
     s.add_argument("--goal", required=True)
@@ -995,6 +999,8 @@ def _run(argv=None) -> int:
                 if not args.name:
                     raise StoreError("usage: el case use <name or unique suffix>", 2)
                 out = commands.case_use(root, args.name)
+        elif args.cmd == "someday":  # the space's store of ideas, beside .howto/ (the owner's word, 2026-11-12)
+            out = commands.someday(root, args.action)
         elif args.cmd == "check":
             if args.all:
                 only = None

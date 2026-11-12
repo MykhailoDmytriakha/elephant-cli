@@ -8200,6 +8200,183 @@ def _case_problems_unanswered(journal: grammar.Journal) -> List[grammar.Event]:
     return [ev for evs in by_phase.values() for ev in _unanswered_problems(evs)]
 
 
+# ---- .someday: the ideas a case did not get to ------------------------------------------------------------------------
+# The owner's word, 2026-11-12: «not every Later line is done in the case … when a case closes they just go to the store
+# of ideas»; «a sub-case closes — its Later lines go to the case above; that one closes — they go up, to the level where
+# .howto lies … a file per idea: why it came, its context — you read the list of files and you see the ideas»; «on start
+# it walks the old cases and gathers them»; «.someday, beside .howto». Measured the same day: 93 closed cases on disk, 15
+# of them still held open Later lines that `el done` had left `[ ]` — 8 different ideas, nobody to open them again.
+SOMEDAY_DIR = ".someday"
+SOMEDAY_FROM_RE = re.compile(r"(?m)^from: \[([^\]]+)\]\([^)]*\) · (L\d+) ·")
+SOMEDAY_TITLE_RE = re.compile(r"(?m)^# (.*)$")
+
+
+def _someday_dir(root: Path) -> Path:
+    """`.someday/` beside `.howto/` — in the project that holds `.cases/` (`root` is that `.cases/`)."""
+    return root.parent / SOMEDAY_DIR
+
+
+def _case_key(root: Path, case: Path) -> str:
+    """The name an idea's origin carries: the case's path under `.cases/` — nested cases of one name stay apart."""
+    try:
+        return case.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return case.name
+
+
+def _ideas_carried(sd: Path) -> set:
+    """(case, Lk) of every idea already in `.someday/` — what an idea is, whatever its file is called: a repeat of the
+    close or of the gather finds it and writes nothing twice."""
+    keys = set()
+    for f in sorted(sd.glob("*.md")) if sd.is_dir() else []:
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        title = SOMEDAY_TITLE_RE.search(text)  # its words too: a number el once gave twice must not hide a new idea
+        keys.update((c, k, title.group(1).strip() if title else "") for c, k in SOMEDAY_FROM_RE.findall(text))
+    return keys
+
+
+def _idea_title(it: grammar.Item, base: Path, sd: Path) -> str:
+    """The idea's title as its file carries it — its words, links re-based into `.someday/`."""
+    return _rewrite_links(it.text, base, new_base=sd)[0].strip()
+
+
+def _write_idea(sd: Path, it: grammar.Item, key: str, readme: Path) -> Path:
+    """One file per idea: its words as the title, where it came from (a link to the case), since when, why, its notes."""
+    base = (_slug(it.text)[:60].strip("-") or "idea")
+    f, k = sd / f"{base}.md", 2
+    while f.exists():
+        f, k = sd / f"{base}-{k}.md", k + 1
+    rel = Path(os.path.relpath(readme, sd)).as_posix()
+    moved = lambda t: _rewrite_links(t, readme.parent, new_base=sd)[0]  # its links follow it out of the case, re-based —
+    # copied as written they would lead nowhere from .someday/ (a live copy, 2026-11-12: `[concept](../../X.md)`)
+    lines = [f"# {_idea_title(it, readme.parent, sd)}", "", f"from: [{key}]({rel}) · L{it.m} · since {it.since or '?'} · carried {_now()[0]}"]
+    lines += ([f"why: {moved(it.why)}"] if it.why else []) + [f"note: {moved(n)}" for n in it.notes]
+    store.make_dirs(sd)
+    store.write_file(f, "\n".join(lines) + "\n")
+    return f
+
+
+def _carry_later(root: Path, case: Path, out: Outcome) -> None:
+    """At the close, the case's open Later lines go up the tree: a nested case gives them to its parent's general list
+    (where they wait for the parent's boundaries, with where they came from), a top case writes each as a file into
+    `.someday/`. The lines leave the closing case — no `[ ]` stays in a case nobody opens again — and its journal says
+    where each went. Part of the close command: a refused close puts it all back."""
+    todo = _todo(case, out)
+    ideas = [it for it in todo.later if not it.done]
+    if not ideas:
+        return
+    parent = store.parent_case(case, root)
+    went: List[str] = []
+    if parent is not None:
+        for it in ideas:
+            k = _next_later(parent, _todo(parent))
+            origin = f"from [{case.name}]({Path(os.path.relpath(case / 'README.md', parent)).as_posix()}) L{it.m}" \
+                     f" · since {it.since or '?'}"
+            moved = lambda t: _rewrite_links(t, case, new_base=parent)[0]  # a link re-based into the parent's folder
+            _add_later(parent, moved(it.text), None, moved(it.why) if it.why else "", [moved(n) for n in it.notes] + [origin],
+                       "", "")
+            went.append((it, f"{parent.name} L{k}"))
+        out.say(f"carried {len(ideas)} Later line(s) to {parent.name}, its general list: "
+                + ", ".join(w for _, w in went) + " — they wait for its boundaries")
+    else:
+        sd = _someday_dir(root)
+        key, carried = _case_key(root, case), _ideas_carried(sd)
+        files = []
+        for it in ideas:
+            if (key, f"L{it.m}", _idea_title(it, case, sd)) in carried:  # a repeat of a close cut off after the file
+                went.append((it, ".someday/ (there already)"))
+                continue
+            f = _write_idea(sd, it, key, store.file_path(case, "README.md"))
+            files.append(f.name)
+            went.append((it, f".someday/{f.name}"))
+        total = len(list(sd.glob("*.md"))) if sd.is_dir() else 0
+        named = ", ".join(files[:3]) + (f" +{len(files) - 3} more" if len(files) > 3 else "")  # alike: a count, not a wall
+        out.say(f"carried {len(ideas)} Later line(s) to .someday/: {named or 'there already'} — "
+                f"{total} idea(s) there: ls .someday/ · el someday")
+    todo.later = [it for it in todo.later if it not in ideas]
+    out.absorb(_write_todo(case, todo))
+    # the record in the form _next_later reads (`L3 «…»`), so a reopened case never gives a number twice (the second
+    # hand, 2026-11-12: a new idea took L1 again and the close took it for «there already»); the body is bounded — the
+    # first lines and the highest number always (fifteen lines made a DECISION past its limit, the close refused)
+    rows = [order._short(f"L{it.m} «{order._short(it.text, 40)}» → {dest}", 150) for it, dest in went]  # under the wrap
+    top = max(went, key=lambda w: w[0].m)
+    shown = rows if len(rows) <= grammar.EVENT_BODY_LINES else (
+        rows[:grammar.EVENT_BODY_LINES - 1] + [f"… +{len(rows) - grammar.EVENT_BODY_LINES + 1} · "
+                                               f"L{top[0].m} «{order._short(top[0].text, 30)}» → {top[1]}"])
+    log(case, "DECISION", f"на потом: {len(ideas)} идей ушли вверх по дереву, последняя L{top[0].m} "  # the headline is
+        f"«{order._short(top[0].text, 24)}»\n" + "\n".join(shown), "p0")  # what _next_later reads; short — it never spills
+    # into the body (the second hand, round 2: long titles pushed a sixth body line and the close was refused)
+
+
+def _uncarried(root: Path) -> List[Tuple[Path, List[grammar.Item]]]:
+    """Closed cases of the space whose open Later lines are not in `.someday/` — what an older el left `[ ]` at a close.
+    Read without a write: the files are parsed as they lie, never through the stamp door."""
+    carried, found = _ideas_carried(_someday_dir(root)), []
+    for c in store.all_cases(root):
+        try:
+            if order.child_status(c)[0] != "closed":
+                continue
+            body, _ = stamp.split(store.file_path(c, "TODO.md").read_text(encoding="utf-8", errors="replace"))
+            todo = grammar.parse_todo(body)
+        except (OSError, StoreError, ValueError):
+            continue
+        if todo.errors:
+            continue
+        key, sd = _case_key(root, c), _someday_dir(root)
+        left = [it for it in todo.later if not it.done and (key, f"L{it.m}", _idea_title(it, c, sd)) not in carried]
+        if left:
+            found.append((c, left))
+    return found
+
+
+def someday_order_line(root: Path) -> List[str]:
+    """The entry's one line while ideas wait in closed cases: their count and the door that files them — the owner's
+    «on start it walks the old cases and gathers them», said where it is seen, written by the command the agent runs."""
+    try:
+        left = _uncarried(root)
+    except Exception:  # noqa: BLE001 — a line of the entry never breaks the entry
+        return []
+    n = sum(len(its) for _, its in left)
+    return [f"{n} Later line(s) wait in {len(left)} closed case(s) — ideas not in .someday/ yet → el someday gather"] if n else []
+
+
+def someday(root: Path, action: Optional[str] = None) -> Outcome:
+    """`el someday` — the ideas in `.someday/`, a line each; `el someday gather` — the open Later lines of closed cases
+    filed there, once each (the closed cases are not written: the file keeps where the idea came from)."""
+    out = Outcome()
+    sd = _someday_dir(root)
+    if action not in (None, "", "gather"):
+        raise StoreError(f"`{action}` — el someday lists the ideas in .someday/; el someday gather files the ideas of "
+                         f"closed cases there", 2)
+    if action == "gather":
+        left = _uncarried(root)
+        if not left:
+            out.say("nothing to gather: no open Later line waits in a closed case outside .someday/")
+            return out
+        files = [_write_idea(sd, it, _case_key(root, c), store.file_path(c, "README.md")).name for c, its in left for it in its]
+        named = ", ".join(files[:3]) + (f" +{len(files) - 3} more" if len(files) > 3 else "")
+        out.say(f"gathered {len(files)} idea(s) from {len(left)} closed case(s) into .someday/: {named} — "
+                f"the closed cases are not written; each file says where it came from")
+        return out
+    names = sorted(f for f in sd.glob("*.md")) if sd.is_dir() else []
+    if not names:
+        out.say("no ideas in .someday/ yet — a closing case carries its open Later lines there (el help someday)")
+        return out
+    out.say(f".someday/ — {len(names)} idea(s):")
+    for f in names:
+        try:
+            head = next((ln[2:].strip() for ln in f.read_text(encoding="utf-8", errors="replace").splitlines()
+                         if ln.startswith("# ")), "")
+        except OSError:
+            head = ""
+        out.say(f"- {f.name} — {order._short(head, 90)}" if head else f"- {f.name}")
+    out.say("an idea taken into work: el todo add later \"…\" in its case, or a phase; its file stays as the record")
+    return out
+
+
 def done(root: Path, case: Path, summary: str, howto: Optional[str] = None, by: Optional[str] = None) -> Outcome:
     out = Outcome()
     if by is not None and by != "owner":
@@ -8273,6 +8450,7 @@ def done(root: Path, case: Path, summary: str, howto: Optional[str] = None, by: 
         out.lines += log(case, "DECISION", f"howto: {howto_text}", "p0").lines  # the case's, not a phase's
     date, _ = _now()
     tally = _case_tally(case, todo, out)
+    _carry_later(root, case, out)  # the ideas it did not get to go up the tree — at the close itself, not at ready
     # the case's own line carries how its work was accepted; the parent draws its line about the child from it
     closed, shown = _closed_line(f"{date} · {summary}" + (f" · acceptance: {tally}" if tally else "")
                                  + (f" · closed by the owner: «{owner_words}»" if owner_words else ""))
@@ -9270,6 +9448,7 @@ def _order_lines(case: Path, root: Path, readme_body: str, journal: Optional[gra
         pass
     lines.extend(onboarding.order_lines(_project_root(case)))  # S6: a block el cannot keep current (edited or pasted by hand)
     lines.extend(order.people_lines(root))  # L10: a card every case reads before calling that person
+    lines.extend(someday_order_line(root))  # ideas an older el left in closed cases (the owner's word, 2026-11-12)
     lines.extend(order.shared_links_lines(case, root, readme_body))  # the same description in two cases → one card
     legacy = store.legacy_files(case)
     if legacy:

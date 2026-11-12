@@ -1109,7 +1109,25 @@ every boundary is a moment of return, and a counter names what the boundaries ke
 - the order of phases is decided at the boundary too: a hidden blocker makes a planned phase come first —
   `el phase open 5 --why "the pipeline blocks the migration"`: the planned ones below stay planned, a DECISION says
   why, one phase in flight still. A dead end → close early by the owner's word: `el phase close 4 "…" --rest later`
-  — the open items go to the general list, nothing is lost.""",
+  — the open items go to the general list, nothing is lost.
+- the last boundary is the case's close: its open Later lines go up the tree by themselves — a nested case gives them
+  to its parent's general list, a top case files each as an idea in `.someday/` beside `.howto/` (`el help someday`).""",
+
+    "someday": """someday — the ideas a closed case did not get to (the owner's word, 2026-11-12)
+Not every Later line is done in its case. When the case closes, its open Later lines go up the tree by themselves, as
+everything in el rises from below: a nested case gives them to its parent's general list (each with where it came
+from), a top case files each as one idea in `.someday/` — beside `.howto/`, in the project's root. The close says so in
+one line: how many went, how many ideas wait there. Nothing else reminds: the close is the moment.
+- a file per idea, named by its words: `.someday/warm-the-cache-on-deploy.md` — the list of names is the overview.
+  Inside: the idea as its title, `from: [case](…/README.md) · L3 · since … · carried …`, then its why and its notes.
+  The case's journal says where each line went; no `[ ]` stays in a case nobody opens again.
+- `el someday` lists the ideas · an idea taken into work: `el todo add later "…"` (or into a phase) in the case that
+  takes it — its file stays as the record of where the thought began.
+- cases closed by an older el still hold their ideas: the entry names them while they wait —
+  «N Later line(s) wait in M closed case(s) → el someday gather». `el someday gather` files each once; the closed
+  cases are not written (an old record is read, never rewritten), and a repeat finds the ideas there already.
+- `.someday/` travels with the project like `.howto/`. The ideas carry the cases' words: a project that keeps `.cases/`
+  out of git keeps `.someday/` out too (its own .gitignore — el does not touch it).""",
 
     "limits": """the numbers (all enforced at write time)
 README: 200 lines / 8 KB of YOUR text → warning · 300 lines / 12 KB → refusal; a POINTER line (Links, State)
