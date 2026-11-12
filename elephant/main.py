@@ -718,7 +718,10 @@ def run(argv=None) -> int:
 
 
 def _run_once(argv=None) -> int:
-    commands._FINGERPRINTS.clear()  # a file is hashed once per command, never trusted from an earlier one
+    if hasattr(sys, "set_int_max_str_digits"):  # a number typed by hand is read whole: Python 3.11+ refuses int() of 4300
+        sys.set_int_max_str_digits(0)  # digits and more, and `el todo done 99…9.1` ended in a traceback (the second
+    commands._FINGERPRINTS.clear()  # hand, round 6, 2026-11-12) — one door for every int() of a typed number, not fifty
+    # a file is hashed once per command, never trusted from an earlier one
     store.begin()
     try:
         code = _run(argv)
@@ -788,6 +791,25 @@ def _habit_forms(parser: argparse.ArgumentParser, argv: List[str]) -> List[str]:
     if sp is not None and m and any(a.dest == "action" and a.choices and m.group(1) in a.choices for a in sp._actions):
         return argv[:i + 1] + [m.group(1), m.group(2)] + rest
     return argv
+
+
+def _wall_case(args, known) -> Optional[Path]:
+    """The case a refusal belongs to, kept with its wall: the one el resolved — else the one the call names or the session
+    holds, read without a write. A refusal raised before the case was resolved (a trace of substitution in the words)
+    was kept without one, and `no item N.M` did not name it (the second hand, round 2, 2026-11-12)."""
+    if isinstance(known, Path):
+        return known
+    if args is None or getattr(args, "cmd", None) in (None, "case", "check", "feedback", "help"):
+        return None
+    after = getattr(args, "case_after", None)
+    if after is not None and getattr(args, "case", None) not in (None, after):
+        return None  # two cases named: el refused to choose, and the wall does not choose either (the second hand, round 4)
+    try:
+        root = store.find_root()
+        name = getattr(args, "case", None) or os.environ.get("EL_CASE")
+        return store.resolve_case(root, name) if name else store.held(root)
+    except Exception:  # noqa: BLE001 — the refusal comes first; a wall without its case is not counted, never raised
+        return None
 
 
 def _run(argv=None) -> int:
@@ -1189,7 +1211,13 @@ def _run(argv=None) -> int:
         lines = _refusal_lines(e, restored)
         called = list(argv) if argv is not None else sys.argv[1:]
         if _invoked(called) != "feedback":  # el keeps its own walls; a report's refusal — parsed or not — is not one
-            seen = store.record_wall(called, e.code, "\n".join(_refusal_lines(e, [])))  # the refusal itself, first line first
+            parsed = locals().get("args")
+            call = ({k: getattr(parsed, k, None) for k in ("cmd", "action", "ref")} if parsed is not None
+                    else {"parsed": "no"})  # a call el could not read: said as such, never guessed (round 3)
+            if call.get("cmd") == "todo" and call.get("action") == "add":  # what the add read — the add's own reader
+                call["target"] = commands.add_target(str(call.get("ref") or ""))
+            seen = store.record_wall(called, e.code, "\n".join(_refusal_lines(e, [])),  # the refusal itself, first line first
+                                     case=_wall_case(parsed, locals().get("case")), call=call)
             if seen.again >= 2:  # el sees it circling (the polygon, 2026-10-07: the same refusal three times, no report)
                 lines = _refusal_lines(e, restored, seen=seen)
         if args is not None and args.cmd in (None, "status") and e.code == 4 and "every case here is closed" in str(e):

@@ -400,7 +400,7 @@ def _locked(fh) -> None:
         pass
 
 
-def record_wall(argv: List[str], code: int, text: str) -> WallCount:
+def record_wall(argv: List[str], code: int, text: str, case: Optional[Path] = None, call: Optional[dict] = None) -> WallCount:
     """Keep one refusal of this session (the polygon, 2026-10-07: thirty-odd walls in nineteen sessions, not one
     `el feedback` — the agents told the owner instead, and el, which printed every refusal, kept none of them).
     Returns how often it came again — this one included — and its kind over the session (WallCount); zeros when no
@@ -413,6 +413,9 @@ def record_wall(argv: List[str], code: int, text: str) -> WallCount:
         lines = (text or "").split("\n")
         rec = {"ts": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "argv": [str(a) for a in argv], "code": code,
                "text": "\n".join(lines[:WALL_TEXT_LINES]), "key": wall_key(text)}
+        if case is not None:  # the case the call was for and what it asked, as el resolved and parsed them — not read back
+            rec["case"] = str(case.resolve())  # from argv later: a suffix, `--case` after the command, `01` (Codex, 2026-11-12)
+        rec.update({k: str(v) for k, v in (call or {}).items() if v is not None})
         f.parent.mkdir(parents=True, exist_ok=True)
         with f.open("a+", encoding="utf-8") as fh:
             _locked(fh)

@@ -435,6 +435,16 @@ def _replace_section(body: str, name: str, new_lines: List[str]) -> str:
     return "\n".join(lines[: start + 1] + new_lines + ([""] if end < len(lines) else []) + lines[end:]) + "\n"
 
 
+def _links_drawn(case: Path, body: str) -> str:
+    """README with its Links section drawn again from the folder — the step of `_derive_readme` that owns which Links
+    lines are el's: one that points at a file no longer there is not drawn. Unparsable input is returned as is."""
+    parsed = grammar.parse_readme(body)
+    if parsed.errors:
+        return body
+    links, _ = order.render_links(case, _is_project(case), [_parent_line(case, ln) for ln in parsed.sections.get("Links", [])])
+    return _replace_section(body, "Links", links)
+
+
 def _derive_readme(case: Path, body: str) -> str:
     """Refresh what el owns inside README: `progress:` (from TODO), `last:` (newest RESULT in the
     journal), and the folder/file lines of Links (from the files' own `summary:` lines, F14).
@@ -550,7 +560,7 @@ def _path_title(case: Path, ref: str, door: str) -> str:
     if not names:
         raise StoreError(f"the README has no path yet — write its first line: el readme add path \"Name — what became "
                          f"true\", then {door} — el help readme", 4)
-    if ref.isdigit() and 1 <= int(ref) <= len(names):
+    if _digits(ref) and 1 <= int(ref) <= len(names):
         return names[int(ref) - 1]
     hit = [s for s in names if s.lower() == ref.lower()]
     if hit:
@@ -1354,14 +1364,33 @@ def _phase_by_refs(todo: grammar.Todo, text: str, out: Outcome, case: Optional[P
     return default
 
 
+def _paused_note(case: Path, todo: grammar.Todo, phase: str, typ: str) -> List[str]:
+    """An event that went into a paused phase while another is in flight says so where it is written (the radio with
+    Codex, #227–#228, 2026-11-12: for two days every event of his — four bugs of other phases and a merge of main among
+    them — went under a phase paused for the next one, by a `--phase` kept from an earlier command; el answered
+    «logged: … · p350» and nothing more, and the owner's TODO did not move). Work in a paused phase stays legal (el help
+    phases) — the line names what stands and the door for the work in flight; one that only waits hears the inspector."""
+    p = todo.phase(int(phase[1:])) if re.fullmatch(r"p\d+", phase) else None
+    if p is None or p.done or not p.held:
+        return []
+    flying = _flying(case, todo)
+    if flying is None or flying.n == p.n:
+        return []
+    state = "waits for its second hand" if _awaits_hand(p) else "is paused"
+    lines = [f"phase {p.n} {p.name} {state} — phase {flying.n} {flying.name} is in flight: this {typ} went into {p.n}'s "
+             f"story, and the journal keeps it there · the work of {flying.n}: el log --phase {flying.n} {typ} \"…\""]
+    rule = _inspector_line(case, todo, p)
+    return lines + ([rule] if rule else [])
+
+
 def _item_beside(case: Path, todo: grammar.Todo, phase: str, text: str) -> Optional[grammar.Item]:
     """The item in hand when a RESULT typed by the agent names no item of its running phase — None when it names one,
     or the phase is not running, or nothing in it is open (feedback 2026-10-02: an agent logged its steps as free
     RESULTs while TODO kept one coarse `[ ]` line — the work went on beside the plan, and nothing above the item moved;
     measured the same day on 19 live cases: 98 of 489 RESULTs were free ones logged before the next item ended)."""
     p = todo.phase(int(phase[1:])) if re.fullmatch(r"p\d+", phase) else None
-    if p is None or p.done or not _phase_file(case, p.n, p.name).exists():
-        return None
+    if p is None or p.done or p.held or not _phase_file(case, p.n, p.name).exists():  # paused: not running — the radio
+        return None  # with Codex, #228: a RESULT filed under a paused phase heard «350.2 ended?» of the item it waits on
     if _named_refs(text, p.items):
         return None
     open_items = [it for it in p.items if not it.done]
@@ -1505,6 +1534,8 @@ def log(case: Path, typ: str, text: str, phase: Optional[str] = None, trailer: s
     report.warnings = [w for w in report.warnings if w.line == 0 or w.line in inserted]
     out.absorb(report)
     out.say(f"logged: {typ} → JOURNAL.md ({header[2:]})")
+    if typed:
+        out.say(*_paused_note(case, todo, phase, typ))
     if typ == "RESULT":  # README `last:` follows the newest RESULT (derived, never hand-written)
         try:
             _write_readme(case, _readme_text(case), out)
@@ -2264,7 +2295,7 @@ def todo_done(case: Path, ref: str, tokens: List[str], outcome: str = "", fact: 
     outcome = " ".join(outcome.split())
     _outcome_warning(outcome, out)
     todo = _todo(case, out)
-    phase, items = _select_items(todo, ref)
+    phase, items = _select_items(todo, ref, case)
     gone = [it for it in items if it.cancelled]
     if gone:  # F25: a cancelled sub-item stays in sight, ended — done on it would be a second end
         raise StoreError(f"{gone[0].ref} is cancelled ({gone[0].cancel_reason}) — the path came back? el todo reopen {gone[0].ref} "
@@ -2667,7 +2698,9 @@ def _set_after(case: Path, todo: grammar.Todo, item: grammar.Item, refs: List[st
             if ref == me:
                 raise StoreError(f"{me} cannot be after itself", 2)
             if ref not in items and not _done_in_closed(case, todo, [ref]):  # done in a closed phase: an input already there
-                raise StoreError(f"no item {ref} to be after — check the number or add it first (el todo add N \"…\")", 4)
+                under = ".".join(ref.split(".")[:-1]) if ref.count(".") == 2 else ref.split(".")[0]  # a sub-item: its item
+                raise StoreError(f"no item {ref} to be after{_no_item_cause(case, under)} — check the number or add it first: "
+                                 f"el todo add {under} \"…\"", 4)  # a door that runs as printed, not `N` (rounds 7, 9)
         elif ref not in kids:
             raise StoreError(f"`{ref}` is neither an item N.M nor a nested case here" + (f" (cases: {', '.join(sorted(kids))})" if kids else ""), 4)
         if ref not in clean:
@@ -2804,7 +2837,7 @@ def todo_after(case: Path, ref: str, refs: str) -> Outcome:
     """Set (or clear with `none`) what item N.M waits for: `el todo after 2.5 "2.3, 1.7, case-name"`."""
     out = Outcome()
     todo = _todo(case, out)
-    phase, item = _find_item(todo, ref)
+    phase, item = _find_item(todo, ref, case)
     if refs.strip().lower() in ("", "none", "-", "clear"):
         item.after = []
         out.absorb(_write_todo(case, todo))
@@ -3526,7 +3559,7 @@ def todo_fact(case: Path, ref: str, text: str) -> Outcome:
     pricing call» — bounded by what was observed). Not every item yields a fact: `-` says none. One per item; the journal keeps the old words."""
     out = Outcome()
     todo = _todo(case, out)
-    phase, item = _find_item(todo, ref)
+    phase, item = _find_item(todo, ref, case)
     text = " ".join(text.split())
     if text == FACT_FROM_RESULT:  # the words of the result are the fact (2026-10-08): the cheapest honest answer at done
         if not item.done or not item.result:
@@ -3655,7 +3688,7 @@ def todo_show(case: Path, ref: str) -> Outcome:
             out.say("", f"the whole phase: el todo show {closed.n} · new work on it is new work: el todo add later "
                         f"\"re-check {ref.strip()}: …\"")
             return out
-    phase, item = _find_item(todo, ref)
+    phase, item = _find_item(todo, ref, case)
     if phase.n == 0:
         out.say(f"general list (Later) · since {item.since or '—'} — the next phase boundary decides: el todo move {ref} N", *_stored(*_later_block(item)))
         return out
@@ -3694,7 +3727,7 @@ def todo_expect(case: Path, ref: str, text: str) -> Outcome:
     record to them — pre-registration, or Lean's type of a theorem. One per item; "" removes it."""
     out = Outcome()
     todo = _todo(case, out)
-    phase, item = _find_item(todo, ref)
+    phase, item = _find_item(todo, ref, case)
     text = " ".join(text.split())
     old = item.expect
     item.expect = _expect_text(text, ref) if text else ""
@@ -3738,16 +3771,17 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why:
     out = Outcome()
     if ref.strip().lower() in LATER_WORDS:
         return _add_later(case, text, before, why, notes, expect, fact)
-    if re.fullmatch(r"\d+\.\d+(?:\.\d+)?", ref.strip()):
+    target = add_target(ref)
+    if target is not None and "." in target:
         return _add_sub(case, ref.strip(), text, before, why, notes, expect, fact)
     if LATER_REF_RE.fullmatch(ref.strip()):
         raise StoreError(f"{ref.strip()} waits in the general list — it holds single thoughts, sub-items live under an item of a phase: "
                          f"el todo move {ref.strip()} N, then el todo add N.M \"…\" (F25)", 4)
-    if not ref.isdigit():
+    if target is None:
         raise StoreError("use `el todo add N \"text\"` — N is the phase number; a sub-item under item N.M: el todo add N.M \"text\"; "
                          "not for this phase: el todo add later \"text\"", 2)
     todo = _todo(case, out)
-    phase = todo.phase(int(ref))
+    phase = todo.phase(int(target))
     if phase is None or phase.done:
         raise StoreError(_no_phase_for_add(todo, int(ref), case), 4)
     text, due, after = _split_suffixes(text)
@@ -3756,14 +3790,18 @@ def todo_add(case: Path, ref: str, text: str, before: Optional[str] = None, why:
         bm = re.fullmatch(r"(\d+)\.(\d+)", before.strip())
         target = next((it for it in phase.items if it.m == int(bm.group(2))), None) if bm and int(bm.group(1)) == phase.n else None
         if target is None:
-            raise StoreError(f"--before {before}: no such item in phase {phase.n} (items: {_number_ranges(phase)}) — "
-                             f"drop --before to add at the end", 4)
+            raise StoreError(f"--before {before}: no such item in phase {phase.n} (items: {_number_ranges(phase)})"
+                             f"{_no_item_cause(case, phase.n)} — drop --before to add at the end", 4)
         at = phase.items.index(target)
     if grammar.visible_len(text) > grammar.TODO_ITEM_CHARS:
         raise StoreError(f"{_too_long('nothing added to phase ' + ref + ': the item text', text, grammar.TODO_ITEM_CHARS, 'F13')}\n"
-                         f"{_split_suggestion(text, 'el todo add ' + ref + ' «head»', '--note «rest»')}\n{REPHRASE_HINT}\n"
-                         f"  (a re-added item takes the next free number at the END of the list — "
-                         f"`el todo add {ref} \"…\" --before {phase.n}.K` puts it in place)", 3)
+                         f"{_split_suggestion(text, 'el todo add ' + ref + ' «head»', '--note «rest»')}\n"
+                         f"  (a re-added item takes the next free number at the END of the list"
+                         + (f" — `el todo add {ref} \"…\" --before {phase.items[-1].ref}` puts it before {phase.items[-1].ref}, "
+                            f"or before any item you name)" if phase.items else ")")  # a real number: printed doors run as
+                         + f"\n{REPHRASE_HINT}", 3)  # printed — `1.K` was refused when typed (the second hand, 2026-11-12)
+        # the limit is the last line, as at every length door (a wall report, 2026-11-11: the aside ended the refusal,
+        # the agent read it by `tail -1`, took the item for added and ticked a number that was never given)
     m = _next_number(case, todo, phase)
     item = grammar.Item(phase.n, m, False, text, 0, due=due)
     with _nothing_added(f"«{order._short(text, 50)}»"):
@@ -3823,7 +3861,7 @@ def _add_sub(case: Path, ref: str, text: str, before: Optional[str], why: str, n
     and its end, shown under the item in the order taken. One level only: deeper is a nested case."""
     out = Outcome()
     todo = _todo(case, out)
-    phase, parent = _find_item(todo, ref)
+    phase, parent = _find_item(todo, ref, case)
     if parent.k:
         raise StoreError(f"{ref} is a sub-item — sub-items stop one level down (F25): a step under it goes beside it "
                          f"(el todo add {parent.n}.{parent.m} \"…\"), work this deep is a nested case (el spawn \"name\" --goal \"…\")", 4)
@@ -3835,7 +3873,8 @@ def _add_sub(case: Path, ref: str, text: str, before: Optional[str], why: str, n
     if before:
         target = next((s for s in parent.subs if s.ref == before.strip()), None)
         if target is None:
-            raise StoreError(f"--before {before}: no such sub-item under {ref} (sub-items: {', '.join(s.ref for s in parent.subs) or 'none'}) — "
+            raise StoreError(f"--before {before}: no such sub-item under {ref} (sub-items: {', '.join(s.ref for s in parent.subs) or 'none'})"
+                             f"{_no_item_cause(case, parent.ref)} — "
                              f"drop --before to add at the end", 4)
         at = parent.subs.index(target)
     if grammar.visible_len(text) > grammar.TODO_ITEM_CHARS:
@@ -3929,7 +3968,7 @@ def todo_why(case: Path, ref: str, text: str) -> Outcome:
     court, read the item, did not understand why). One per item; "" removes it."""
     out = Outcome()
     todo = _todo(case, out)
-    phase, item = _find_item(todo, ref)
+    phase, item = _find_item(todo, ref, case)
     text = " ".join(text.split())
     old = item.why
     item.why = _pocket_text("why", text, ref) if text else ""
@@ -3949,7 +3988,7 @@ def todo_note(case: Path, ref: str, text: str, edit: Optional[int] = None, drop:
     `--drop k` removes it: every list has add · edit · drop."""
     out = Outcome()
     todo = _todo(case, out)
-    phase, items = _select_items(todo, ref)
+    phase, items = _select_items(todo, ref, case)
     if drop is not None or edit is not None:
         if len(items) != 1:
             raise StoreError("--edit / --drop work on one item: el todo note N.M --drop k", 2)
@@ -4088,7 +4127,63 @@ def _closed_item_refusal(todo: grammar.Todo, phase: grammar.Phase, ref: str) -> 
             f"file under phases/; they take no new proof or tick. New work on one is new work: " + " · ".join(doors))
 
 
-def _find_item(todo: grammar.Todo, ref: str):
+def _digits(s: str) -> bool:
+    """A number as el reads one: ASCII digits only. `str.isdigit` takes `²` and other digits int() refuses — `el todo add
+    ² …` and `el readme edit links ² …` ended in a traceback (the second hand, round 5, 2026-11-12)."""
+    return bool(re.fullmatch(r"[0-9]+", s))  # its length is main's door: int() of a long number is allowed there
+
+
+def add_target(ref: str) -> Optional[str]:
+    """What `el todo add REF` adds to, read the way the add reads it — one reader for the add and for the wall el keeps of
+    its refusal (the second hand, round 9, 2026-11-12: `' 1.1'` and `١.١` were item 1.1 to the add and not to my copy of
+    the rule): an item `N.M` (a sub-item goes under it) — spaces around and any decimal digits, as `_find_item` reads it —
+    or a phase `N` — ASCII digits as typed (`' 1'` is no phase number to the add); None — neither (later, a line, words)."""
+    r = (ref or "").strip()
+    if re.fullmatch(r"\d+\.\d+(?:\.\d+)?", r):
+        return ".".join(str(int(x)) for x in r.split("."))
+    return str(int(ref)) if _digits(ref or "") else None
+
+
+def _refused_adds(case: Path, target: str) -> List[dict]:
+    """The `el todo add N` calls el refused this session for this case — what an agent ticking a number that was never
+    given did not see (a wall report, 2026-11-11: three adds refused by length, the output read by `tail -1`, then
+    `done 4.4` met «no item 4.4»). The case and the call are the ones el resolved and parsed when it refused, kept with
+    the wall — never read back from argv, where a suffix, `--case` after the command and `01` each fooled a copy of the
+    rules (Codex, the second hand, 2026-11-12). A wall kept by an older el carries neither and is not counted."""
+    found = []
+    for w in store.session_walls():
+        if w.get("cmd") != "todo" or w.get("action") != "add" or w.get("target") != str(target):  # as the add read it
+            continue
+        try:
+            if Path(str(w.get("case", ""))).resolve() != case.resolve() or not w.get("case"):
+                continue
+        except (OSError, ValueError):
+            continue
+        found.append(w)
+    return found
+
+
+def _unread_walls() -> int:
+    """The refusals of this session el kept before it could read the call (a usage error: no command, no case, no phase
+    known) — counted by the mark el wrote with them; a wall of an older el, without the mark, is not one of them."""
+    return sum(1 for w in store.session_walls() if w.get("parsed") == "no")
+
+
+def _no_item_cause(case: Optional[Path], target) -> str:
+    """Why a number the agent typed in phase N is not there — said at every door that answers «no item» (done, a range,
+    move, after; the second hand, round 7, 2026-11-12: three doors had none of it): the adds el refused this session for
+    this case and phase, and the calls el could not read, whose case and phase are unknown and never guessed."""
+    if case is None:
+        return ""
+    target = str(target)
+    refused, unread = _refused_adds(case, target), _unread_walls()
+    cause = (f" — this session el refused `el todo add {target}` {len(refused)} time(s), and nothing of it was added (the last: "
+             f"«{order._short(_wall_head(refused[-1]), 90)}»)" if refused else "")
+    return cause + (f" · el refused {unread} call(s) this session before it could read them — el feedback --wall lists them"
+                    if unread else "")
+
+
+def _find_item(todo: grammar.Todo, ref: str, case: Optional[Path] = None):
     ml = LATER_REF_RE.fullmatch(ref.strip())
     if ml:
         item = next((it for it in todo.later if it.m == int(ml.group(1))), None)
@@ -4109,19 +4204,31 @@ def _find_item(todo: grammar.Todo, ref: str):
     item = next((it for it in phase.items if it.m == int(m.group(2))), None) if phase else None
     if item is None:  # the numbers the phase holds — an agent that guessed the next number reads them, not guesses again
         # (the polygon, 2026-10-10: `todo add 2 …` gave 2.7 — 2.1–2.6 were taken before — and `done 2.1` said only «no item»)
+        # the cause, not the symptom: el kept the refusals of this session (a wall report, 2026-11-11) — said in one place
+        # for every «no item» below: the adds refused for this case and phase, and the calls el could not read, whose case
+        # and phase are unknown and never guessed (the second hand, rounds 2–4, 2026-11-12: each branch had its own copy)
+        n = int(m.group(1))
+        refused = bool(_refused_adds(case, str(n))) if case is not None else False
+        why = _no_item_cause(case, n)
         if phase is None:
             have = ", ".join(str(p.n) for p in todo.phases) or "none"
-            raise StoreError(f"no item {m.group(1)}.{m.group(2)}: there is no phase {m.group(1)} (phases: {have}) — el todo", 4)
+            raise StoreError(f"no item {m.group(1)}.{m.group(2)}: there is no phase {n} (phases: {have}){why} — el todo", 4)
+        held = (f"in phase {phase.n} (items: {_number_ranges(phase)})" if phase.items else
+                f"— phase {phase.n} has no items yet")
+        if refused:
+            raise StoreError(f"no item {m.group(1)}.{m.group(2)} {held}{why}: add it again — `todo add` prints the "
+                             f"number it takes: el todo show {phase.n}", 4)
         if not phase.items:  # an empty phase: the door is the item, not a look at nothing (the polygon, 2026-11-06)
-            raise StoreError(f"no item {m.group(1)}.{m.group(2)} — phase {phase.n} has no items yet; work is ticked against an item: "
-                             f"el todo add {phase.n} \"what to do\" --expect \"[run: …]\" (it prints the number)", 4)
-        raise StoreError(f"no item {m.group(1)}.{m.group(2)} in phase {phase.n} (items: {_number_ranges(phase)}) — an item's "
+            raise StoreError(f"no item {m.group(1)}.{m.group(2)} — phase {phase.n} has no items yet{why}; work is ticked against "
+                             f"an item: el todo add {phase.n} \"what to do\" --expect \"[run: …]\" (it prints the number)", 4)
+        raise StoreError(f"no item {m.group(1)}.{m.group(2)} in phase {phase.n} (items: {_number_ranges(phase)}){why} — an item's "
                          f"number is for life, a new one takes the next free number and `todo add` prints it: el todo show {phase.n}", 4)
     if m.group(3):  # F25: a sub-item under its item
         sub = next((s for s in item.subs if s.k == int(m.group(3))), None)
         if sub is None:
             have = ", ".join(s.ref for s in item.subs) or "none yet"
-            raise StoreError(f"no sub-item {ref.strip()} in TODO.md (under {item.ref}: {have}) — a new one: el todo add {item.ref} \"…\"", 4)
+            raise StoreError(f"no sub-item {ref.strip()} in TODO.md (under {item.ref}: {have}){_no_item_cause(case, item.ref)} — a new "
+                             f"one: el todo add {item.ref} \"…\"", 4)
         return phase, sub
     return phase, item
 
@@ -4139,7 +4246,7 @@ def _done_parent_refusal(phase: grammar.Phase, it: grammar.Item, action: str) ->
                          f"el todo reopen {parent.ref} \"why the answer no longer holds\", then {action} {it.ref}", 4)
 
 
-def _select_items(todo: grammar.Todo, ref: str):
+def _select_items(todo: grammar.Todo, ref: str, case: Optional[Path] = None):
     """`N.M` · a range `N.A-N.B` (or `N.A-B`) · a list `N.A, N.B, …` → (phase, items in list order),
     one phase per call. A range takes the items that exist between A and B — numbers have gaps.
     Feedback 2026-09-09: rolling back a Pre-flight block meant six identical shell calls."""
@@ -4149,10 +4256,10 @@ def _select_items(todo: grammar.Todo, ref: str):
         n, mm, a, b = int(ms.group(1)), int(ms.group(2)), int(ms.group(3)), int(ms.group(6))
         if ms.group(4) is not None and (int(ms.group(4)), int(ms.group(5))) != (n, mm):
             raise StoreError(f"a range of sub-items stays under one item: `{n}.{mm}.{a}-{n}.{mm}.{b}`, not `{ref}`", 2)
-        phase, parent = _find_item(todo, f"{n}.{mm}")
+        phase, parent = _find_item(todo, f"{n}.{mm}", case)
         subs = [s for s in parent.subs if a <= s.k <= b]
         if not subs:
-            raise StoreError(f"no sub-items {n}.{mm}.{a}–{n}.{mm}.{b} under {parent.ref} "
+            raise StoreError(f"no sub-items {n}.{mm}.{a}–{n}.{mm}.{b} under {parent.ref}{_no_item_cause(case, parent.ref)} "
                              f"(sub-items: {', '.join(s.ref for s in parent.subs) or 'none'})", 4)
         return phase, subs
     m = re.fullmatch(r"(\d+)\.(\d+)\s*[-–]\s*(?:(\d+)\.)?(\d+)", ref)
@@ -4162,16 +4269,16 @@ def _select_items(todo: grammar.Todo, ref: str):
             raise StoreError(f"a range stays inside one phase: `{n}.{a}-{n}.{b}`, not `{ref}`", 2)
         phase = todo.phase(n)
         if phase is None:
-            raise StoreError(f"no phase {n} in TODO.md", 4)
+            raise StoreError(f"no phase {n} in TODO.md{_no_item_cause(case, n)}", 4)
         if phase.done:
             raise StoreError(f"phase {n} is closed — its items live in the phase file now", 4)
         items = [it for it in phase.items if a <= it.m <= b]
         if not items:
-            raise StoreError(f"no items {n}.{a}–{n}.{b} in phase {n} (items: {_number_ranges(phase)})", 4)
+            raise StoreError(f"no items {n}.{a}–{n}.{b} in phase {n} (items: {_number_ranges(phase)}){_no_item_cause(case, n)}", 4)
         return phase, items
     if "," in ref:  # each part a number or a range (the maintainer, 2026-11-06: `49.1-49.4,49.6` was refused — a range
         # passed, a list passed, their mix did not)
-        groups = [_select_items(todo, r.strip()) for r in ref.split(",") if r.strip()]
+        groups = [_select_items(todo, r.strip(), case) for r in ref.split(",") if r.strip()]
         if not groups:  # `,,` names nothing (the second hand: IndexError)
             raise StoreError(f"`{ref}` names no item — use N.M, a range N.A-N.B or a list N.A, N.B", 2)
         if len({p.n for p, _ in groups}) > 1:
@@ -4183,7 +4290,7 @@ def _select_items(todo: grammar.Todo, ref: str):
                     seen.add(it.ref)
                     items.append(it)
         return groups[0][0], items
-    phase, item = _find_item(todo, ref)
+    phase, item = _find_item(todo, ref, case)
     return phase, [item]
 
 
@@ -4199,7 +4306,7 @@ def _ref(phase: grammar.Phase, it: grammar.Item) -> str:
 def todo_edit(case: Path, ref: str, text: str) -> Outcome:
     out = Outcome()
     todo = _todo(case, out)
-    phase, item = _find_item(todo, ref)
+    phase, item = _find_item(todo, ref, case)
     text, due, after = _split_suffixes(text)  # a date or dependency kept in the item stays unless the new text carries one
     if phase.n == 0:
         _later_refuse_suffixes(ref, due, after)
@@ -4243,7 +4350,7 @@ def todo_move(case: Path, ref: str, to: str) -> Outcome:
     an edit landed on the wrong item). No clamping either: an unknown target is refused."""
     out = Outcome()
     todo = _todo(case, out)
-    phase, item = _find_item(todo, ref)
+    phase, item = _find_item(todo, ref, case)
     if phase.n == 0:
         return _take_from_later(case, todo, item, to, out)
     if item.k:
@@ -4253,7 +4360,7 @@ def todo_move(case: Path, ref: str, to: str) -> Outcome:
             raise StoreError(f"{ref} carries sub-items ({', '.join(s.ref for s in item.subs)}) — the general list holds single "
                              f"thoughts: end or cancel them first, or move {ref} to another phase (el todo move {ref} K)", 4)
         return _put_to_later(case, todo, phase, item, out)
-    if to.strip().isdigit():
+    if _digits(to.strip()):
         # to another phase: the item joins its end under the next free number there — the one time a
         # number changes, said aloud (feedback 2026-09-03: re-cutting a phase meant drop + add × 15)
         dest = todo.phase(int(to))
@@ -4288,7 +4395,7 @@ def todo_move(case: Path, ref: str, to: str) -> Outcome:
                              f"or `el todo move {phase.n}.M last`; to another phase — drop and add", 2)
         target = next((it for it in phase.items if it.m == int(m.group(2))), None)
         if target is None:
-            raise StoreError(f"no item {to} in phase {phase.n} (items: {_number_ranges(phase)}); "
+            raise StoreError(f"no item {to} in phase {phase.n} (items: {_number_ranges(phase)}){_no_item_cause(case, phase.n)}; "
                              f"to put it last: el todo move {ref} last", 4)
         if target is item:
             out.say(f"{ref} is already there — nothing changed")
@@ -4315,8 +4422,8 @@ def _move_sub(case: Path, todo: grammar.Todo, phase: grammar.Phase, sub: grammar
         if dest_word not in ("last", "end"):
             target = next((s for s in parent.subs if s.ref == to.strip()), None)
             if target is None:
-                raise StoreError(f"no sub-item {to.strip()} under {parent.ref} (sub-items: {', '.join(s.ref for s in parent.subs)}); "
-                                 f"to put it last: el todo move {ref} last", 4)
+                raise StoreError(f"no sub-item {to.strip()} under {parent.ref} (sub-items: {', '.join(s.ref for s in parent.subs)})"
+                                 f"{_no_item_cause(case, parent.ref)}; to put it last: el todo move {ref} last", 4)
             if target is sub:
                 out.say(f"{ref} is already there — nothing changed")
                 return out
@@ -4327,7 +4434,7 @@ def _move_sub(case: Path, todo: grammar.Todo, phase: grammar.Phase, sub: grammar
         out.say(f"moved: {ref} now {where} under {parent.ref} — numbers never change:", *_item_block(parent)[0:1],
                 *[_item_block(s, depth=1)[0] for s in parent.subs])
         return out
-    if dest_word in LATER_WORDS or to.strip().isdigit():
+    if dest_word in LATER_WORDS or _digits(to.strip()):
         if dest_word in LATER_WORDS and sub.done:
             raise StoreError(f"{ref} is done — a done step stays under its item (its RESULT is the record); the general list "
                              f"holds what is still to do", 4)
@@ -4362,7 +4469,7 @@ def _take_from_later(case: Path, todo: grammar.Todo, item: grammar.Item, to: str
     if to.strip().lower() in LATER_WORDS:
         out.say(f"{ref} is already in the general list — nothing changed")
         return out
-    if not to.strip().isdigit():
+    if not _digits(to.strip()):
         raise StoreError(f"a line of the general list moves into a phase: el todo move {ref} N (N — a planned or open phase)", 2)
     dest = todo.phase(int(to))
     if dest is None or dest.done:
@@ -4416,7 +4523,7 @@ def todo_hold(case: Path, ref: str, reason: str, check: Optional[str] = None) ->
         raise StoreError(f"hold needs what the item waits for: el todo hold {ref} \"waiting for: ticket REQ-1 in the network "
                          f"team's queue\" — the thread names it on entry; it came → el todo resume {ref}", 2)
     todo = _todo(case, out)
-    phase, item = _find_item(todo, ref)
+    phase, item = _find_item(todo, ref, case)
     if item.done:
         raise StoreError(f"item {ref} is done — nothing to hold", 4)
     if item.cancelled:
@@ -4453,7 +4560,7 @@ def todo_reopen(case: Path, ref: str, why: str, by: Optional[str] = None, runs: 
         raise StoreError(f"reopen needs the reason: el todo reopen {ref} \"why the result no longer holds\"", 2)
     who = _acceptor(by, ref, "reopen") if by is not None else ""
     todo = _todo(case, out)
-    phase, items = _select_items(todo, ref)  # a closed phase refuses: its items live in the phase file
+    phase, items = _select_items(todo, ref, case)  # a closed phase refuses: its items live in the phase file
     reruns = _rerun_forms(runs or [], [pr for it in items for k, pr in it.evidence if k == "run"])
     for it in items:  # F25: a sub-item comes back only under an item that is open — the answer above rested on it
         if it.k and it.ended:
@@ -4895,7 +5002,7 @@ def _done_here(case: Path, ref: str) -> bool:
     """Was any done item of `ref` done in the session reading it now? False when el cannot tell."""
     try:
         todo = _todo(case)
-        phase, items = _select_items(todo, ref)
+        phase, items = _select_items(todo, ref, case)
         journal = _journal(case)
     except StoreError:
         return False
@@ -4968,7 +5075,7 @@ def todo_accept(case: Path, ref: str, text: str, by: Optional[str], runs: Option
         raise StoreError(f"accept needs what was checked and how: el todo accept {ref} --by {who} \"re-ran the tests, opened the file: …\" — "
                          f"these words are what the owner reads instead of re-checking", 2)
     todo = _todo(case, out)
-    phase, items = _select_items(todo, ref)
+    phase, items = _select_items(todo, ref, case)
     _own_hand_refusal(case, out, phase, items, ref, who, runs)  # before the words are kept: the hand, not the version, is refused
     try:
         return _accept_selected(case, out, todo, phase, items, ref, text, who, runs)
@@ -5399,7 +5506,7 @@ def todo_brief(case: Path, ref: str, sample: Optional[int] = None) -> Outcome:
     verdict commands. el prints; the owner or the agent's harness decides who runs it. Read-only."""
     out = Outcome()
     todo = _todo(case, out)
-    phase, items = _select_items(todo, ref)
+    phase, items = _select_items(todo, ref, case)
     spot = ""
     if sample is not None:
         items, spot = _spot_pick(case, phase, items, sample, out)
@@ -6017,7 +6124,7 @@ def _spot_lines(case: Path, todo: grammar.Todo, journal: Optional[grammar.Journa
 def todo_resume(case: Path, ref: str) -> Outcome:
     out = Outcome()
     todo = _todo(case, out)
-    phase, item = _find_item(todo, ref)
+    phase, item = _find_item(todo, ref, case)
     if not item.held:
         out.say(f"item {ref} is not on hold — nothing changed")
         return out
@@ -6031,7 +6138,7 @@ def todo_resume(case: Path, ref: str) -> Outcome:
 def todo_drop(case: Path, ref: str) -> Outcome:
     out = Outcome()
     todo = _todo(case, out)
-    phase, item = _find_item(todo, ref)
+    phase, item = _find_item(todo, ref, case)
     ref = item.ref if phase.n else ref
     ref_by = [f"{it.ref}" for it in _all_items(todo) if ref in it.after]
     if ref_by:  # F19: an item others wait for does not vanish silently
@@ -6066,7 +6173,7 @@ def todo_cancel(case: Path, ref: str, why: str) -> Outcome:
     if not why:
         raise StoreError("cancel needs a reason: `el todo cancel N.M \"why it is no longer needed\"`", 2)
     todo = _todo(case, out)
-    phase, items = _select_items(todo, ref)
+    phase, items = _select_items(todo, ref, case)
     subs = [it for it in items if it.k]
     for s in subs:  # F25: a sub-item ends in sight — not twice, not under a finished item, not over its result
         _done_parent_refusal(phase, s, "cancel")
@@ -6117,7 +6224,7 @@ def todo_due(case: Path, ref: str, date: str) -> Outcome:
     """Set or clear (`none`) the date of an item: `— due: YYYY-MM-DD` — the tool counts it on entry."""
     out = Outcome()
     todo = _todo(case, out)
-    phase, item = _find_item(todo, ref)
+    phase, item = _find_item(todo, ref, case)
     date = date.strip().lower()
     if date in ("", "none", "-", "clear"):
         item.due = ""
@@ -6548,6 +6655,8 @@ def phase_open(case: Path, n: int, name: str, goal: Optional[str], why: Optional
         raise StoreError(f"phase {n} is already closed", 4)
     pf = _phase_file(case, n, existing.name if existing else name)
     if existing and not existing.done and pf.exists():
+        if existing.held:  # paused, not open: one voice with resume — «already open» was a second, untrue one (2026-11-12)
+            return phase_resume(case, n)
         out.say(f"phase {n} {existing.name} is already open — nothing changed")
         return out
     why = " ".join((why or "").split())
@@ -7159,7 +7268,8 @@ def phase_resume(case: Path, n: int) -> Outcome:
                          f"el todo add {n} \"…\"" + (f" (it then waits behind {cur.n})" if cur is not None else ""), 4)
     if cur is not None:
         raise StoreError(f"phase {cur.n} {cur.name} is in flight — {n} resumes by itself when {cur.n} closes (el phase close {cur.n} "
-                         f"\"…\") or is cancelled (el phase cancel {cur.n} \"why\"); one phase at a time (P8)", 4)
+                         f"\"…\") or is cancelled (el phase cancel {cur.n} \"why\"); one phase at a time (P8) · work in {n} "
+                         f"meanwhile stays legal: el todo add {n} \"…\" · el log --phase {n} RESULT \"…\"", 4)
     phase.held, phase.hold_reason = False, ""
     out.absorb(_write_todo(case, todo))
     _sync_progress(case, todo, out)
@@ -7443,7 +7553,7 @@ def readme_edit(case: Path, section: str, ref: str, text: Optional[str], phases:
         _write_readme(case, _render_readme(parsed), out)
         out.say(f"README Context: the goal edited → «{text}» (was: «{old[2:] if old.startswith('- ') else old}»)")
         return out
-    if not ref.isdigit():
+    if not _digits(ref):
         raise _words_not_position(name, parsed.sections.get(name, []), ref, "edit", text)
     k = int(ref)
     bullets = [i for i, ln in enumerate(parsed.sections.get(name, [])) if ln.startswith("- ") and ln != DECISIONS_DRAWN_HEAD]
@@ -7460,10 +7570,10 @@ def readme_edit(case: Path, section: str, ref: str, text: Optional[str], phases:
 def _edit_path(case: Path, ref: str, text: Optional[str], phases: Optional[str], out: Outcome) -> Outcome:
     """A line of the path by its position: new words (a new name takes its phases along) and/or phases onto it."""
     names = _path_strokes(_readme_text(case))
-    if not str(ref).isdigit() or not 1 <= int(ref) <= len(names):
+    if not _digits(str(ref)) or not 1 <= int(ref) <= len(names):
         listed = " · ".join(f"{k} {s}" for k, s in enumerate(names, 1)) or "no line yet: el readme add path \"Name — what became true\""
         words = " ".join(str(ref).split()).lower()
-        hits = [k for k, s in enumerate(names, 1) if words and not str(ref).isdigit() and s.lower().startswith(words)]
+        hits = [k for k, s in enumerate(names, 1) if words and not _digits(str(ref)) and s.lower().startswith(words)]
         if len(hits) == 1:  # a line named by its words: the command for it (Codex, acceptance of 1.76.0)
             tail = (f" {_q(text)}" if (text or "").strip() else "") + (f" --phases {phases}" if phases is not None else "")
             tail = tail or ' "Name — what became true"'
@@ -7624,7 +7734,7 @@ def readme_drop(case: Path, section: str, ref: str) -> Outcome:
         raise StoreError(f"no section `{section}` — sections: {' · '.join(grammar.README_ORDER)}", 2)
     parsed = _readme_sections(case, out)
     ref = str(ref).strip()
-    if not ref.isdigit():
+    if not _digits(ref):
         if name != "State":
             raise _words_not_position(name, parsed.sections.get(name, []), ref, "drop")
         prefix = ref.rstrip(":")
@@ -8575,13 +8685,18 @@ def relink(case: Path, old: str, new: str) -> Outcome:
         raise StoreError(f"{shown} exists — a link to it is not dead; " + (
             "to retire the links delete or move the file first" if retire else f"to move it and rewrite the links in one go: el mv {old} {new}"), 4)
     if retire:
+        before = stamp.split(store.read(case, "README.md"))[0] if store.file_path(case, "README.md").exists() else ""
+        drawn = before.count(f"]({shown})") - _links_drawn(case, before).count(f"]({shown})") if before else 0
         fresh = _fresh_proofs(case, None)
         touched = _follow_links(case, src, None, out)
         _carry_versions(fresh, out)
         if "README.md" not in " ".join(touched):
             _refresh_readme(case, out)
         n = sum(int(t.rsplit("(", 1)[1].rstrip(")").split()[0]) for t in touched) if touched else 0
-        out.say(f"retired: {shown} — {n} link(s) now literal text `[name]({shown})`" + (f": {', '.join(touched)}" if touched else " (none pointed at it)"))
+        gone = " · README Links: the line el drew from its summary went with the file" if drawn > 0 else ""
+        out.say(f"retired: {shown} — {n} link(s) now literal text `[name]({shown})`" + (
+            f": {', '.join(touched)}" if touched else (" (no written link pointed at it)" if drawn > 0 else
+                                                      " (none pointed at it)")) + gone)
         return out
     dst = next((d for d in _relink_places(case, new) if d.is_file()), None)
     if dst is None:
@@ -8700,6 +8815,8 @@ def _follow_links(case: Path, src: Path, dst: Optional[Path], out: Outcome, skip
         text, _ = stamp.split(store.read(case, name))
         if name == "JOURNAL.md":
             text = grammar.mend_cuts(text)  # a link el once cut is found whole (feedback 2026-10-15)
+        if name == "README.md" and dst is None:  # el's own Links line goes with the file — the render decides what is el's
+            text = _links_drawn(case, text)  # (a report, 2026-11-11: retired first, it stayed as text of the agent's)
         for names in (True, False):
             new_text, n = rewrite(text, case, names)
             if name == "JOURNAL.md":

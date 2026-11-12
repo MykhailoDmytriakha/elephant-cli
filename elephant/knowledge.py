@@ -550,8 +550,9 @@ Two ends without evidence stay: `cancel N.M "why"` (not needed) · `reopen N.M "
   TODO with `hold: phase K Name — why`, ⏸ in progress, a DECISION in P's story — and K runs, one phase in flight
   still. When K closes or is cancelled el resumes P by itself and names its next item: the detour has a return
   address. K takes the next free number (numbers are for life — ⏸ ▶ show the order of work); a detour inside a
-  detour unwinds one at a time; work in a paused phase stays legal; `el phase resume P` by hand only when nothing is
-  in flight. A detour is a stage of its own (steps, gates, a file); a single step is an item `--before`, a step of
+  detour unwinds one at a time; work in a paused phase stays legal — a write into it names the phase in flight and
+  its door, the journal keeps the event where `--phase` put it; `el phase resume P` (`phase open P` says the same) by
+  hand only when nothing is in flight. A detour is a stage of its own (steps, gates, a file); a single step is an item `--before`, a step of
   an item its sub-item, a branch on its own clock a nested case.
 - waiting for the second hand (two hands, 2026-11-06): a phase whose every item is done and only the acceptance is due
   is not paused for the next one — its work is over. `el phase open K` opens the next without `--why`; the finished phase

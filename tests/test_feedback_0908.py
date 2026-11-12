@@ -119,7 +119,9 @@ class TodoAdd(Base):
         code, out, err = run("todo", "add", "1", "слово " * 20)
         self.assertEqual(code, 3)
         self.assertIn("would lose «", err)  # no boundary of meaning: the words a cut drops, not the cut (2026-10-02)
-        self.assertIn("--before 1.K", err, "the refusal names how a re-added item keeps its place")
+        # the refusal names how a re-added item keeps its place — with a real number: `1.K` was refused when typed as
+        # printed (the second hand, 2026-11-12)
+        self.assertIn('`el todo add 1 "…" --before 1.2` puts it before 1.2', err)
 
     def test_edit_shows_the_new_text(self):
         run("todo", "add", "1", "Name Search")
